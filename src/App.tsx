@@ -1,10 +1,11 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import './App.css'
 import { TopBar } from './components/TopBar'
 import { ControlPanel } from './components/ControlPanel'
 import { PreviewCanvas } from './components/PreviewCanvas'
 import { ExportBar } from './components/ExportBar'
 import { useProjectPersistence } from './hooks/useProjectPersistence'
+import { applyTransforms } from './engine/transform'
 import {
   SourceImage,
   HalftoneSettings,
@@ -94,6 +95,12 @@ function App() {
 
   const sourceAspect = source ? source.width / source.height : null
 
+  // Transformed image for palette extraction — respects crop, rotation, levels
+  const transformedImageData = useMemo(() => {
+    if (!source) return null
+    return applyTransforms(source.imageData, transformSettings)
+  }, [source, transformSettings])
+
   return (
     <div className="app">
       <TopBar
@@ -125,7 +132,7 @@ function App() {
           channelView={channelView}
           hasImage={source !== null}
           sourceAspect={sourceAspect}
-          sourceImageData={source?.imageData ?? null}
+          sourceImageData={transformedImageData}
           onHalftoneChange={setHalftoneSettings}
           onCMYKChange={setCmykSettings}
           onSpotChange={setSpotSettings}
