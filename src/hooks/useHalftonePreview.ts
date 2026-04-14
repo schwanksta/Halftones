@@ -5,7 +5,7 @@ import {
 } from '../types'
 import { renderHalftone } from '../engine/halftone'
 import { renderStipple } from '../engine/stipple'
-import { renderFlat, separateSpotChannels } from '../engine/spot-separation'
+import { renderFlat, separateSpotChannels, boostSaturation } from '../engine/spot-separation'
 import { separateChannels, compositeChannels } from '../engine/cmyk'
 import { applyTransforms } from '../engine/transform'
 import type { ChannelView } from '../types'
@@ -166,10 +166,13 @@ export function useHalftonePreview(
   // renderMode, hex) but NOT on pan/zoom.
 
   const spotRenderKey = useMemo(
-    () => spotSettings.colors
-      .map(c => `${c.id}:${c.enabled}:${c.renderMode}:${c.threshold}:${c.angle}:${c.lpi}:${c.hex}`)
-      .join('|'),
-    [spotSettings.colors],
+    () => [
+      spotSettings.colors
+        .map(c => `${c.id}:${c.enabled}:${c.renderMode}:${c.threshold}:${c.angle}:${c.lpi}:${c.hex}`)
+        .join('|'),
+      spotSettings.vibrancy ?? 0,
+    ].join('||'),
+    [spotSettings.colors, spotSettings.vibrancy],
   )
 
   // Also depends on global halftone settings that affect dot rendering
@@ -219,9 +222,10 @@ export function useHalftonePreview(
         })
       }
 
-      // 2. Colorize: black-on-white → spot color with alpha
+      // 2. Colorize: black-on-white → spot color with alpha (vibrancy boost applied)
       const bwData = bwCtx.getImageData(0, 0, W, H)
-      const colored = colorizeSpot(bwData, color.hex)
+      const displayHex = boostSaturation(color.hex, spotSettings.vibrancy ?? 0)
+      const colored = colorizeSpot(bwData, displayHex)
       const colorCanvas = document.createElement('canvas')
       colorCanvas.width = W; colorCanvas.height = H
       colorCanvas.getContext('2d')!.putImageData(colored, 0, 0)

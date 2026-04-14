@@ -27,12 +27,15 @@ export interface SpotColor {
 export interface SpotSettings {
   numColors: number
   mergeThreshold: number
+  /** 0–1: pushes each color's saturation toward fully vivid (preview only). */
+  vibrancy: number
   colors: SpotColor[]
 }
 
 export const DEFAULT_SPOT_SETTINGS: SpotSettings = {
   numColors: 5,
   mergeThreshold: 15,
+  vibrancy: 0,
   colors: [],
 }
 

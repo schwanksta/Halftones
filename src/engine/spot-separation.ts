@@ -79,6 +79,52 @@ export function labToHex(lab: [number, number, number]): string {
   return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
 }
 
+// ─── Saturation boost ─────────────────────────────────────────────────────────
+
+/**
+ * Push a hex color's HSL saturation toward 1 by `amount` (0–1).
+ * amount=0 → unchanged.  amount=1 → fully saturated.
+ * Uses multiplicative fill: newS = s + amount*(1−s), so already-saturated
+ * colors don't blow out and grays stay gray.
+ */
+export function boostSaturation(hex: string, amount: number): string {
+  if (amount === 0) return hex
+  const r = parseInt(hex.slice(1, 3), 16) / 255
+  const g = parseInt(hex.slice(3, 5), 16) / 255
+  const b = parseInt(hex.slice(5, 7), 16) / 255
+
+  const max = Math.max(r, g, b), min = Math.min(r, g, b)
+  const l = (max + min) / 2
+  let h = 0, s = 0
+
+  if (max !== min) {
+    const d = max - min
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break
+      case g: h = ((b - r) / d + 2) / 6; break
+      case b: h = ((r - g) / d + 4) / 6; break
+    }
+  }
+
+  // Grays have no hue to boost
+  if (s === 0) return hex
+
+  const newS = Math.min(1, s + amount * (1 - s))
+
+  const q = l < 0.5 ? l * (1 + newS) : l + newS - l * newS
+  const p = 2 * l - q
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1; if (t > 1) t -= 1
+    if (t < 1 / 6) return p + (q - p) * 6 * t
+    if (t < 1 / 2) return q
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+    return p
+  }
+  const toHex = (v: number) => Math.round(Math.max(0, Math.min(255, v * 255))).toString(16).padStart(2, '0')
+  return `#${toHex(hue2rgb(p, q, h + 1 / 3))}${toHex(hue2rgb(p, q, h))}${toHex(hue2rgb(p, q, h - 1 / 3))}`
+}
+
 // ─── K-means++ palette extraction ────────────────────────────────────────────
 
 /**

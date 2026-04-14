@@ -69,6 +69,19 @@ export function SpotColorEditor({ settings, onChange, sourceImageData, defaultLp
       </div>
 
       <div className="control-row">
+        <span>Vibrancy <strong>{Math.round((settings.vibrancy ?? 0) * 100)}%</strong></span>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={settings.vibrancy ?? 0}
+          onChange={(e) => update({ vibrancy: Number(e.target.value) })}
+          disabled={disabled}
+        />
+      </div>
+
+      <div className="control-row">
         <span>Merge ΔE <strong>{settings.mergeThreshold}</strong></span>
         <input
           type="range"
