@@ -233,7 +233,7 @@ export function extractPalette(source: ImageData, k: number, defaultLpi: number)
       lab,
       angle: DEFAULT_ANGLES[i % DEFAULT_ANGLES.length],
       lpi: defaultLpi,
-      renderMode: 'halftone' as const,
+      renderMode: 'flat' as const,
       threshold: 0.8,
       enabled: true,
     }
