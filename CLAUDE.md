@@ -2,6 +2,10 @@
 
 Browser-based halftone image processor. React + TypeScript + Vite, no backend.
 
+## Working Rules
+
+- **Always commit when done.** After completing any task, run `npm run build` to verify, then `git add -A && git commit`.
+
 ## Quick Reference
 
 ```bash

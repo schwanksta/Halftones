@@ -176,6 +176,23 @@ interface RowProps {
 
 function SpotColorRow({ color, index, disabled, onChange, onRemove }: RowProps) {
   const [expanded, setExpanded] = useState(false)
+  const [hexDraft, setHexDraft] = useState(color.hex)
+
+  // Keep draft in sync when parent updates the hex (e.g. from color picker)
+  if (hexDraft !== color.hex && !hexDraft.match(/^#?[0-9a-fA-F]{0,6}$/)) {
+    setHexDraft(color.hex)
+  }
+
+  const commitHex = (raw: string) => {
+    const val = raw.startsWith('#') ? raw : `#${raw}`
+    if (/^#[0-9a-fA-F]{6}$/.test(val)) {
+      onChange({ hex: val.toLowerCase() })
+      setHexDraft(val.toLowerCase())
+    } else {
+      // Revert to current valid value
+      setHexDraft(color.hex)
+    }
+  }
 
   return (
     <div
@@ -236,20 +253,41 @@ function SpotColorRow({ color, index, disabled, onChange, onRemove }: RowProps) 
       {/* Expanded controls */}
       {expanded && (
         <div style={{ padding: '6px 8px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {/* Hex color picker */}
+          {/* Hex color picker + editable hex input */}
           <div className="control-row" style={{ gap: 8 }}>
             <span>Color</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <input
                 type="color"
                 value={color.hex}
-                onChange={(e) => onChange({ hex: e.target.value })}
+                onChange={(e) => { onChange({ hex: e.target.value }); setHexDraft(e.target.value) }}
                 disabled={disabled}
-                style={{ width: 36, height: 24, padding: 1, cursor: 'pointer' }}
+                style={{ width: 32, height: 24, padding: 1, cursor: 'pointer', flexShrink: 0 }}
               />
-              <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
-                {color.hex}
-              </span>
+              <input
+                type="text"
+                value={hexDraft}
+                onChange={(e) => setHexDraft(e.target.value)}
+                onBlur={(e) => commitHex(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { commitHex((e.target as HTMLInputElement).value); (e.target as HTMLInputElement).blur() }
+                  if (e.key === 'Escape') { setHexDraft(color.hex); (e.target as HTMLInputElement).blur() }
+                }}
+                disabled={disabled}
+                spellCheck={false}
+                maxLength={7}
+                placeholder="#000000"
+                style={{
+                  width: 76,
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                  background: 'var(--bg-primary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 4,
+                  padding: '2px 6px',
+                  color: 'var(--text-primary)',
+                }}
+              />
             </div>
           </div>
 
