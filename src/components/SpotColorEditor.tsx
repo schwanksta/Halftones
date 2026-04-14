@@ -1,0 +1,348 @@
+import { useState } from 'react'
+import { SpotColor, SpotSettings } from '../types'
+import { extractPalette, mergeSimilarColors } from '../engine/spot-separation'
+
+interface Props {
+  settings: SpotSettings
+  onChange: (settings: SpotSettings) => void
+  /** ImageData to extract palette from (the source image). */
+  sourceImageData: ImageData | null
+  defaultLpi: number
+  disabled: boolean
+}
+
+export function SpotColorEditor({ settings, onChange, sourceImageData, defaultLpi, disabled }: Props) {
+  const [extracting, setExtracting] = useState(false)
+
+  const update = (partial: Partial<SpotSettings>) => onChange({ ...settings, ...partial })
+
+  const updateColor = (id: string, partial: Partial<SpotColor>) => {
+    onChange({
+      ...settings,
+      colors: settings.colors.map((c) => (c.id === id ? { ...c, ...partial } : c)),
+    })
+  }
+
+  const handleExtract = () => {
+    if (!sourceImageData) return
+    setExtracting(true)
+    // Run in next tick so the UI can update the button state first
+    setTimeout(() => {
+      try {
+        const raw = extractPalette(sourceImageData, settings.numColors, defaultLpi)
+        const merged = mergeSimilarColors(raw, settings.mergeThreshold)
+        update({ colors: merged })
+      } finally {
+        setExtracting(false)
+      }
+    }, 0)
+  }
+
+  const handleMerge = () => {
+    if (!settings.colors.length) return
+    update({ colors: mergeSimilarColors(settings.colors, settings.mergeThreshold) })
+  }
+
+  const removeColor = (id: string) => {
+    update({ colors: settings.colors.filter((c) => c.id !== id) })
+  }
+
+  const setAllRenderMode = (mode: 'flat' | 'halftone') => {
+    update({ colors: settings.colors.map((c) => ({ ...c, renderMode: mode })) })
+  }
+
+  return (
+    <div className="control-section">
+      <h3 className="section-title">Spot Colors</h3>
+
+      {/* Extract controls */}
+      <div className="control-row">
+        <span>Colors <strong>{settings.numColors}</strong></span>
+        <input
+          type="range"
+          min={2}
+          max={12}
+          value={settings.numColors}
+          onChange={(e) => update({ numColors: Number(e.target.value) })}
+          disabled={disabled}
+        />
+      </div>
+
+      <div className="control-row">
+        <span>Merge ΔE <strong>{settings.mergeThreshold}</strong></span>
+        <input
+          type="range"
+          min={0}
+          max={50}
+          step={1}
+          value={settings.mergeThreshold}
+          onChange={(e) => update({ mergeThreshold: Number(e.target.value) })}
+          disabled={disabled}
+        />
+      </div>
+
+      <div className="control-row" style={{ gap: 6 }}>
+        <button
+          onClick={handleExtract}
+          disabled={disabled || !sourceImageData || extracting}
+          style={{
+            flex: 1,
+            padding: '5px 8px',
+            fontSize: 12,
+            fontWeight: 600,
+            background: 'var(--accent)',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 4,
+            cursor: disabled || !sourceImageData ? 'not-allowed' : 'pointer',
+            opacity: disabled || !sourceImageData ? 0.5 : 1,
+          }}
+        >
+          {extracting ? 'Extracting…' : '⬇ Extract Palette'}
+        </button>
+        {settings.colors.length > 1 && (
+          <button
+            onClick={handleMerge}
+            disabled={disabled}
+            title="Merge visually similar colors"
+            style={{ padding: '5px 8px', fontSize: 12, borderRadius: 4 }}
+          >
+            Merge
+          </button>
+        )}
+      </div>
+
+      {settings.colors.length > 0 && (
+        <div className="control-row" style={{ gap: 4 }}>
+          <span style={{ flexShrink: 0 }}>All</span>
+          <div style={{ display: 'flex', gap: 4, flex: 1 }}>
+            {(['flat', 'halftone'] as const).map((mode) => {
+              const allMatch = settings.colors.every((c) => c.renderMode === mode)
+              return (
+                <button
+                  key={mode}
+                  onClick={() => setAllRenderMode(mode)}
+                  disabled={disabled}
+                  style={{
+                    flex: 1,
+                    padding: '3px 6px',
+                    fontSize: 11,
+                    borderRadius: 4,
+                    border: '1px solid var(--border)',
+                    background: allMatch ? 'var(--accent)' : 'var(--bg-primary)',
+                    color: allMatch ? '#fff' : 'var(--text-primary)',
+                    cursor: 'pointer',
+                    fontWeight: allMatch ? 600 : 400,
+                  }}
+                >
+                  {mode === 'flat' ? 'Flat' : 'Halftone'}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {settings.colors.length === 0 && (
+        <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '8px 0 0', lineHeight: 1.4 }}>
+          Load an image and click "Extract Palette" to auto-detect colors.
+        </p>
+      )}
+
+      {/* Color list */}
+      {settings.colors.map((color, idx) => (
+        <SpotColorRow
+          key={color.id}
+          color={color}
+          index={idx}
+          disabled={disabled}
+          onChange={(partial) => updateColor(color.id, partial)}
+          onRemove={() => removeColor(color.id)}
+        />
+      ))}
+    </div>
+  )
+}
+
+// ─── Per-color row ─────────────────────────────────────────────────────────────
+
+interface RowProps {
+  color: SpotColor
+  index: number
+  disabled: boolean
+  onChange: (partial: Partial<SpotColor>) => void
+  onRemove: () => void
+}
+
+function SpotColorRow({ color, index, disabled, onChange, onRemove }: RowProps) {
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <div
+      style={{
+        border: '1px solid var(--border)',
+        borderRadius: 6,
+        marginTop: 6,
+        overflow: 'hidden',
+        opacity: color.enabled ? 1 : 0.55,
+      }}
+    >
+      {/* Header row */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '5px 8px',
+          background: 'var(--bg-secondary)',
+          cursor: 'pointer',
+        }}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        {/* Swatch */}
+        <div
+          style={{
+            width: 18,
+            height: 18,
+            borderRadius: 3,
+            background: color.hex,
+            border: '1px solid rgba(255,255,255,0.15)',
+            flexShrink: 0,
+          }}
+        />
+        {/* Name */}
+        <span style={{ flex: 1, fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {index + 1}. {color.name}
+        </span>
+        {/* Mode badge */}
+        <span style={{ fontSize: 10, color: 'var(--text-secondary)', flexShrink: 0 }}>
+          {color.renderMode === 'flat' ? 'Flat' : 'Halftone'}
+        </span>
+        {/* Enable toggle */}
+        <input
+          type="checkbox"
+          checked={color.enabled}
+          onChange={(e) => { e.stopPropagation(); onChange({ enabled: e.target.checked }) }}
+          disabled={disabled}
+          title="Enable this color"
+          style={{ flexShrink: 0 }}
+        />
+        {/* Expand chevron */}
+        <span style={{ fontSize: 10, color: 'var(--text-secondary)', flexShrink: 0 }}>
+          {expanded ? '▲' : '▼'}
+        </span>
+      </div>
+
+      {/* Expanded controls */}
+      {expanded && (
+        <div style={{ padding: '6px 8px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {/* Hex color picker */}
+          <div className="control-row" style={{ gap: 8 }}>
+            <span>Color</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type="color"
+                value={color.hex}
+                onChange={(e) => onChange({ hex: e.target.value })}
+                disabled={disabled}
+                style={{ width: 36, height: 24, padding: 1, cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                {color.hex}
+              </span>
+            </div>
+          </div>
+
+          {/* Render mode */}
+          <div className="control-row" style={{ gap: 8 }}>
+            <span>Render</span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {(['flat', 'halftone'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => onChange({ renderMode: mode })}
+                  disabled={disabled}
+                  style={{
+                    padding: '3px 8px',
+                    fontSize: 11,
+                    borderRadius: 4,
+                    border: '1px solid var(--border)',
+                    background: color.renderMode === mode ? 'var(--accent)' : 'var(--bg-primary)',
+                    color: color.renderMode === mode ? '#fff' : 'var(--text-primary)',
+                    cursor: 'pointer',
+                    fontWeight: color.renderMode === mode ? 600 : 400,
+                  }}
+                >
+                  {mode === 'flat' ? 'Flat' : 'Halftone'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Flat-specific: threshold */}
+          {color.renderMode === 'flat' && (
+            <div className="control-row">
+              <span>Threshold <strong>{Math.round(color.threshold * 100)}%</strong></span>
+              <input
+                type="range"
+                min={0.1}
+                max={1}
+                step={0.01}
+                value={color.threshold}
+                onChange={(e) => onChange({ threshold: Number(e.target.value) })}
+                disabled={disabled}
+              />
+            </div>
+          )}
+
+          {/* Halftone-specific: LPI + angle */}
+          {color.renderMode === 'halftone' && (
+            <>
+              <div className="control-row">
+                <span>LPI <strong>{color.lpi}</strong></span>
+                <input
+                  type="range"
+                  min={10}
+                  max={100}
+                  value={color.lpi}
+                  onChange={(e) => onChange({ lpi: Number(e.target.value) })}
+                  disabled={disabled}
+                />
+              </div>
+              <div className="control-row">
+                <span>Angle <strong>{color.angle}°</strong></span>
+                <input
+                  type="range"
+                  min={0}
+                  max={180}
+                  value={color.angle}
+                  onChange={(e) => onChange({ angle: Number(e.target.value) })}
+                  disabled={disabled}
+                />
+              </div>
+            </>
+          )}
+
+          {/* Remove button */}
+          <button
+            onClick={onRemove}
+            disabled={disabled}
+            style={{
+              marginTop: 4,
+              padding: '3px 8px',
+              fontSize: 11,
+              background: 'none',
+              border: '1px solid var(--border)',
+              borderRadius: 4,
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              alignSelf: 'flex-end',
+            }}
+          >
+            Remove color
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}

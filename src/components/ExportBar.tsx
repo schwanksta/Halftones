@@ -1,0 +1,82 @@
+import { useState } from 'react'
+import {
+  SourceImage, HalftoneSettings, CMYKSettings,
+  OutputSettings, ImageTransformSettings, SpotSettings,
+} from '../types'
+import { exportPNG, exportChannelPNGs, exportPDF } from '../engine/export'
+
+interface Props {
+  source: SourceImage | null
+  transformSettings: ImageTransformSettings
+  halftoneSettings: HalftoneSettings
+  cmykSettings: CMYKSettings
+  spotSettings: SpotSettings
+  outputSettings: OutputSettings
+  projectName: string
+}
+
+export function ExportBar({
+  source, transformSettings, halftoneSettings,
+  cmykSettings, spotSettings, outputSettings, projectName,
+}: Props) {
+  const [exporting, setExporting] = useState<string | null>(null)
+
+  if (!source) return null
+
+  const options = {
+    source: source.imageData,
+    transformSettings,
+    halftoneSettings,
+    cmykSettings,
+    spotSettings,
+    outputSettings,
+    projectName,
+  }
+
+  const handleExport = async (format: string, fn: () => Promise<void>) => {
+    setExporting(format)
+    try {
+      await fn()
+    } catch (err) {
+      console.error(`Export failed:`, err)
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  const isSpot = halftoneSettings.colorMode === 'spot'
+  const isCmyk = halftoneSettings.colorMode === 'cmyk'
+  const hasSpotColors = spotSettings.colors.some((c) => c.enabled)
+
+  return (
+    <>
+      {/* In spot mode, single PNG is less useful — hide it to keep the bar clean */}
+      {!isSpot && (
+        <button
+          onClick={() => handleExport('png', () => exportPNG(options))}
+          disabled={!!exporting}
+        >
+          {exporting === 'png' ? 'Exporting…' : 'Export PNG'}
+        </button>
+      )}
+
+      {(isCmyk || (isSpot && hasSpotColors)) && (
+        <button
+          onClick={() => handleExport('channels', () => exportChannelPNGs(options))}
+          disabled={!!exporting}
+          title={isSpot ? 'One PNG per spot color (flat or halftone per channel)' : 'One PNG per CMYK channel'}
+        >
+          {exporting === 'channels' ? 'Exporting…' : 'Export Channels'}
+        </button>
+      )}
+
+      <button
+        onClick={() => handleExport('pdf', () => exportPDF(options))}
+        disabled={!!exporting || (isSpot && !hasSpotColors)}
+        title={isSpot ? 'One PDF page per spot color' : undefined}
+      >
+        {exporting === 'pdf' ? 'Exporting…' : 'Export PDF'}
+      </button>
+    </>
+  )
+}

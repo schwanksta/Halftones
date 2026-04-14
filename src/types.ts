@@ -1,0 +1,143 @@
+export interface SourceImage {
+  imageData: ImageData
+  width: number
+  height: number
+  fileName: string
+}
+
+export type PatternType = 'dot' | 'line' | 'ellipse' | 'diamond' | 'euclidean' | 'stochastic' | 'stipple' | 'crosshatch' | 'concentric' | 'brick' | 'hex' | 'radial' | 'radial-lines'
+
+export type ColorMode = 'grayscale' | 'cmyk' | 'spot'
+
+export type RenderMode = 'halftone' | 'flat'
+
+export interface SpotColor {
+  id: string
+  name: string
+  hex: string
+  lab: [number, number, number]
+  angle: number
+  lpi: number
+  renderMode: RenderMode
+  /** 0–1: pixels lighter than this threshold are not inked (flat mode only) */
+  threshold: number
+  enabled: boolean
+}
+
+export interface SpotSettings {
+  numColors: number
+  mergeThreshold: number
+  colors: SpotColor[]
+}
+
+export const DEFAULT_SPOT_SETTINGS: SpotSettings = {
+  numColors: 5,
+  mergeThreshold: 15,
+  colors: [],
+}
+
+export interface HalftoneSettings {
+  lpi: number
+  angle: number
+  pattern: PatternType
+  colorMode: ColorMode
+  invert: boolean
+  /** Radial origin as fraction of image dimensions. 0.5/0.5 = center. */
+  radialOriginX: number
+  radialOriginY: number
+  /** Minimum darkness threshold (0–1). Marks below this are suppressed (highlights). */
+  minDot: number
+  /** Maximum darkness ceiling (0–1). Marks are capped here (shadows). */
+  maxDot: number
+  /** Dot gain compensation (0–0.5). Pre-shrinks all marks by this fraction. */
+  dotGain: number
+  /** Dot size multiplier (0.5–1.5). Scales all marks relative to their cell. */
+  dotSize: number
+  /** Ink color (foreground). Defaults to black. */
+  fgColor: string
+  /** Paper color (background). Defaults to white. */
+  bgColor: string
+}
+
+export interface ChannelSettings {
+  angle: number
+  lpi: number
+  enabled: boolean
+}
+
+export interface CMYKSettings {
+  c: ChannelSettings
+  m: ChannelSettings
+  y: ChannelSettings
+  k: ChannelSettings
+}
+
+export interface OutputSettings {
+  widthInches: number
+  heightInches: number
+  dpi: number
+  lockAspectRatio: boolean
+  /** Margin around the image for registration/crop marks, in inches. */
+  marginInches: number
+}
+
+export interface ImageTransformSettings {
+  /** Crop as fractions of source dimensions (0–1). */
+  cropLeft: number
+  cropRight: number
+  cropTop: number
+  cropBottom: number
+  /** Rotation in degrees, applied before crop. */
+  rotation: number
+  /** Levels: input black point 0–255 */
+  blackPoint: number
+  /** Levels: input white point 0–255 */
+  whitePoint: number
+  /** Midtone gamma: 0.25–4.0 */
+  gamma: number
+}
+
+export const DEFAULT_TRANSFORM_SETTINGS: ImageTransformSettings = {
+  cropLeft: 0,
+  cropRight: 0,
+  cropTop: 0,
+  cropBottom: 0,
+  rotation: 0,
+  blackPoint: 0,
+  whitePoint: 255,
+  gamma: 1.0,
+}
+
+export const DEFAULT_HALFTONE_SETTINGS: HalftoneSettings = {
+  lpi: 55,
+  angle: 45,
+  pattern: 'dot',
+  colorMode: 'grayscale',
+  invert: false,
+  radialOriginX: 0.5,
+  radialOriginY: 0.5,
+  minDot: 0.05,
+  maxDot: 0.95,
+  dotGain: 0,
+  dotSize: 1,
+  fgColor: '#000000',
+  bgColor: '#ffffff',
+}
+
+export const DEFAULT_CMYK_SETTINGS: CMYKSettings = {
+  c: { angle: 15, lpi: 55, enabled: true },
+  m: { angle: 75, lpi: 55, enabled: true },
+  y: { angle: 0, lpi: 55, enabled: true },
+  k: { angle: 45, lpi: 55, enabled: true },
+}
+
+export const DEFAULT_OUTPUT_SETTINGS: OutputSettings = {
+  widthInches: 13,
+  heightInches: 19,
+  dpi: 300,
+  lockAspectRatio: true,
+  marginInches: 1,
+}
+
+export type CMYKChannel = 'c' | 'm' | 'y' | 'k'
+export type ChannelView = 'composite' | CMYKChannel | `spot-${string}`
