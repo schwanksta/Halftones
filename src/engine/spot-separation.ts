@@ -235,25 +235,148 @@ function kmeans(pixels: Float32Array, k: number, maxIter = 50): Float32Array {
 let _nextId = 1
 function newId() { return `spot-${_nextId++}` }
 
+// ─── Named color lookup ───────────────────────────────────────────────────────
+
 /**
- * Approximate a human-readable name from LAB values.
- * Very rough — just enough to label swatches without requiring user input.
+ * Curated palette of ~90 recognizable color names with hex values.
+ * Covers the full gamut with enough granularity to distinguish e.g.
+ * Navy from Cobalt from Sky Blue, or Crimson from Coral from Salmon.
+ */
+const NAMED_COLORS: { name: string; hex: string }[] = [
+  // Neutrals
+  { name: 'Black',       hex: '#000000' },
+  { name: 'Charcoal',    hex: '#36454f' },
+  { name: 'Dark Gray',   hex: '#404040' },
+  { name: 'Gray',        hex: '#808080' },
+  { name: 'Silver',      hex: '#c0c0c0' },
+  { name: 'Light Gray',  hex: '#d3d3d3' },
+  { name: 'White',       hex: '#ffffff' },
+  { name: 'Ivory',       hex: '#fffff0' },
+  { name: 'Cream',       hex: '#fffdd0' },
+  { name: 'Beige',       hex: '#f5f5dc' },
+  // Reds
+  { name: 'Red',         hex: '#ff0000' },
+  { name: 'Dark Red',    hex: '#8b0000' },
+  { name: 'Maroon',      hex: '#800000' },
+  { name: 'Crimson',     hex: '#dc143c' },
+  { name: 'Scarlet',     hex: '#ff2400' },
+  { name: 'Brick Red',   hex: '#cb4154' },
+  { name: 'Indian Red',  hex: '#cd5c5c' },
+  { name: 'Tomato',      hex: '#ff6347' },
+  { name: 'Coral',       hex: '#ff7f50' },
+  { name: 'Salmon',      hex: '#fa8072' },
+  { name: 'Light Salmon',hex: '#ffa07a' },
+  // Oranges
+  { name: 'Orange Red',  hex: '#ff4500' },
+  { name: 'Burnt Orange',hex: '#cc5500' },
+  { name: 'Orange',      hex: '#ffa500' },
+  { name: 'Dark Orange', hex: '#ff8c00' },
+  { name: 'Amber',       hex: '#ffbf00' },
+  { name: 'Tangerine',   hex: '#f28500' },
+  // Yellows
+  { name: 'Yellow',      hex: '#ffff00' },
+  { name: 'Lemon',       hex: '#fff44f' },
+  { name: 'Gold',        hex: '#ffd700' },
+  { name: 'Mustard',     hex: '#ffdb58' },
+  { name: 'Dark Yellow', hex: '#cccc00' },
+  { name: 'Khaki',       hex: '#c3b091' },
+  { name: 'Straw',       hex: '#e4d96f' },
+  // Yellow-Greens
+  { name: 'Yellow Green',hex: '#9acd32' },
+  { name: 'Chartreuse',  hex: '#7fff00' },
+  { name: 'Lime',        hex: '#00ff00' },
+  { name: 'Lime Green',  hex: '#32cd32' },
+  { name: 'Olive',       hex: '#808000' },
+  { name: 'Olive Drab',  hex: '#6b8e23' },
+  // Greens
+  { name: 'Green',       hex: '#008000' },
+  { name: 'Forest Green',hex: '#228b22' },
+  { name: 'Dark Green',  hex: '#006400' },
+  { name: 'Emerald',     hex: '#50c878' },
+  { name: 'Medium Green',hex: '#3cb371' },
+  { name: 'Sea Green',   hex: '#2e8b57' },
+  { name: 'Sage',        hex: '#9aae89' },
+  { name: 'Mint',        hex: '#98ff98' },
+  { name: 'Spring Green',hex: '#00ff7f' },
+  // Teals / Cyans
+  { name: 'Dark Teal',   hex: '#008080' },
+  { name: 'Teal',        hex: '#008b8b' },
+  { name: 'Aquamarine',  hex: '#7fffd4' },
+  { name: 'Turquoise',   hex: '#40e0d0' },
+  { name: 'Cyan',        hex: '#00ffff' },
+  { name: 'Sky Cyan',    hex: '#80dfff' },
+  // Blues
+  { name: 'Powder Blue', hex: '#b0e0e6' },
+  { name: 'Light Blue',  hex: '#add8e6' },
+  { name: 'Sky Blue',    hex: '#87ceeb' },
+  { name: 'Cornflower',  hex: '#6495ed' },
+  { name: 'Periwinkle',  hex: '#ccccff' },
+  { name: 'Steel Blue',  hex: '#4682b4' },
+  { name: 'Dodger Blue', hex: '#1e90ff' },
+  { name: 'Blue',        hex: '#0000ff' },
+  { name: 'Royal Blue',  hex: '#4169e1' },
+  { name: 'Cobalt',      hex: '#0047ab' },
+  { name: 'Navy',        hex: '#000080' },
+  { name: 'Dark Navy',   hex: '#03045e' },
+  { name: 'Slate Blue',  hex: '#6a5acd' },
+  { name: 'Indigo',      hex: '#4b0082' },
+  // Purples
+  { name: 'Purple',      hex: '#800080' },
+  { name: 'Dark Purple', hex: '#4b004b' },
+  { name: 'Violet',      hex: '#8a2be2' },
+  { name: 'Amethyst',    hex: '#9966cc' },
+  { name: 'Medium Purple',hex: '#9370db' },
+  { name: 'Lavender',    hex: '#e6e6fa' },
+  { name: 'Mauve',       hex: '#c8a2c8' },
+  { name: 'Plum',        hex: '#dda0dd' },
+  { name: 'Orchid',      hex: '#da70d6' },
+  // Pinks / Magentas
+  { name: 'Magenta',     hex: '#ff00ff' },
+  { name: 'Fuchsia',     hex: '#ff0090' },
+  { name: 'Deep Pink',   hex: '#ff1493' },
+  { name: 'Hot Pink',    hex: '#ff69b4' },
+  { name: 'Rose',        hex: '#ff007f' },
+  { name: 'Pink',        hex: '#ffc0cb' },
+  { name: 'Light Pink',  hex: '#ffb6c1' },
+  // Browns / Earth tones
+  { name: 'Saddle Brown',hex: '#8b4513' },
+  { name: 'Brown',       hex: '#a52a2a' },
+  { name: 'Sienna',      hex: '#a0522d' },
+  { name: 'Chocolate',   hex: '#d2691e' },
+  { name: 'Peru',        hex: '#cd853f' },
+  { name: 'Tan',         hex: '#d2b48c' },
+  { name: 'Wheat',       hex: '#f5deb3' },
+  { name: 'Sand',        hex: '#c2b280' },
+  { name: 'Buff',        hex: '#f0dc82' },
+]
+
+/** LAB values for NAMED_COLORS, computed once on first use. */
+let _namedLab: Array<{ name: string; lab: [number, number, number] }> | null = null
+function getNamedLab() {
+  if (!_namedLab) {
+    _namedLab = NAMED_COLORS.map(({ name, hex }) => {
+      const r = parseInt(hex.slice(1, 3), 16)
+      const g = parseInt(hex.slice(3, 5), 16)
+      const b = parseInt(hex.slice(5, 7), 16)
+      return { name, lab: rgbToLab(r, g, b) }
+    })
+  }
+  return _namedLab
+}
+
+/**
+ * Find the closest named color by CIE76 ΔE in LAB space.
  */
 function guessColorName(L: number, a: number, b: number): string {
-  if (L < 15) return 'Black'
-  if (L > 88) return 'White'
-  if (L > 70 && Math.abs(a) < 12 && Math.abs(b) < 12) return 'Light Gray'
-  if (L > 40 && L < 70 && Math.abs(a) < 12 && Math.abs(b) < 12) return 'Gray'
-  if (Math.abs(a) < 10 && Math.abs(b) < 10) return 'Dark Gray'
-  const hue = Math.atan2(b, a) * (180 / Math.PI)
-  if (hue >= -30 && hue < 30) return L > 55 ? 'Pink' : 'Red'
-  if (hue >= 30 && hue < 75) return L > 65 ? 'Light Orange' : 'Orange'
-  if (hue >= 75 && hue < 105) return L > 65 ? 'Light Yellow' : 'Yellow'
-  if (hue >= 105 && hue < 150) return L > 55 ? 'Light Green' : 'Green'
-  if (hue >= 150 && hue < 195) return 'Teal'
-  if (hue >= 195 && hue < 255) return L > 55 ? 'Sky Blue' : 'Blue'
-  if (hue >= 255 && hue < 315) return L > 55 ? 'Lavender' : 'Purple'
-  return L > 55 ? 'Light Pink' : 'Magenta'
+  const named = getNamedLab()
+  let bestName = 'Color'
+  let bestDe = Infinity
+  for (const entry of named) {
+    const dL = L - entry.lab[0], da = a - entry.lab[1], db = b - entry.lab[2]
+    const de = Math.sqrt(dL * dL + da * da + db * db)
+    if (de < bestDe) { bestDe = de; bestName = entry.name }
+  }
+  return bestName
 }
 
 /** Standard halftone angles for up to 8 channels. */
