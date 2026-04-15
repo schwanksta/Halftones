@@ -29,9 +29,8 @@ export function SpotColorEditor({ settings, onChange, sourceImageData, defaultLp
     // Run in next tick so the UI can update the button state first
     setTimeout(() => {
       try {
-        const raw = extractPalette(sourceImageData, settings.numColors, defaultLpi)
-        const merged = mergeSimilarColors(raw, settings.mergeThreshold)
-        update({ colors: merged })
+        const colors = extractPalette(sourceImageData, settings.numColors, defaultLpi)
+        update({ colors })
       } finally {
         setExtracting(false)
       }
