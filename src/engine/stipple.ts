@@ -155,7 +155,6 @@ export function renderStipple(
     //
     // BASE = 0.45 → at dotMult=1 dark dots have diameter 0.9cs (just overlapping).
     // At dotMult=2 diameter is 1.8cs (boldly overlapping). At dotMult=3 → 2.7cs.
-    const localR = minDist(x, y)   // still needed for placement / isValid
     const radius = cs * 0.45 * Math.sqrt(darkness) * dotMult
     if (radius < 0.3) continue
 
