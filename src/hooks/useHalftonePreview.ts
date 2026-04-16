@@ -211,7 +211,7 @@ export function useHalftonePreview(
       const bwCtx = bwCanvas.getContext('2d')!
 
       if (color.renderMode === 'flat') {
-        renderFlat(bwCtx, channelData, color.threshold)
+        renderFlat(bwCtx, channelData, color.threshold, /* antialias */ true)
       } else {
         renderHalftone(bwCtx, {
           source: channelData,
