@@ -72,6 +72,8 @@ export function useCanvasTransform(
 
   const handleMouseDown = useCallback((e: MouseEvent) => {
     if (e.button !== 0) return
+    // Don't start pan if the click landed on a crop handle
+    if ((e.target as Element).closest?.('[data-crop-handle]')) return
     isPanning.current = true
     lastMouse.current = { x: e.clientX, y: e.clientY }
   }, [])

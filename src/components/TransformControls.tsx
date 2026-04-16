@@ -53,22 +53,22 @@ export function TransformControls({ settings, onChange, disabled }: Props) {
       <div className="subsection-title">Crop (%)</div>
       <div className="crop-grid">
         {([
-          ['Left',   'cropLeft'],
-          ['Right',  'cropRight'],
-          ['Top',    'cropTop'],
-          ['Bottom', 'cropBottom'],
-        ] as const).map(([label, key]) => (
+          ['Left',   'cropLeft',   1 - settings.cropRight  - 0.01],
+          ['Right',  'cropRight',  1 - settings.cropLeft   - 0.01],
+          ['Top',    'cropTop',    1 - settings.cropBottom - 0.01],
+          ['Bottom', 'cropBottom', 1 - settings.cropTop    - 0.01],
+        ] as const).map(([label, key, maxFrac]) => (
           <label key={key} className="control-row">
             <span>
               {label}{' '}
               <EditableValue
                 value={Math.round(settings[key] * 100)}
-                min={0} max={49} step={1} suffix="%"
-                onChange={(v) => update({ [key]: v / 100 } as Partial<ImageTransformSettings>)}
+                min={0} max={Math.floor(maxFrac * 100)} step={1} suffix="%"
+                onChange={(v) => update({ [key]: Math.min(v / 100, maxFrac) } as Partial<ImageTransformSettings>)}
               />
             </span>
             <input
-              type="range" min={0} max={0.49} step={0.005}
+              type="range" min={0} max={maxFrac} step={0.005}
               value={settings[key]}
               onChange={(e) => update({ [key]: Number(e.target.value) } as Partial<ImageTransformSettings>)}
               disabled={disabled}

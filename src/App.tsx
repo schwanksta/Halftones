@@ -149,6 +149,7 @@ function App() {
           channelView={channelView}
           outputSettings={outputSettings}
           onImageLoad={handleImageLoad}
+          onTransformChange={setTransformSettings}
         />
       </div>
     </div>
