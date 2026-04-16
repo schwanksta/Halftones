@@ -46,6 +46,45 @@ function bwSettings(s: HalftoneSettings): HalftoneSettings {
   return { ...s, fgColor: '#000000', bgColor: '#ffffff' }
 }
 
+/**
+ * Colorize a black-on-white halftone channel for multiply-blend compositing.
+ * 0 (full ink) → process ink color   255 (no ink) → white
+ */
+function colorizeForMultiply(imgData: ImageData, hex: string): ImageData {
+  const inkR = parseInt(hex.slice(1, 3), 16)
+  const inkG = parseInt(hex.slice(3, 5), 16)
+  const inkB = parseInt(hex.slice(5, 7), 16)
+  const { data, width, height } = imgData
+  const out = new Uint8ClampedArray(data.length)
+  for (let i = 0; i < width * height; i++) {
+    const coverage = (255 - data[i * 4]) / 255   // 0=no ink, 1=full ink
+    out[i * 4]     = Math.round(255 + (inkR - 255) * coverage)
+    out[i * 4 + 1] = Math.round(255 + (inkG - 255) * coverage)
+    out[i * 4 + 2] = Math.round(255 + (inkB - 255) * coverage)
+    out[i * 4 + 3] = 255
+  }
+  return new ImageData(out, width, height)
+}
+
+/**
+ * Colorize a black-on-white channel for source-over compositing (spot colors).
+ * 0 (full ink) → spot color at full opacity   255 (no ink) → transparent
+ */
+function colorizeForOverlay(imgData: ImageData, hex: string): ImageData {
+  const inkR = parseInt(hex.slice(1, 3), 16)
+  const inkG = parseInt(hex.slice(3, 5), 16)
+  const inkB = parseInt(hex.slice(5, 7), 16)
+  const { data, width, height } = imgData
+  const out = new Uint8ClampedArray(data.length)
+  for (let i = 0; i < width * height; i++) {
+    out[i * 4]     = inkR
+    out[i * 4 + 1] = inkG
+    out[i * 4 + 2] = inkB
+    out[i * 4 + 3] = 255 - data[i * 4]   // 0=ink→opaque, 255=paper→transparent
+  }
+  return new ImageData(out, width, height)
+}
+
 // ─── Spot channel rendering ───────────────────────────────────────────────────
 
 /**
@@ -198,11 +237,14 @@ function renderFullRes(options: ExportOptions): HTMLCanvasElement {
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Export the full-colour source image (after transforms) at output resolution,
- * surrounded by a white margin — useful as a print-registration reference.
+ * Export a colour-accurate proof of exactly what will be printed:
+ * the halftone (or flat) render composited in ink colours, surrounded
+ * by a white margin. Grayscale uses the fg/bg colour pickers; CMYK uses
+ * process colours (C/M/Y/K multiply-blended on white); spot uses each
+ * colour's hex composited source-over on a white background.
  */
 export async function exportColorProof(options: ExportOptions): Promise<void> {
-  const { source, transformSettings, outputSettings, projectName } = options
+  const { source, transformSettings, halftoneSettings, cmykSettings, spotSettings, outputSettings, projectName } = options
   const { widthInches, heightInches, dpi } = outputSettings
   const margin = outputSettings.marginInches ?? 1
 
@@ -213,25 +255,105 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
   const transformed = applyTransforms(source, transformSettings)
   const scaled      = scaleImageData(transformed, targetW, targetH)
 
+  const radialCenter = {
+    x: scaled.width  * (halftoneSettings.radialOriginX ?? 0.5),
+    y: scaled.height * (halftoneSettings.radialOriginY ?? 0.5),
+  }
+
+  // ── Render the halftone/flat image in colour ─────────────────────────────
+  const imgCanvas = document.createElement('canvas')
+  imgCanvas.width  = targetW
+  imgCanvas.height = targetH
+  const imgCtx = imgCanvas.getContext('2d')!
+
+  if (halftoneSettings.colorMode === 'cmyk') {
+    // Process-colour multiply composite
+    const CMYK_INK = { c: '#00ffff', m: '#ff00ff', y: '#ffff00', k: '#000000' }
+    const channels = separateChannels(scaled)
+
+    imgCtx.fillStyle = '#ffffff'
+    imgCtx.fillRect(0, 0, targetW, targetH)
+
+    for (const ch of ['c', 'm', 'y', 'k'] as const) {
+      if (!cmykSettings[ch].enabled) continue
+      const offCanvas = document.createElement('canvas')
+      offCanvas.width  = targetW
+      offCanvas.height = targetH
+      const offCtx = offCanvas.getContext('2d')!
+
+      renderHalftone(offCtx, {
+        source: channels[ch],
+        settings: { ...bwSettings(halftoneSettings), angle: cmykSettings[ch].angle, lpi: cmykSettings[ch].lpi },
+        renderDpi: dpi,
+        radialCenter,
+        outputDpi: dpi,
+      })
+
+      const colored = colorizeForMultiply(offCtx.getImageData(0, 0, targetW, targetH), CMYK_INK[ch])
+      offCtx.putImageData(colored, 0, 0)
+      imgCtx.globalCompositeOperation = 'multiply'
+      imgCtx.drawImage(offCanvas, 0, 0)
+    }
+    imgCtx.globalCompositeOperation = 'source-over'
+
+  } else if (halftoneSettings.colorMode === 'spot') {
+    const enabledColors = spotSettings.colors.filter((c) => c.enabled)
+    const channels = separateSpotChannels(scaled, enabledColors)
+
+    imgCtx.fillStyle = '#ffffff'
+    imgCtx.fillRect(0, 0, targetW, targetH)
+
+    for (const color of enabledColors) {
+      const channelData = channels.get(color.id)
+      if (!channelData) continue
+
+      const offCanvas = document.createElement('canvas')
+      offCanvas.width  = targetW
+      offCanvas.height = targetH
+      const offCtx = offCanvas.getContext('2d')!
+
+      if (color.renderMode === 'flat') {
+        renderFlat(offCtx, channelData, color.threshold)
+      } else {
+        renderHalftone(offCtx, {
+          source: channelData,
+          settings: { ...bwSettings(halftoneSettings), angle: color.angle, lpi: color.lpi },
+          renderDpi: dpi,
+          radialCenter,
+          outputDpi: dpi,
+        })
+      }
+
+      const colored = colorizeForOverlay(offCtx.getImageData(0, 0, targetW, targetH), color.hex)
+      offCtx.putImageData(colored, 0, 0)
+      imgCtx.globalCompositeOperation = 'source-over'
+      imgCtx.drawImage(offCanvas, 0, 0)
+    }
+
+  } else {
+    // Grayscale — render with the actual ink/paper colours from the UI
+    renderHalftone(imgCtx, {
+      source: scaled,
+      settings: halftoneSettings,   // NOT stripped to b/w
+      renderDpi: dpi,
+      radialCenter,
+      outputDpi: dpi,
+    })
+  }
+
+  // ── Wrap in margin ───────────────────────────────────────────────────────
   const totalW = targetW + 2 * marginPx
   const totalH = targetH + 2 * marginPx
-
-  const canvas = document.createElement('canvas')
-  canvas.width  = totalW
-  canvas.height = totalH
-  const ctx = canvas.getContext('2d')!
-
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, totalW, totalH)
-
-  const srcCanvas = document.createElement('canvas')
-  srcCanvas.width  = scaled.width
-  srcCanvas.height = scaled.height
-  srcCanvas.getContext('2d')!.putImageData(scaled, 0, 0)
-  ctx.drawImage(srcCanvas, marginPx, marginPx)
+  const proofCanvas = document.createElement('canvas')
+  proofCanvas.width  = totalW
+  proofCanvas.height = totalH
+  const proofCtx = proofCanvas.getContext('2d')!
+  proofCtx.fillStyle = '#ffffff'
+  proofCtx.fillRect(0, 0, totalW, totalH)
+  proofCtx.drawImage(imgCanvas, marginPx, marginPx)
 
   const blob = await new Promise<Blob>((resolve) => {
-    canvas.toBlob((b) => resolve(b!), 'image/png')
+    proofCanvas.toBlob((b) => resolve(b!), 'image/png')
   })
   const withDpi = await setPngDpi(blob, dpi)
   downloadBlob(withDpi, `${toStem(projectName, 'proof')}.png`)
