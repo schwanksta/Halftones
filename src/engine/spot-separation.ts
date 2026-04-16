@@ -514,70 +514,23 @@ export function separateSpotChannels(
  * Everything else becomes white (no ink).
  *
  * Output format matches renderHalftone: black = ink, white = paper.
- *
- * When `antialias` is true, a small Gaussian blur is applied to the binary
- * mask so diagonal color-boundary edges become smooth partial-opacity
- * transitions rather than hard pixel staircases. Use for screen preview only;
- * export should keep crisp hard edges.
  */
 export function renderFlat(
   ctx: CanvasRenderingContext2D,
   source: ImageData,
   threshold: number,  // 0–1; pixels with value < threshold*255 → ink
-  antialias = false,
 ): void {
   const { width, height, data } = source
   const t = threshold * 255
-  const n = width * height
-  const out = new Uint8ClampedArray(n * 4)
+  const out = new Uint8ClampedArray(data.length)
 
-  for (let i = 0; i < n; i++) {
-    const v = data[i * 4]
-    const ink = v < t ? 0 : 255
+  for (let i = 0; i < width * height; i++) {
+    const v = data[i * 4]             // channel value: 0=full ink, 255=no ink
+    const ink = v < t ? 0 : 255      // below threshold → solid ink (black)
     out[i * 4] = ink
     out[i * 4 + 1] = ink
     out[i * 4 + 2] = ink
     out[i * 4 + 3] = 255
-  }
-
-  if (antialias) {
-    // Two-pass separable box blur (radius 1) on the value channel.
-    // Applied twice ≈ Gaussian.  Only blurs the 1–2px boundary region;
-    // solid-ink and solid-paper areas stay at 0 / 255.
-    const blur = (src: Uint8ClampedArray): Uint8ClampedArray => {
-      const tmp = new Uint8ClampedArray(n * 4)
-      // Horizontal pass
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          const l = x > 0          ? src[((y * width) + (x - 1)) * 4] : src[(y * width + x) * 4]
-          const c =                  src[(y * width + x) * 4]
-          const r = x < width - 1  ? src[((y * width) + (x + 1)) * 4] : src[(y * width + x) * 4]
-          const v = Math.round((l + c + r) / 3)
-          const i = (y * width + x) * 4
-          tmp[i] = tmp[i + 1] = tmp[i + 2] = v
-          tmp[i + 3] = 255
-        }
-      }
-      const out2 = new Uint8ClampedArray(n * 4)
-      // Vertical pass
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          const u = y > 0           ? tmp[((y - 1) * width + x) * 4] : tmp[(y * width + x) * 4]
-          const c =                   tmp[(y * width + x) * 4]
-          const d = y < height - 1  ? tmp[((y + 1) * width + x) * 4] : tmp[(y * width + x) * 4]
-          const v = Math.round((u + c + d) / 3)
-          const i = (y * width + x) * 4
-          out2[i] = out2[i + 1] = out2[i + 2] = v
-          out2[i + 3] = 255
-        }
-      }
-      return out2
-    }
-
-    const pass1 = blur(out)
-    const pass2 = blur(pass1)
-    ctx.putImageData(new ImageData(pass2, width, height), 0, 0)
-    return
   }
 
   ctx.putImageData(new ImageData(out, width, height), 0, 0)
