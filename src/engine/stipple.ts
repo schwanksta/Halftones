@@ -147,12 +147,16 @@ export function renderStipple(
     const darkness = applyDotSettings(rawDarkness, settings)
     if (darkness === null || darkness < 0.01) continue
 
-    // For perceptually linear coverage, area ∝ darkness → radius ∝ √darkness.
-    // Poisson disk packs at ~65% efficiency, so to reach ~100% ink coverage at
-    // full darkness we need r ≈ 0.7 × localR (verified: diameter 0.77cs >
-    // min-spacing 0.55cs, so dark dots overlap and fill solidly).
-    const localR = minDist(x, y)
-    const radius = localR * 0.7 * Math.sqrt(darkness) * dotMult
+    // Radius is tied to cellSize (cs), not localSpacing (localR), so darkness
+    // controls absolute dot size rather than just packing fraction.
+    // This produces dramatic scale variation: dark areas → massive overlapping
+    // dots, highlights → tiny isolated specks.  dotMult lets the user push
+    // further toward bold/graphic (high values) or fine/delicate (low values).
+    //
+    // BASE = 0.45 → at dotMult=1 dark dots have diameter 0.9cs (just overlapping).
+    // At dotMult=2 diameter is 1.8cs (boldly overlapping). At dotMult=3 → 2.7cs.
+    const localR = minDist(x, y)   // still needed for placement / isValid
+    const radius = cs * 0.45 * Math.sqrt(darkness) * dotMult
     if (radius < 0.3) continue
 
     path.moveTo(x + radius, y)

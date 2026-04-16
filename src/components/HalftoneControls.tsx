@@ -116,12 +116,12 @@ export function HalftoneControls({ settings, onChange, disabled }: Props) {
             />
           </label>
           <label className="control-row">
-            <span>Dot Size <strong>{Math.round(dotSize * 100)}%</strong></span>
+            <span>{isStipple ? 'Dot Scale' : 'Dot Size'} <strong>{Math.round(dotSize * 100)}%</strong></span>
             <input
               type="range"
-              min={0.5}
-              max={1.5}
-              step={0.01}
+              min={isStipple ? 0.2 : 0.5}
+              max={isStipple ? 4.0 : 1.5}
+              step={0.05}
               value={dotSize}
               onChange={(e) => update({ dotSize: Number(e.target.value) })}
               disabled={disabled}
