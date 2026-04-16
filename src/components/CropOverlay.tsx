@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useState } from 'react'
 import type { Viewport } from '../hooks/useCanvasTransform'
 import { ImageTransformSettings } from '../types'
 
@@ -9,6 +9,20 @@ const CURSORS: Record<Handle, string> = {
   bl: 'nesw-resize', br: 'nwse-resize',
   left: 'ew-resize',  right: 'ew-resize',
   top: 'ns-resize',   bottom: 'ns-resize',
+}
+
+interface CropValues {
+  cropLeft: number; cropRight: number; cropTop: number; cropBottom: number
+}
+
+interface DragState {
+  handle: Handle
+  startSettings: ImageTransformSettings
+  /** Pre-crop rotated image size — constant for this drag. */
+  rotatedW: number
+  rotatedH: number
+  zoom: number
+  finalCrop: CropValues
 }
 
 interface Props {
@@ -22,79 +36,102 @@ interface Props {
 
 /**
  * Transparent overlay rendered on top of the preview canvas.
- * Draws a border around the current image boundary and 8 drag handles
- * (4 corners + 4 edge midpoints) to adjust crop.
+ * Shows a white outline around the current crop boundary and 8 drag handles.
  *
- * Handles carry data-crop-handle so useCanvasTransform skips pan on them.
+ * During drag, only local state updates (cheap overlay repositioning).
+ * onChange fires exactly once on mouseup — the halftone never re-renders
+ * mid-drag.
+ *
+ * Coordinate notes
+ * ────────────────
+ * viewport.panX/panY are in POST-CROP image space.
+ *   screen x = (postCropX - panX) * zoom
+ *
+ * Idle: the image occupies [0, transformedW] × [0, transformedH] in that space.
+ *   lx = -panX * zoom   rx = (transformedW - panX) * zoom   (etc.)
+ *
+ * During drag: panX/zoom don't change (pan is inhibited). The handle moves by
+ * the crop delta expressed in post-crop pixels:
+ *   Δ_left  =  rotatedW * (liveCropLeft  - startCropLeft)
+ *   Δ_right = -rotatedW * (liveCropRight - startCropRight)
  */
 export function CropOverlay({ viewport, transformedW, transformedH, settings, onChange }: Props) {
-  const dragRef = useRef<{
-    handle: Handle
-    startX: number
-    startY: number
-    startSettings: ImageTransformSettings
-    /** Post-rotation, pre-crop dimensions — needed to convert px deltas to crop fractions. */
-    rotatedW: number
-    rotatedH: number
-    zoom: number
-  } | null>(null)
+  const [liveCrop, setLiveCrop] = useState<CropValues | null>(null)
+  const dragRef = useRef<DragState | null>(null)
 
   const { zoom, panX, panY } = viewport
 
-  // Screen coordinates of the image edges.
-  const lx = Math.round(-panX * zoom)
-  const rx = Math.round((transformedW - panX) * zoom)
-  const ty = Math.round(-panY * zoom)
-  const by = Math.round((transformedH - panY) * zoom)
+  // Screen positions of the four crop edges.
+  let lx: number, rx: number, ty: number, by: number
+  if (liveCrop && dragRef.current) {
+    const { rotatedW, rotatedH, startSettings: s } = dragRef.current
+    // Express boundaries in post-crop image space (origin = start left/top edge).
+    lx = Math.round((rotatedW * (liveCrop.cropLeft  - s.cropLeft)              - panX) * zoom)
+    rx = Math.round((rotatedW * (1 - liveCrop.cropRight - s.cropLeft)          - panX) * zoom)
+    ty = Math.round((rotatedH * (liveCrop.cropTop   - s.cropTop)               - panY) * zoom)
+    by = Math.round((rotatedH * (1 - liveCrop.cropBottom - s.cropTop)          - panY) * zoom)
+  } else {
+    // Idle: image occupies [0, transformedW] × [0, transformedH] in viewport space.
+    lx = Math.round(-panX * zoom)
+    rx = Math.round((transformedW - panX) * zoom)
+    ty = Math.round(-panY * zoom)
+    by = Math.round((transformedH - panY) * zoom)
+  }
   const midX = Math.round((lx + rx) / 2)
   const midY = Math.round((ty + by) / 2)
 
   const startDrag = useCallback((handle: Handle, e: React.MouseEvent) => {
     e.preventDefault()
-
     const { cropLeft, cropRight, cropTop, cropBottom } = settings
-    // Recover pre-crop rotated dimensions (fractions × pre-crop size = transformed size).
     const rW = transformedW / Math.max(0.001, 1 - cropLeft - cropRight)
     const rH = transformedH / Math.max(0.001, 1 - cropTop - cropBottom)
+    const initial: CropValues = { cropLeft, cropRight, cropTop, cropBottom }
 
     dragRef.current = {
       handle,
-      startX: e.clientX, startY: e.clientY,
       startSettings: { ...settings },
       rotatedW: rW, rotatedH: rH,
       zoom: viewport.zoom,
+      finalCrop: { ...initial },
     }
+    setLiveCrop(initial)
     document.body.style.cursor = CURSORS[handle]
 
     const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+    const startX = e.clientX
+    const startY = e.clientY
 
     const onMove = (me: MouseEvent) => {
       const d = dragRef.current
       if (!d) return
-      const dx = (me.clientX - d.startX) / d.zoom  // output pixels
-      const dy = (me.clientY - d.startY) / d.zoom
+      const dx = (me.clientX - startX) / d.zoom
+      const dy = (me.clientY - startY) / d.zoom
       const s = d.startSettings
-
       let { cropLeft, cropRight, cropTop, cropBottom } = s
 
-      if (d.handle === 'left' || d.handle === 'tl' || d.handle === 'bl') {
+      if (handle === 'left' || handle === 'tl' || handle === 'bl') {
         cropLeft = clamp(s.cropLeft + dx / d.rotatedW, 0, 1 - s.cropRight - 0.01)
       }
-      if (d.handle === 'right' || d.handle === 'tr' || d.handle === 'br') {
+      if (handle === 'right' || handle === 'tr' || handle === 'br') {
         cropRight = clamp(s.cropRight - dx / d.rotatedW, 0, 1 - s.cropLeft - 0.01)
       }
-      if (d.handle === 'top' || d.handle === 'tl' || d.handle === 'tr') {
+      if (handle === 'top' || handle === 'tl' || handle === 'tr') {
         cropTop = clamp(s.cropTop + dy / d.rotatedH, 0, 1 - s.cropBottom - 0.01)
       }
-      if (d.handle === 'bottom' || d.handle === 'bl' || d.handle === 'br') {
+      if (handle === 'bottom' || handle === 'bl' || handle === 'br') {
         cropBottom = clamp(s.cropBottom - dy / d.rotatedH, 0, 1 - s.cropTop - 0.01)
       }
 
-      onChange({ ...s, cropLeft, cropRight, cropTop, cropBottom })
+      const next: CropValues = { cropLeft, cropRight, cropTop, cropBottom }
+      d.finalCrop = next   // saved for mouseup
+      setLiveCrop(next)    // move the overlay, no parent onChange call
     }
 
     const onUp = () => {
+      const d = dragRef.current
+      if (d) onChange({ ...d.startSettings, ...d.finalCrop })
       dragRef.current = null
+      setLiveCrop(null)
       document.body.style.cursor = ''
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
@@ -104,7 +141,7 @@ export function CropOverlay({ viewport, transformedW, transformedH, settings, on
     window.addEventListener('mouseup', onUp)
   }, [viewport.zoom, transformedW, transformedH, settings, onChange])
 
-  const SZ = 10   // handle size (px)
+  const SZ = 10
   const H  = SZ / 2
 
   const handles: { id: Handle; sx: number; sy: number }[] = [
@@ -130,7 +167,7 @@ export function CropOverlay({ viewport, transformedW, transformedH, settings, on
         boxSizing: 'border-box',
       }} />
 
-      {/* Drag handles */}
+      {/* Handles — turn amber while dragging so the user knows something is pending */}
       {handles.map(({ id, sx, sy }) => (
         <div
           key={id}
@@ -142,7 +179,7 @@ export function CropOverlay({ viewport, transformedW, transformedH, settings, on
             top: sy - H,
             width: SZ,
             height: SZ,
-            background: 'rgba(255,255,255,0.92)',
+            background: liveCrop ? 'rgba(255,210,60,0.95)' : 'rgba(255,255,255,0.92)',
             border: '1.5px solid rgba(0,0,0,0.4)',
             borderRadius: 2,
             cursor: CURSORS[id],
