@@ -66,7 +66,7 @@ export function HalftoneControls({ settings, onChange, disabled }: Props) {
             <input
               type="range"
               min={isStipple ? 5 : 10}
-              max={isStipple ? 40 : 100}
+              max={isStipple ? 80 : 100}
               value={settings.lpi}
               onChange={(e) => update({ lpi: Number(e.target.value) })}
               disabled={disabled}

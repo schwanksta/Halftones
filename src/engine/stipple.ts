@@ -16,8 +16,8 @@ const K = 20
  *   pure black  → cellSize × MIN_SCALE  (dense)
  *   pure white  → cellSize × MAX_SCALE  (sparse)
  */
-const MIN_SCALE = 0.6
-const MAX_SCALE = 2.5
+const MIN_SCALE = 0.55   // tighter dark packing
+const MAX_SCALE = 3.2   // wider light spacing → sparser highlights
 
 /**
  * Poisson-disk stipple halftone.
@@ -147,10 +147,12 @@ export function renderStipple(
     const darkness = applyDotSettings(rawDarkness, settings)
     if (darkness === null || darkness < 0.01) continue
 
-    // Radius scales with local spacing (large gap → large dot in light areas)
-    // and with darkness weight (√darkness gives perceptually linear coverage).
+    // For perceptually linear coverage, area ∝ darkness → radius ∝ √darkness.
+    // Poisson disk packs at ~65% efficiency, so to reach ~100% ink coverage at
+    // full darkness we need r ≈ 0.7 × localR (verified: diameter 0.77cs >
+    // min-spacing 0.55cs, so dark dots overlap and fill solidly).
     const localR = minDist(x, y)
-    const radius = localR * 0.44 * Math.sqrt(darkness) * dotMult
+    const radius = localR * 0.7 * Math.sqrt(darkness) * dotMult
     if (radius < 0.3) continue
 
     path.moveTo(x + radius, y)

@@ -343,7 +343,7 @@ export function useHalftonePreview(
     ctx.rect(pieceLeft, pieceTop, pieceRight - pieceLeft, pieceBottom - pieceTop)
     ctx.clip()
 
-    if (halftoneSettings.pattern === 'stipple' && stippleCanvas) {
+    if (halftoneSettings.pattern === 'stipple' && stippleCanvas && halftoneSettings.colorMode !== 'spot') {
       const dx = -srcX * viewport.zoom
       const dy = -srcY * viewport.zoom
       const dw =  transformed.width  * viewport.zoom
