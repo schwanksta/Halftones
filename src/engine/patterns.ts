@@ -29,6 +29,7 @@ export function drawLine(
 
   ctx.beginPath()
   ctx.lineWidth = thickness
+  ctx.lineCap = 'round'
   ctx.moveTo(cx - cos * halfLen, cy - sin * halfLen)
   ctx.lineTo(cx + cos * halfLen, cy + sin * halfLen)
   ctx.stroke()
