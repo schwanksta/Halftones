@@ -197,6 +197,46 @@ function renderFullRes(options: ExportOptions): HTMLCanvasElement {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
+/**
+ * Export the full-colour source image (after transforms) at output resolution,
+ * surrounded by a white margin — useful as a print-registration reference.
+ */
+export async function exportColorProof(options: ExportOptions): Promise<void> {
+  const { source, transformSettings, outputSettings, projectName } = options
+  const { widthInches, heightInches, dpi } = outputSettings
+  const margin = outputSettings.marginInches ?? 1
+
+  const targetW  = Math.round(widthInches  * dpi)
+  const targetH  = Math.round(heightInches * dpi)
+  const marginPx = Math.round(margin * dpi)
+
+  const transformed = applyTransforms(source, transformSettings)
+  const scaled      = scaleImageData(transformed, targetW, targetH)
+
+  const totalW = targetW + 2 * marginPx
+  const totalH = targetH + 2 * marginPx
+
+  const canvas = document.createElement('canvas')
+  canvas.width  = totalW
+  canvas.height = totalH
+  const ctx = canvas.getContext('2d')!
+
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, totalW, totalH)
+
+  const srcCanvas = document.createElement('canvas')
+  srcCanvas.width  = scaled.width
+  srcCanvas.height = scaled.height
+  srcCanvas.getContext('2d')!.putImageData(scaled, 0, 0)
+  ctx.drawImage(srcCanvas, marginPx, marginPx)
+
+  const blob = await new Promise<Blob>((resolve) => {
+    canvas.toBlob((b) => resolve(b!), 'image/png')
+  })
+  const withDpi = await setPngDpi(blob, dpi)
+  downloadBlob(withDpi, `${toStem(projectName, 'proof')}.png`)
+}
+
 export async function exportPNG(options: ExportOptions): Promise<void> {
   const canvas = renderFullRes(options)
   const stem = toStem(options.projectName, options.halftoneSettings.pattern)

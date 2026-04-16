@@ -3,7 +3,7 @@ import {
   SourceImage, HalftoneSettings, CMYKSettings,
   OutputSettings, ImageTransformSettings, SpotSettings,
 } from '../types'
-import { exportPNG, exportChannelPNGs, exportPDF } from '../engine/export'
+import { exportPNG, exportChannelPNGs, exportPDF, exportColorProof } from '../engine/export'
 
 interface Props {
   source: SourceImage | null
@@ -76,6 +76,14 @@ export function ExportBar({
         title={isSpot ? 'One PDF page per spot color' : undefined}
       >
         {exporting === 'pdf' ? 'Exporting…' : 'Export PDF'}
+      </button>
+
+      <button
+        onClick={() => handleExport('proof', () => exportColorProof(options))}
+        disabled={!!exporting}
+        title="Full-colour image at output resolution with margin — use as a print reference"
+      >
+        {exporting === 'proof' ? 'Exporting…' : 'Color Proof'}
       </button>
     </>
   )
