@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { SpotColor, SpotSettings } from '../types'
-import { extractPalette, mergeSimilarColors } from '../engine/spot-separation'
+import { extractPalette, mergeSimilarColors, labToHex } from '../engine/spot-separation'
 import { EditableValue } from './EditableValue'
 
 interface Props {
@@ -183,10 +183,12 @@ function SpotColorRow({ color, index, disabled, onChange, onRemove }: RowProps) 
   const [expanded, setExpanded] = useState(false)
   const [hexDraft, setHexDraft] = useState(color.hex)
 
-  // Keep draft in sync when parent updates the hex (e.g. from color picker)
-  if (hexDraft !== color.hex && !hexDraft.match(/^#?[0-9a-fA-F]{0,6}$/)) {
-    setHexDraft(color.hex)
-  }
+  // Sync draft when parent changes hex externally (e.g. reset, merge)
+  useEffect(() => { setHexDraft(color.hex) }, [color.hex])
+
+  // The original extracted color (from LAB) — used for the reset button
+  const originalHex = labToHex(color.lab)
+  const isModified = color.hex.toLowerCase() !== originalHex.toLowerCase()
 
   const commitHex = (raw: string) => {
     const val = raw.startsWith('#') ? raw : `#${raw}`
@@ -264,11 +266,29 @@ function SpotColorRow({ color, index, disabled, onChange, onRemove }: RowProps) 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <input
                 type="color"
-                value={color.hex}
-                onChange={(e) => { onChange({ hex: e.target.value }); setHexDraft(e.target.value) }}
+                value={hexDraft}
+                onChange={(e) => setHexDraft(e.target.value)}
+                onBlur={(e) => commitHex(e.target.value)}
                 disabled={disabled}
                 style={{ width: 32, height: 24, padding: 1, cursor: 'pointer', flexShrink: 0 }}
               />
+              {isModified && !disabled && (
+                <button
+                  onClick={() => { onChange({ hex: originalHex }); setHexDraft(originalHex) }}
+                  title="Reset to extracted color"
+                  style={{
+                    padding: '2px 5px',
+                    fontSize: 13,
+                    lineHeight: 1,
+                    borderRadius: 3,
+                    border: '1px solid var(--border)',
+                    cursor: 'pointer',
+                    background: 'none',
+                    color: 'var(--text-secondary)',
+                    flexShrink: 0,
+                  }}
+                >↺</button>
+              )}
               <input
                 type="text"
                 value={hexDraft}
