@@ -245,15 +245,20 @@ function renderFullRes(options: ExportOptions): HTMLCanvasElement {
  */
 export async function exportColorProof(options: ExportOptions): Promise<void> {
   const { source, transformSettings, halftoneSettings, cmykSettings, spotSettings, outputSettings, projectName } = options
-  const { widthInches, heightInches, dpi } = outputSettings
+  const { widthInches, dpi } = outputSettings
   const margin = outputSettings.marginInches ?? 1
 
   const targetW  = Math.round(widthInches  * dpi)
-  const targetH  = Math.round(heightInches * dpi)
   const marginPx = Math.round(margin * dpi)
 
   const transformed = applyTransforms(source, transformSettings)
-  const scaled      = scaleImageData(transformed, targetW, targetH)
+
+  // Derive targetH from the transformed image's actual aspect ratio so the
+  // proof is never distorted (crop/rotation can change the aspect ratio without
+  // the output settings being updated to match).
+  const targetH = Math.round(targetW * transformed.height / transformed.width)
+
+  const scaled = scaleImageData(transformed, targetW, targetH)
 
   const radialCenter = {
     x: scaled.width  * (halftoneSettings.radialOriginX ?? 0.5),
