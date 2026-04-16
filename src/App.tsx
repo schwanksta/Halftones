@@ -95,6 +95,31 @@ function App() {
 
   const sourceAspect = source ? source.width / source.height : null
 
+  // Keep output width/height in sync with crop and rotation.
+  // Only fires when the geometry changes (not on levels adjustments).
+  useEffect(() => {
+    if (!source) return
+    let w = source.width, h = source.height
+    if (transformSettings.rotation !== 0) {
+      const rad = Math.abs(transformSettings.rotation) * Math.PI / 180
+      const cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad))
+      ;[w, h] = [Math.round(w * cos + h * sin), Math.round(w * sin + h * cos)]
+    }
+    const { cropLeft, cropRight, cropTop, cropBottom } = transformSettings
+    const imgW = Math.max(1, w - Math.round(cropLeft * w) - Math.round(cropRight  * w))
+    const imgH = Math.max(1, h - Math.round(cropTop  * h) - Math.round(cropBottom * h))
+    setOutputSettings((prev) => ({
+      ...prev,
+      widthInches:  Math.round(imgW / prev.dpi * 100) / 100,
+      heightInches: Math.round(imgH / prev.dpi * 100) / 100,
+    }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source,
+    transformSettings.cropLeft, transformSettings.cropRight,
+    transformSettings.cropTop,  transformSettings.cropBottom,
+    transformSettings.rotation,
+  ])
+
   // Transformed image for palette extraction — respects crop, rotation, levels
   const transformedImageData = useMemo(() => {
     if (!source) return null
