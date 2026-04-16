@@ -1,4 +1,5 @@
 import { ImageTransformSettings } from '../types'
+import { EditableValue } from './EditableValue'
 
 interface Props {
   settings: ImageTransformSettings
@@ -27,81 +28,65 @@ export function TransformControls({ settings, onChange, disabled }: Props) {
       <div className="section-header">
         <h3 className="section-title">Transform</h3>
         {hasAny && (
-          <button className="reset-btn" onClick={reset} disabled={disabled}>
-            Reset
-          </button>
+          <button className="reset-btn" onClick={reset} disabled={disabled}>Reset</button>
         )}
       </div>
 
       <label className="control-row">
-        <span>Rotation <strong>{settings.rotation}°</strong></span>
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <input
-            type="range"
-            min={-180}
-            max={180}
-            step={0.5}
+        <span>
+          Rotation{' '}
+          <EditableValue
             value={settings.rotation}
-            onChange={(e) => update({ rotation: Number(e.target.value) })}
-            disabled={disabled}
-            style={{ flex: 1 }}
+            min={-180} max={180} step={0.5} suffix="°"
+            decimals={1}
+            onChange={(v) => update({ rotation: v })}
           />
-          <input
-            type="number"
-            min={-180}
-            max={180}
-            step={1}
-            value={settings.rotation}
-            onChange={(e) => update({ rotation: Number(e.target.value) })}
-            disabled={disabled}
-            style={{ width: 48 }}
-          />
-        </div>
+        </span>
+        <input
+          type="range" min={-180} max={180} step={0.5}
+          value={settings.rotation}
+          onChange={(e) => update({ rotation: Number(e.target.value) })}
+          disabled={disabled}
+        />
       </label>
 
       <div className="subsection-title">Crop (%)</div>
       <div className="crop-grid">
-        <label className="control-row">
-          <span>Left <strong>{Math.round(settings.cropLeft * 100)}%</strong></span>
-          <input
-            type="range" min={0} max={0.49} step={0.005}
-            value={settings.cropLeft}
-            onChange={(e) => update({ cropLeft: Number(e.target.value) })}
-            disabled={disabled}
-          />
-        </label>
-        <label className="control-row">
-          <span>Right <strong>{Math.round(settings.cropRight * 100)}%</strong></span>
-          <input
-            type="range" min={0} max={0.49} step={0.005}
-            value={settings.cropRight}
-            onChange={(e) => update({ cropRight: Number(e.target.value) })}
-            disabled={disabled}
-          />
-        </label>
-        <label className="control-row">
-          <span>Top <strong>{Math.round(settings.cropTop * 100)}%</strong></span>
-          <input
-            type="range" min={0} max={0.49} step={0.005}
-            value={settings.cropTop}
-            onChange={(e) => update({ cropTop: Number(e.target.value) })}
-            disabled={disabled}
-          />
-        </label>
-        <label className="control-row">
-          <span>Bottom <strong>{Math.round(settings.cropBottom * 100)}%</strong></span>
-          <input
-            type="range" min={0} max={0.49} step={0.005}
-            value={settings.cropBottom}
-            onChange={(e) => update({ cropBottom: Number(e.target.value) })}
-            disabled={disabled}
-          />
-        </label>
+        {([
+          ['Left',   'cropLeft'],
+          ['Right',  'cropRight'],
+          ['Top',    'cropTop'],
+          ['Bottom', 'cropBottom'],
+        ] as const).map(([label, key]) => (
+          <label key={key} className="control-row">
+            <span>
+              {label}{' '}
+              <EditableValue
+                value={Math.round(settings[key] * 100)}
+                min={0} max={49} step={1} suffix="%"
+                onChange={(v) => update({ [key]: v / 100 } as Partial<ImageTransformSettings>)}
+              />
+            </span>
+            <input
+              type="range" min={0} max={0.49} step={0.005}
+              value={settings[key]}
+              onChange={(e) => update({ [key]: Number(e.target.value) } as Partial<ImageTransformSettings>)}
+              disabled={disabled}
+            />
+          </label>
+        ))}
       </div>
 
       <div className="subsection-title">Levels</div>
       <label className="control-row">
-        <span>Black pt <strong>{settings.blackPoint}</strong></span>
+        <span>
+          Black pt{' '}
+          <EditableValue
+            value={settings.blackPoint}
+            min={0} max={254} step={1}
+            onChange={(v) => update({ blackPoint: Math.min(v, settings.whitePoint - 1) })}
+          />
+        </span>
         <input
           type="range" min={0} max={254} step={1}
           value={settings.blackPoint}
@@ -113,7 +98,14 @@ export function TransformControls({ settings, onChange, disabled }: Props) {
         />
       </label>
       <label className="control-row">
-        <span>White pt <strong>{settings.whitePoint}</strong></span>
+        <span>
+          White pt{' '}
+          <EditableValue
+            value={settings.whitePoint}
+            min={1} max={255} step={1}
+            onChange={(v) => update({ whitePoint: Math.max(v, settings.blackPoint + 1) })}
+          />
+        </span>
         <input
           type="range" min={1} max={255} step={1}
           value={settings.whitePoint}
@@ -125,7 +117,14 @@ export function TransformControls({ settings, onChange, disabled }: Props) {
         />
       </label>
       <label className="control-row">
-        <span>Midtones <strong>{settings.gamma.toFixed(2)}</strong></span>
+        <span>
+          Midtones{' '}
+          <EditableValue
+            value={settings.gamma}
+            min={0.25} max={4.0} step={0.01} decimals={2}
+            onChange={(v) => update({ gamma: v })}
+          />
+        </span>
         <input
           type="range" min={0.25} max={4.0} step={0.01}
           value={settings.gamma}

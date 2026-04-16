@@ -1,4 +1,5 @@
 import { CMYKSettings, CMYKChannel, ChannelView } from '../types'
+import { EditableValue } from './EditableValue'
 
 interface Props {
   settings: CMYKSettings
@@ -9,18 +10,15 @@ interface Props {
 }
 
 const CHANNELS: { key: CMYKChannel; label: string; color: string }[] = [
-  { key: 'c', label: 'Cyan', color: '#00bcd4' },
+  { key: 'c', label: 'Cyan',    color: '#00bcd4' },
   { key: 'm', label: 'Magenta', color: '#e91e63' },
-  { key: 'y', label: 'Yellow', color: '#ffc107' },
-  { key: 'k', label: 'Black', color: '#666' },
+  { key: 'y', label: 'Yellow',  color: '#ffc107' },
+  { key: 'k', label: 'Black',   color: '#666' },
 ]
 
 export function CMYKControls({ settings, channelView, onSettingsChange, onChannelViewChange, disabled }: Props) {
   const updateChannel = (ch: CMYKChannel, partial: Partial<typeof settings.c>) => {
-    onSettingsChange({
-      ...settings,
-      [ch]: { ...settings[ch], ...partial },
-    })
+    onSettingsChange({ ...settings, [ch]: { ...settings[ch], ...partial } })
   }
 
   return (
@@ -60,22 +58,32 @@ export function CMYKControls({ settings, channelView, onSettingsChange, onChanne
             </span>
           </label>
           <label className="control-row">
-            <span>Angle <strong>{settings[key].angle}°</strong></span>
+            <span>
+              Angle{' '}
+              <EditableValue
+                value={settings[key].angle}
+                min={0} max={180} step={1} suffix="°"
+                onChange={(v) => updateChannel(key, { angle: v })}
+              />
+            </span>
             <input
-              type="range"
-              min={0}
-              max={180}
+              type="range" min={0} max={180}
               value={settings[key].angle}
               onChange={(e) => updateChannel(key, { angle: Number(e.target.value) })}
               disabled={disabled || !settings[key].enabled}
             />
           </label>
           <label className="control-row">
-            <span>LPI <strong>{settings[key].lpi}</strong></span>
+            <span>
+              LPI{' '}
+              <EditableValue
+                value={settings[key].lpi}
+                min={10} max={100} step={1}
+                onChange={(v) => updateChannel(key, { lpi: v })}
+              />
+            </span>
             <input
-              type="range"
-              min={10}
-              max={100}
+              type="range" min={10} max={100}
               value={settings[key].lpi}
               onChange={(e) => updateChannel(key, { lpi: Number(e.target.value) })}
               disabled={disabled || !settings[key].enabled}

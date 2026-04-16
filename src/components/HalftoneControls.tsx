@@ -1,4 +1,5 @@
 import { HalftoneSettings, PatternType, ColorMode } from '../types'
+import { EditableValue } from './EditableValue'
 
 interface Props {
   settings: HalftoneSettings
@@ -61,7 +62,14 @@ export function HalftoneControls({ settings, onChange, disabled }: Props) {
           <label className="control-row">
             <span>
               {isStipple ? 'Density' : 'LPI'}{' '}
-              <strong>{settings.lpi}{isStipple ? ' dpi' : ''}</strong>
+              <EditableValue
+                value={settings.lpi}
+                min={isStipple ? 5 : 10}
+                max={isStipple ? 80 : 100}
+                step={1}
+                suffix={isStipple ? ' dpi' : ''}
+                onChange={(v) => update({ lpi: v })}
+              />
             </span>
             <input
               type="range"
@@ -75,11 +83,17 @@ export function HalftoneControls({ settings, onChange, disabled }: Props) {
 
           {showAngle && (
             <label className="control-row">
-              <span>Angle <strong>{settings.angle}°</strong></span>
+              <span>
+                Angle{' '}
+                <EditableValue
+                  value={settings.angle}
+                  min={0} max={180} step={1} suffix="°"
+                  onChange={(v) => update({ angle: v })}
+                />
+              </span>
               <input
                 type="range"
-                min={0}
-                max={180}
+                min={0} max={180}
                 value={settings.angle}
                 onChange={(e) => update({ angle: Number(e.target.value) })}
                 disabled={disabled}
@@ -92,31 +106,48 @@ export function HalftoneControls({ settings, onChange, disabled }: Props) {
       {!isStochastic && (
         <>
           <label className="control-row">
-            <span>Min Dot <strong>{Math.round(minDot * 100)}%</strong></span>
+            <span>
+              Min Dot{' '}
+              <EditableValue
+                value={Math.round(minDot * 100)}
+                min={0} max={50} step={1} suffix="%"
+                onChange={(v) => update({ minDot: v / 100 })}
+              />
+            </span>
             <input
-              type="range"
-              min={0}
-              max={0.5}
-              step={0.01}
+              type="range" min={0} max={0.5} step={0.01}
               value={minDot}
               onChange={(e) => update({ minDot: Number(e.target.value) })}
               disabled={disabled}
             />
           </label>
           <label className="control-row">
-            <span>Max Dot <strong>{Math.round(maxDot * 100)}%</strong></span>
+            <span>
+              Max Dot{' '}
+              <EditableValue
+                value={Math.round(maxDot * 100)}
+                min={50} max={100} step={1} suffix="%"
+                onChange={(v) => update({ maxDot: v / 100 })}
+              />
+            </span>
             <input
-              type="range"
-              min={0.5}
-              max={1}
-              step={0.01}
+              type="range" min={0.5} max={1} step={0.01}
               value={maxDot}
               onChange={(e) => update({ maxDot: Number(e.target.value) })}
               disabled={disabled}
             />
           </label>
           <label className="control-row">
-            <span>{isStipple ? 'Dot Scale' : 'Dot Size'} <strong>{Math.round(dotSize * 100)}%</strong></span>
+            <span>
+              {isStipple ? 'Dot Scale' : 'Dot Size'}{' '}
+              <EditableValue
+                value={Math.round(dotSize * 100)}
+                min={isStipple ? 20 : 50}
+                max={isStipple ? 400 : 150}
+                step={5} suffix="%"
+                onChange={(v) => update({ dotSize: v / 100 })}
+              />
+            </span>
             <input
               type="range"
               min={isStipple ? 0.2 : 0.5}
@@ -128,12 +159,16 @@ export function HalftoneControls({ settings, onChange, disabled }: Props) {
             />
           </label>
           <label className="control-row">
-            <span>Dot Gain <strong>{Math.round(dotGain * 100)}%</strong></span>
+            <span>
+              Dot Gain{' '}
+              <EditableValue
+                value={Math.round(dotGain * 100)}
+                min={0} max={40} step={1} suffix="%"
+                onChange={(v) => update({ dotGain: v / 100 })}
+              />
+            </span>
             <input
-              type="range"
-              min={0}
-              max={0.4}
-              step={0.01}
+              type="range" min={0} max={0.4} step={0.01}
               value={dotGain}
               onChange={(e) => update({ dotGain: Number(e.target.value) })}
               disabled={disabled}
@@ -158,24 +193,32 @@ export function HalftoneControls({ settings, onChange, disabled }: Props) {
       {isRadial && (
         <>
           <label className="control-row">
-            <span>Origin X <strong>{Math.round((settings.radialOriginX ?? 0.5) * 100)}%</strong></span>
+            <span>
+              Origin X{' '}
+              <EditableValue
+                value={Math.round((settings.radialOriginX ?? 0.5) * 100)}
+                min={0} max={100} step={1} suffix="%"
+                onChange={(v) => update({ radialOriginX: v / 100 })}
+              />
+            </span>
             <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
+              type="range" min={0} max={1} step={0.01}
               value={settings.radialOriginX ?? 0.5}
               onChange={(e) => update({ radialOriginX: Number(e.target.value) })}
               disabled={disabled}
             />
           </label>
           <label className="control-row">
-            <span>Origin Y <strong>{Math.round((settings.radialOriginY ?? 0.5) * 100)}%</strong></span>
+            <span>
+              Origin Y{' '}
+              <EditableValue
+                value={Math.round((settings.radialOriginY ?? 0.5) * 100)}
+                min={0} max={100} step={1} suffix="%"
+                onChange={(v) => update({ radialOriginY: v / 100 })}
+              />
+            </span>
             <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
+              type="range" min={0} max={1} step={0.01}
               value={settings.radialOriginY ?? 0.5}
               onChange={(e) => update({ radialOriginY: Number(e.target.value) })}
               disabled={disabled}

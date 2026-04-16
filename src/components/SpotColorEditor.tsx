@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { SpotColor, SpotSettings } from '../types'
 import { extractPalette, mergeSimilarColors } from '../engine/spot-separation'
+import { EditableValue } from './EditableValue'
 
 interface Props {
   settings: SpotSettings
@@ -56,11 +57,9 @@ export function SpotColorEditor({ settings, onChange, sourceImageData, defaultLp
 
       {/* Extract controls */}
       <div className="control-row">
-        <span>Colors <strong>{settings.numColors}</strong></span>
+        <span>Colors <EditableValue value={settings.numColors} min={2} max={12} step={1} onChange={(v) => update({ numColors: v })} /></span>
         <input
-          type="range"
-          min={2}
-          max={12}
+          type="range" min={2} max={12}
           value={settings.numColors}
           onChange={(e) => update({ numColors: Number(e.target.value) })}
           disabled={disabled}
@@ -68,12 +67,9 @@ export function SpotColorEditor({ settings, onChange, sourceImageData, defaultLp
       </div>
 
       <div className="control-row">
-        <span>Vibrancy <strong>{Math.round((settings.vibrancy ?? 0) * 100)}%</strong></span>
+        <span>Vibrancy <EditableValue value={Math.round((settings.vibrancy ?? 0) * 100)} min={0} max={100} step={1} suffix="%" onChange={(v) => update({ vibrancy: v / 100 })} /></span>
         <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
+          type="range" min={0} max={1} step={0.01}
           value={settings.vibrancy ?? 0}
           onChange={(e) => update({ vibrancy: Number(e.target.value) })}
           disabled={disabled}
@@ -81,12 +77,9 @@ export function SpotColorEditor({ settings, onChange, sourceImageData, defaultLp
       </div>
 
       <div className="control-row">
-        <span>Merge ΔE <strong>{settings.mergeThreshold}</strong></span>
+        <span>Merge ΔE <EditableValue value={settings.mergeThreshold} min={0} max={50} step={1} onChange={(v) => update({ mergeThreshold: v })} /></span>
         <input
-          type="range"
-          min={0}
-          max={50}
-          step={1}
+          type="range" min={0} max={50} step={1}
           value={settings.mergeThreshold}
           onChange={(e) => update({ mergeThreshold: Number(e.target.value) })}
           disabled={disabled}
@@ -332,12 +325,9 @@ function SpotColorRow({ color, index, disabled, onChange, onRemove }: RowProps) 
           {/* Flat-specific: threshold */}
           {color.renderMode === 'flat' && (
             <div className="control-row">
-              <span>Threshold <strong>{Math.round(color.threshold * 100)}%</strong></span>
+              <span>Threshold <EditableValue value={Math.round(color.threshold * 100)} min={10} max={100} step={1} suffix="%" onChange={(v) => onChange({ threshold: v / 100 })} /></span>
               <input
-                type="range"
-                min={0.1}
-                max={1}
-                step={0.01}
+                type="range" min={0.1} max={1} step={0.01}
                 value={color.threshold}
                 onChange={(e) => onChange({ threshold: Number(e.target.value) })}
                 disabled={disabled}
@@ -349,22 +339,18 @@ function SpotColorRow({ color, index, disabled, onChange, onRemove }: RowProps) 
           {color.renderMode === 'halftone' && (
             <>
               <div className="control-row">
-                <span>LPI <strong>{color.lpi}</strong></span>
+                <span>LPI <EditableValue value={color.lpi} min={10} max={100} step={1} onChange={(v) => onChange({ lpi: v })} /></span>
                 <input
-                  type="range"
-                  min={10}
-                  max={100}
+                  type="range" min={10} max={100}
                   value={color.lpi}
                   onChange={(e) => onChange({ lpi: Number(e.target.value) })}
                   disabled={disabled}
                 />
               </div>
               <div className="control-row">
-                <span>Angle <strong>{color.angle}°</strong></span>
+                <span>Angle <EditableValue value={color.angle} min={0} max={180} step={1} suffix="°" onChange={(v) => onChange({ angle: v })} /></span>
                 <input
-                  type="range"
-                  min={0}
-                  max={180}
+                  type="range" min={0} max={180}
                   value={color.angle}
                   onChange={(e) => onChange({ angle: Number(e.target.value) })}
                   disabled={disabled}
