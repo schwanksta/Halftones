@@ -8,7 +8,16 @@ import { FRAG_PRELUDE } from '../shared.glsl'
 // Each capsule has length 1.5*cellSize with rounded caps — same SDF as the
 // line pattern. For each stripe family we sample the nearest cell AND the
 // horizontal-neighbour cell in that family's grid space so the 0.25*cellSize
-// capsule overlap is preserved, matching what line.ts does.
+// capsule overlap is preserved.
+//
+// Known fidelity gap vs CPU (approved at review as acceptable for v1):
+// line.ts samples darkness per-cell (primary + neighbour) independently.
+// Here, a single primary-grid darkness value is shared across both stripe
+// families AND both cells within each family. Matches the CPU's own
+// scalar-per-cell behavior and is imperceptible in smooth regions, but at
+// sharp luminance borders the π/2-rotated family's vertical-neighbour cell
+// will paint with the primary cell's darkness instead of its own. A future
+// pass could sample darkness per-cell in each family to close this gap.
 export const CROSSHATCH_FRAG = FRAG_PRELUDE + `
 float capsuleCov(vec2 p, float halfLen, float halfT) {
   float clampedX = clamp(p.x, -halfLen, halfLen);
