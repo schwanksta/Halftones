@@ -500,7 +500,9 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
   }
 
   const stem = toStem(options.projectName, options.halftoneSettings.pattern)
-  pdf.save(`${stem}.pdf`)
+  const filename = `${stem}.pdf`
+  const pdfBlob = pdf.output('blob')
+  await platform.exportWithDialog(pdfBlob, filename, [{ name: 'PDF', extensions: ['pdf'] }])
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
