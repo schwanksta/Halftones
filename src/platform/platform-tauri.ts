@@ -1,3 +1,5 @@
+import { listen } from '@tauri-apps/api/event'
+import { invoke } from '@tauri-apps/api/core'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import {
   readFile,
@@ -103,6 +105,25 @@ function slugify(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '') || 'untitled'
+}
+
+// ─── Platform implementation ──────────────────────────────────────────────────
+
+// ─── Menu event subscription plumbing ────────────────────────────────────────
+
+const menuListeners = new Map<MenuEvent, Set<(p?: string) => void>>()
+let globalMenuUnlisten: Promise<() => void> | null = null
+
+function ensureMenuListener() {
+  if (globalMenuUnlisten) return
+  globalMenuUnlisten = listen<{ event: MenuEvent; payload: string | null }>(
+    'menu-event',
+    (e) => {
+      const subs = menuListeners.get(e.payload.event)
+      if (!subs) return
+      for (const h of subs) h(e.payload.payload ?? undefined)
+    },
+  )
 }
 
 // ─── Platform implementation ──────────────────────────────────────────────────
@@ -285,14 +306,23 @@ export function createPlatform(): PlatformAPI {
       // No-op: wired in Step 9
     },
 
-    onMenuEvent(_event: MenuEvent, _handler: () => void) {
-      // No-op: wired in Step 5
-      return () => {}
+    onMenuEvent(event: MenuEvent, handler: (payload?: string) => void) {
+      ensureMenuListener()
+      let set = menuListeners.get(event)
+      if (!set) { set = new Set(); menuListeners.set(event, set) }
+      set.add(handler)
+      return () => { set!.delete(handler) }
     },
 
     onFileDropped(_handler) {
       // No-op: wired in Step 7
       return () => {}
+    },
+
+    async refreshRecentMenu(entries) {
+      await invoke('set_recent_menu', {
+        items: entries.map((e) => ({ path: e.path, name: e.name })),
+      })
     },
 
     // ── Session restore ──────────────────────────────────────────────────────

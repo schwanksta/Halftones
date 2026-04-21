@@ -58,13 +58,15 @@ export function createPlatform(): PlatformAPI {
 
     onBeforeQuit(_handler) {},
 
-    onMenuEvent(_event: MenuEvent, _handler: () => void) {
+    onMenuEvent(_event: MenuEvent, _handler: (payload?: string) => void) {
       return () => {}
     },
 
     onFileDropped(_handler) {
       return () => {}
     },
+
+    async refreshRecentMenu(_entries) {},
 
     async getLastProjectPath() {
       return null

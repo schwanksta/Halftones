@@ -40,8 +40,11 @@ export interface PlatformAPI {
   onBeforeQuit(handler: () => Promise<'save' | 'discard' | 'cancel'>): void
 
   // ── Menu & drag-drop events (subscription) ────────────────────
-  onMenuEvent(event: MenuEvent, handler: () => void): () => void
+  onMenuEvent(event: MenuEvent, handler: (payload?: string) => void): () => void
   onFileDropped(handler: (paths: string[]) => void): () => void
+
+  /** Push the recent-projects list to the native menu. No-op on web. */
+  refreshRecentMenu(entries: RecentEntry[]): Promise<void>
 
   // ── Session restore ────────────────────────────────────────────
   getLastProjectPath(): Promise<string | null>
@@ -51,6 +54,8 @@ export interface PlatformAPI {
 export type MenuEvent =
   | 'new' | 'open' | 'save' | 'saveAs' | 'close'
   | 'exportPng' | 'exportChannels' | 'exportPdf' | 'exportProof'
+  | 'zoomIn' | 'zoomOut' | 'zoomFit' | 'zoomActual'
+  | 'clearRecent' | 'openRecent'
 
 export interface ProjectFile {
   name: string
