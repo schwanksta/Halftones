@@ -3,6 +3,7 @@ import { precomputeGrayscale, sampleGray } from './sampling'
 import { applyDotSettings } from './dot-settings'
 import { drawLine, drawEuclidean, renderStochastic, drawCrosshatch, drawConcentric, drawBrick, renderRadial, renderRadialLines } from './patterns'
 import { renderStipple } from './stipple'
+import { shouldUseGL, renderHalftoneGL } from './webgl/render'
 
 export interface RenderOptions {
   source: ImageData
@@ -84,6 +85,15 @@ export function renderHalftone(
   }
 
   if (cellSize < 1) return
+
+  // Try GL fast path first for supported patterns. Falls through to CPU on failure.
+  if (shouldUseGL(pattern)) {
+    const ok = renderHalftoneGL(ctx, {
+      source, settings, renderDpi,
+      width, height,
+    })
+    if (ok) return
+  }
 
   // Pre-compute grayscale buffer once — avoids per-pixel luminance math in the hot loop
   const gray = precomputeGrayscale(source)
