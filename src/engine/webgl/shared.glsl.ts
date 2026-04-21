@@ -18,7 +18,7 @@ precision highp float;
 in vec2 vUv;
 out vec4 fragColor;
 
-uniform sampler2D uSrc;       // RGBA source image; we read .r (luminance-packed)
+uniform sampler2D uSrc;       // RGBA source image; luminance computed in sampleLum()
 uniform vec2  uSize;           // destination size in pixels
 uniform float uCellSize;       // cell size in destination pixels
 uniform float uAngle;          // radians

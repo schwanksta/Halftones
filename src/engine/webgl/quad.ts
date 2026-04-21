@@ -1,11 +1,11 @@
 // src/engine/webgl/quad.ts
 /** Creates (once per context) a VAO holding a fullscreen triangle that covers
  *  clip space [-1,1]² with UV [0,1]² flowing via gl_Position. */
-const vaoCache = new WeakMap<WebGL2RenderingContext, WebGLVertexArrayObject>()
+const vaoCache = new WeakMap<WebGL2RenderingContext, { vao: WebGLVertexArrayObject; buf: WebGLBuffer }>()
 
 export function getFullscreenQuadVAO(gl: WebGL2RenderingContext): WebGLVertexArrayObject {
   const cached = vaoCache.get(gl)
-  if (cached) return cached
+  if (cached) return cached.vao
 
   const vao = gl.createVertexArray()!
   gl.bindVertexArray(vao)
@@ -19,6 +19,6 @@ export function getFullscreenQuadVAO(gl: WebGL2RenderingContext): WebGLVertexArr
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)
 
   gl.bindVertexArray(null)
-  vaoCache.set(gl, vao)
+  vaoCache.set(gl, { vao, buf })
   return vao
 }
