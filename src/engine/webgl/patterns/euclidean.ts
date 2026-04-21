@@ -33,8 +33,10 @@ void main() {
     float cov = 1.0 - smoothstep(r - 0.5, r + 0.5, d);
     fragColor = vec4(mix(uBgColor, uFgColor, cov), 1.0);
   } else {
-    // Regime 2: fragment is inside the cell square (by construction).
-    // Paint ink everywhere, except punch a shrinking bg-colored hole.
+    // Regime 2: no explicit cell-fill needed. Every fragment here is
+    // already inside a cell (cellCenter was derived from floor(gridP/cell)),
+    // so the mix below paints uFgColor everywhere the hole doesn't reach —
+    // that's equivalent to the CPU's fillRect(cell) + bgColor punch-out.
     float r = maxR * sqrt(2.0 * (1.0 - darkness));
     float hole = 1.0 - smoothstep(r - 0.5, r + 0.5, d);  // 1 inside hole
     fragColor = vec4(mix(uFgColor, uBgColor, hole), 1.0);
