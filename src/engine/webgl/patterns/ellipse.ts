@@ -22,7 +22,10 @@ void main() {
   // Elliptical distance, normalized so d <= 1 means inside
   vec2 p = gridP - cellCenter;
   float d = length(vec2(p.x / rx, p.y / ry));
-  // Approximate AA — pixel-width smoothstep on the normalized distance
+  // AA band in normalized-distance space (not pixel space like dot.ts).
+  // max(1/rx, 1/ry) * 0.5 ≈ a half-pixel band along the tightest axis —
+  // correct for non-circular shapes; a fixed ±0.5 px band would under-sample
+  // the minor axis on thin ellipses.
   float aa = max(1.0 / rx, 1.0 / ry) * 0.5;
   float coverage = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
   fragColor = vec4(mix(uBgColor, uFgColor, coverage), 1.0);

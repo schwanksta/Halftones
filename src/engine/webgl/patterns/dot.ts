@@ -16,7 +16,7 @@ void main() {
 
   float rawDarkness = 1.0 - brightness;
   float darkness = applyDotSettings(rawDarkness);
-  if (darkness < 0.0 || darkness < 0.01) {
+  if (darkness < 0.01) {
     fragColor = vec4(uBgColor, 1.0);
     return;
   }
