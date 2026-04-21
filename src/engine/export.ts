@@ -4,6 +4,7 @@ import { separateChannels } from './cmyk'
 import { separateSpotChannels, renderFlat, boostSaturation } from './spot-separation'
 import { setPngDpi } from './png-metadata'
 import { applyTransforms } from './transform'
+import { platform } from '../platform'
 
 interface ExportOptions {
   source: ImageData
@@ -372,7 +373,7 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
     proofCanvas.toBlob((b) => resolve(b!), 'image/png')
   })
   const withDpi = await setPngDpi(blob, dpi)
-  downloadBlob(withDpi, `${toStem(projectName, 'proof')}.png`)
+  await platform.exportWithDialog(withDpi, `${toStem(projectName, 'proof')}.png`, [{ name: 'PNG', extensions: ['png'] }])
 }
 
 export async function exportPNG(options: ExportOptions): Promise<void> {
@@ -384,11 +385,12 @@ export async function exportPNG(options: ExportOptions): Promise<void> {
   })
 
   const withDpi = await setPngDpi(blob, options.outputSettings.dpi)
-  downloadBlob(withDpi, `${stem}.png`)
+  await platform.exportWithDialog(withDpi, `${stem}.png`, [{ name: 'PNG', extensions: ['png'] }])
 }
 
 export async function exportChannelPNGs(options: ExportOptions): Promise<void> {
   const stem = toStem(options.projectName, options.halftoneSettings.pattern)
+  const entries: { name: string; blob: Blob }[] = []
 
   if (options.halftoneSettings.colorMode === 'spot') {
     const spotCanvases = renderSpotChannelCanvases(options)
@@ -398,7 +400,7 @@ export async function exportChannelPNGs(options: ExportOptions): Promise<void> {
         canvas.toBlob((b) => resolve(b!), 'image/png')
       })
       const withDpi = await setPngDpi(blob, options.outputSettings.dpi)
-      downloadBlob(withDpi, `${stem}-${safeName}.png`)
+      entries.push({ name: `${stem}-${safeName}.png`, blob: withDpi })
     }
   } else {
     const channelCanvases = renderChannelCanvases(options)
@@ -408,9 +410,11 @@ export async function exportChannelPNGs(options: ExportOptions): Promise<void> {
         canvas.toBlob((b) => resolve(b!), 'image/png')
       })
       const withDpi = await setPngDpi(blob, options.outputSettings.dpi)
-      downloadBlob(withDpi, `${stem}-${channelNames[ch]}.png`)
+      entries.push({ name: `${stem}-${channelNames[ch]}.png`, blob: withDpi })
     }
   }
+
+  await platform.exportChannelsWithDialog(entries, stem)
 }
 
 export async function exportPDF(options: ExportOptions): Promise<void> {
@@ -528,11 +532,3 @@ function drawCropMarks(
   }
 }
 
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
