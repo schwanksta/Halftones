@@ -1,12 +1,16 @@
 // src/engine/webgl/shared.glsl.ts
 
-/** Vertex shader — fullscreen triangle. vUv spans [0,1] across the viewport. */
+/** Vertex shader — fullscreen triangle.
+ *  vUv spans [0,1] across the viewport with (0,0) at the TOP-left, matching
+ *  ImageData / 2D-canvas convention. WebGL's native framebuffer origin is
+ *  bottom-left, so vUv.y is flipped here — otherwise texture sampling
+ *  (which is top-origin) would render the output upside-down. */
 export const VERT_SRC = `#version 300 es
 precision highp float;
 layout(location = 0) in vec2 aPos;
 out vec2 vUv;
 void main() {
-  vUv = aPos * 0.5 + 0.5;
+  vUv = vec2(aPos.x * 0.5 + 0.5, 0.5 - aPos.y * 0.5);
   gl_Position = vec4(aPos, 0.0, 1.0);
 }
 `
