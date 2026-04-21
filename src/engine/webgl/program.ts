@@ -24,6 +24,25 @@ export function linkProgram(gl: WebGL2RenderingContext, vs: WebGLShader, fs: Web
 /** Cache compiled programs keyed by fragment-shader source string. */
 const programCache = new WeakMap<WebGL2RenderingContext, Map<string, WebGLProgram>>()
 
+/** Cache uniform locations per (program, name) — avoids repeated string lookups every frame. */
+const uniformCache = new WeakMap<WebGLProgram, Map<string, WebGLUniformLocation | null>>()
+
+export function getUniform(
+  gl: WebGL2RenderingContext,
+  program: WebGLProgram,
+  name: string,
+): WebGLUniformLocation | null {
+  let cache = uniformCache.get(program)
+  if (!cache) {
+    cache = new Map()
+    uniformCache.set(program, cache)
+  }
+  if (!cache.has(name)) {
+    cache.set(name, gl.getUniformLocation(program, name))
+  }
+  return cache.get(name)!
+}
+
 export function getOrCompileProgram(
   gl: WebGL2RenderingContext,
   vertSrc: string,

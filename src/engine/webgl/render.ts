@@ -1,6 +1,6 @@
 import { HalftoneSettings, PatternType } from '../../types'
 import { getSharedGL, isWebGL2Available, useGLOverride } from './context'
-import { getOrCompileProgram } from './program'
+import { getOrCompileProgram, getUniform } from './program'
 import { getFullscreenQuadVAO } from './quad'
 import { uploadRGBATexture } from './texture'
 import { VERT_SRC } from './shared.glsl'
@@ -22,6 +22,7 @@ export interface GLRenderOptions {
   renderDpi: number
   width: number
   height: number
+  pattern: PatternType
 }
 
 function fragSrcFor(pattern: PatternType): string | null {
@@ -35,12 +36,12 @@ export function renderHalftoneGL(
   targetCtx: CanvasRenderingContext2D,
   opts: GLRenderOptions,
 ): boolean {
-  const { width, height, settings, source, renderDpi } = opts
+  const { width, height, settings, source, renderDpi, pattern } = opts
   const shared = getSharedGL(width, height)
   if (!shared) return false
   const { gl, canvas } = shared
 
-  const frag = fragSrcFor(settings.pattern)
+  const frag = fragSrcFor(pattern)
   if (!frag) return false
 
   let tex: WebGLTexture | null = null
@@ -55,7 +56,7 @@ export function renderHalftoneGL(
 
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, tex)
-    gl.uniform1i(gl.getUniformLocation(prog, 'uSrc'), 0)
+    gl.uniform1i(getUniform(gl, prog, 'uSrc'), 0)
 
     const cellSize = renderDpi / settings.lpi
     const invert = !!settings.invert
@@ -64,15 +65,15 @@ export function renderHalftoneGL(
     const fg = invert ? rawBg : rawFg
     const bg = invert ? rawFg : rawBg
 
-    gl.uniform2f(gl.getUniformLocation(prog, 'uSize'), width, height)
-    gl.uniform1f(gl.getUniformLocation(prog, 'uCellSize'), cellSize)
-    gl.uniform1f(gl.getUniformLocation(prog, 'uAngle'), (settings.angle * Math.PI) / 180)
-    gl.uniform1f(gl.getUniformLocation(prog, 'uMinDot'), settings.minDot ?? 0)
-    gl.uniform1f(gl.getUniformLocation(prog, 'uMaxDot'), settings.maxDot ?? 1)
-    gl.uniform1f(gl.getUniformLocation(prog, 'uDotGain'), settings.dotGain ?? 0)
-    gl.uniform1f(gl.getUniformLocation(prog, 'uDotSize'), settings.dotSize ?? 1)
-    gl.uniform3fv(gl.getUniformLocation(prog, 'uFgColor'), hexToRgb01(fg))
-    gl.uniform3fv(gl.getUniformLocation(prog, 'uBgColor'), hexToRgb01(bg))
+    gl.uniform2f(getUniform(gl, prog, 'uSize'), width, height)
+    gl.uniform1f(getUniform(gl, prog, 'uCellSize'), cellSize)
+    gl.uniform1f(getUniform(gl, prog, 'uAngle'), (settings.angle * Math.PI) / 180)
+    gl.uniform1f(getUniform(gl, prog, 'uMinDot'), settings.minDot ?? 0)
+    gl.uniform1f(getUniform(gl, prog, 'uMaxDot'), settings.maxDot ?? 1)
+    gl.uniform1f(getUniform(gl, prog, 'uDotGain'), settings.dotGain ?? 0)
+    gl.uniform1f(getUniform(gl, prog, 'uDotSize'), settings.dotSize ?? 1)
+    gl.uniform3fv(getUniform(gl, prog, 'uFgColor'), hexToRgb01(fg))
+    gl.uniform3fv(getUniform(gl, prog, 'uBgColor'), hexToRgb01(bg))
 
     gl.drawArrays(gl.TRIANGLES, 0, 3)
 

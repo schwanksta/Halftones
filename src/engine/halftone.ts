@@ -91,6 +91,7 @@ export function renderHalftone(
     const ok = renderHalftoneGL(ctx, {
       source, settings, renderDpi,
       width, height,
+      pattern,
     })
     if (ok) return
   }
