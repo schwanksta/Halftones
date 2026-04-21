@@ -6,9 +6,10 @@ import { uploadRGBATexture } from './texture'
 import { VERT_SRC } from './shared.glsl'
 import { DOT_FRAG } from './patterns/dot'
 import { ELLIPSE_FRAG } from './patterns/ellipse'
+import { DIAMOND_FRAG } from './patterns/diamond'
 
 export const GL_SUPPORTED_PATTERNS: ReadonlySet<PatternType> = new Set<PatternType>([
-  'dot', 'ellipse',
+  'dot', 'ellipse', 'diamond',
 ])
 
 export function shouldUseGL(pattern: PatternType): boolean {
@@ -30,6 +31,7 @@ function fragSrcFor(pattern: PatternType): string | null {
   switch (pattern) {
     case 'dot': return DOT_FRAG
     case 'ellipse': return ELLIPSE_FRAG
+    case 'diamond': return DIAMOND_FRAG
     default: return null
   }
 }
