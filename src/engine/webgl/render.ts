@@ -7,9 +7,10 @@ import { VERT_SRC } from './shared.glsl'
 import { DOT_FRAG } from './patterns/dot'
 import { ELLIPSE_FRAG } from './patterns/ellipse'
 import { DIAMOND_FRAG } from './patterns/diamond'
+import { HEX_FRAG } from './patterns/hex'
 
 export const GL_SUPPORTED_PATTERNS: ReadonlySet<PatternType> = new Set<PatternType>([
-  'dot', 'ellipse', 'diamond',
+  'dot', 'ellipse', 'diamond', 'hex',
 ])
 
 export function shouldUseGL(pattern: PatternType): boolean {
@@ -32,6 +33,7 @@ function fragSrcFor(pattern: PatternType): string | null {
     case 'dot': return DOT_FRAG
     case 'ellipse': return ELLIPSE_FRAG
     case 'diamond': return DIAMOND_FRAG
+    case 'hex': return HEX_FRAG
     default: return null
   }
 }
