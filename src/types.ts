@@ -3,6 +3,7 @@ export interface SourceImage {
   width: number
   height: number
   fileName: string
+  rawBytes: Uint8Array   // original file bytes (for .halftones packing)
 }
 
 export type PatternType = 'dot' | 'line' | 'ellipse' | 'diamond' | 'euclidean' | 'stochastic' | 'stipple' | 'crosshatch' | 'concentric' | 'brick' | 'hex' | 'radial' | 'radial-lines'

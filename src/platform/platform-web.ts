@@ -22,6 +22,10 @@ export function createPlatform(): PlatformAPI {
       throw new Error('Not available in browser preview — run with `npm run tauri:dev` for file I/O')
     },
 
+    async loadProjectFromPath(_path) {
+      throw new Error('Not available in browser preview — run with `npm run tauri:dev` for file I/O')
+    },
+
     async exportWithDialog(blob, suggestedName, _filters) {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')

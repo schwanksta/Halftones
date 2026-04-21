@@ -8,9 +8,10 @@ interface Props {
 export function ImageLoader({ onImageLoad }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const loadFile = useCallback((file: File) => {
+  const loadFile = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) return
 
+    const rawBytes = new Uint8Array(await file.arrayBuffer())
     const img = new Image()
     const url = URL.createObjectURL(file)
 
@@ -28,6 +29,7 @@ export function ImageLoader({ onImageLoad }: Props) {
         width: canvas.width,
         height: canvas.height,
         fileName: file.name,
+        rawBytes,
       })
     }
 

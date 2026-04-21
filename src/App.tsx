@@ -4,7 +4,11 @@ import { TopBar } from './components/TopBar'
 import { ControlPanel } from './components/ControlPanel'
 import { PreviewCanvas } from './components/PreviewCanvas'
 import { ExportBar } from './components/ExportBar'
+import { SavePromptModal } from './components/SavePromptModal'
 import { useProjectPersistence } from './hooks/useProjectPersistence'
+import { useDirtyTracking } from './hooks/useDirtyTracking'
+import { useAppShell } from './hooks/useAppShell'
+import { platform, isTauri } from './platform'
 import { applyTransforms } from './engine/transform'
 import {
   SourceImage,
@@ -20,6 +24,7 @@ import {
   DEFAULT_OUTPUT_SETTINGS,
   DEFAULT_TRANSFORM_SETTINGS,
 } from './types'
+import { AllSettings } from './platform/types'
 
 const AUTO_SAVE_DELAY = 1000 // ms
 
@@ -36,8 +41,9 @@ function App() {
   const { save, load, remove, projectNames, lastProjectName } = useProjectPersistence()
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // On mount, restore the last used project
+  // On mount, restore the last used project (web mode only — Tauri handles startup in Step 8)
   useEffect(() => {
+    if (isTauri) return
     const last = lastProjectName()
     if (last) {
       const snapshot = load(last)
@@ -53,8 +59,9 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Auto-save whenever settings change
+  // Auto-save whenever settings change (web mode only — Tauri uses explicit save)
   useEffect(() => {
+    if (isTauri) return
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
     autoSaveTimer.current = setTimeout(() => {
       save(projectName, { halftoneSettings, cmykSettings, spotSettings, outputSettings, transformSettings })
@@ -63,6 +70,55 @@ function App() {
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
     }
   }, [projectName, halftoneSettings, cmykSettings, spotSettings, outputSettings, transformSettings, save])
+
+  // ── Dirty tracking ─────────────────────────────────────────────────────────
+  const watchedKey = useMemo(
+    () => JSON.stringify({
+      projectName, halftoneSettings, cmykSettings, spotSettings, outputSettings,
+      transformSettings, sourceName: source?.fileName ?? null,
+    }),
+    [projectName, halftoneSettings, cmykSettings, spotSettings, outputSettings, transformSettings, source?.fileName],
+  )
+  const { dirty, markClean } = useDirtyTracking(watchedKey)
+
+  // ── Settings gather/apply/reset helpers (needed by useAppShell) ───────────
+  const gatherSettings = useCallback((): AllSettings => ({
+    halftone: halftoneSettings,
+    cmyk: cmykSettings,
+    spot: spotSettings,
+    output: outputSettings,
+    transform: transformSettings,
+  }), [halftoneSettings, cmykSettings, spotSettings, outputSettings, transformSettings])
+
+  const applySettings = useCallback((s: AllSettings) => {
+    setHalftoneSettings(s.halftone)
+    setCmykSettings(s.cmyk)
+    setSpotSettings(s.spot)
+    setOutputSettings(s.output)
+    setTransformSettings(s.transform)
+  }, [])
+
+  const resetToDefaults = useCallback(() => applySettings({
+    halftone: DEFAULT_HALFTONE_SETTINGS,
+    cmyk: DEFAULT_CMYK_SETTINGS,
+    spot: DEFAULT_SPOT_SETTINGS,
+    output: DEFAULT_OUTPUT_SETTINGS,
+    transform: DEFAULT_TRANSFORM_SETTINGS,
+  }), [applySettings])
+
+  // ── App shell (Tauri menu handlers) ──────────────────────────────────────
+  const { prompt } = useAppShell({
+    projectName, setProjectName,
+    source, setSource,
+    gatherSettings, applySettings, resetToDefaults,
+    dirty, markClean,
+    isTauri,
+  })
+
+  // ── Window title sync ────────────────────────────────────────────────────
+  useEffect(() => {
+    platform.setWindowTitle(projectName || 'Untitled', dirty)
+  }, [projectName, dirty])
 
   const handleLoadProject = useCallback((name: string) => {
     const snapshot = load(name)
@@ -128,6 +184,7 @@ function App() {
 
   return (
     <div className="app">
+      {prompt && <SavePromptModal projectName={projectName} onChoose={prompt} />}
       <TopBar
         onImageLoad={handleImageLoad}
         fileName={source?.fileName}

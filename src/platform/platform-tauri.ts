@@ -227,6 +227,11 @@ export function createPlatform(): PlatformAPI {
       return { bytes, fileName: path.split('/').pop()! }
     },
 
+    async loadProjectFromPath(path) {
+      const bytes = await readFile(path)
+      return unpackHalftonesFile(bytes)
+    },
+
     // ── Exports ──────────────────────────────────────────────────────────────
 
     async exportWithDialog(blob, suggestedName, filters) {

@@ -112,12 +112,13 @@ export function PreviewCanvas({
     viewport,
   })
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
     const file = e.dataTransfer.files[0]
     if (!file || !file.type.startsWith('image/')) return
 
+    const rawBytes = new Uint8Array(await file.arrayBuffer())
     const img = new Image()
     const url = URL.createObjectURL(file)
     img.onload = () => {
@@ -132,6 +133,7 @@ export function PreviewCanvas({
         width: canvas.width,
         height: canvas.height,
         fileName: file.name,
+        rawBytes,
       })
     }
     img.src = url

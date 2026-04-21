@@ -19,6 +19,9 @@ export interface PlatformAPI {
   openImageDialog(): Promise<LoadedImage | null>
   loadImageFromPath(path: string): Promise<LoadedImage>
 
+  // ── Project load by path (used by Open Recent) ─────────────────
+  loadProjectFromPath(path: string): Promise<ProjectFile>
+
   // ── Exports ────────────────────────────────────────────────────
   exportWithDialog(
     blob: Blob,
