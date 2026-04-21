@@ -33,3 +33,25 @@ export function getSharedGL(width: number, height: number): { canvas: HTMLCanvas
   }
   return cached
 }
+
+/** One-shot context for a full-resolution export. Caller must dispose the
+ *  canvas/context after use; there is no cache. Returns null if WebGL2
+ *  unavailable or if the requested size exceeds MAX_TEXTURE_SIZE. */
+export function createExportGL(width: number, height: number): { canvas: HTMLCanvasElement; gl: WebGL2RenderingContext } | null {
+  if (!isWebGL2Available()) return null
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const gl = canvas.getContext('webgl2', { premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false })
+  if (!gl) return null
+  const maxSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number
+  if (width > maxSize || height > maxSize) {
+    console.warn(`[webgl] export ${width}×${height} exceeds MAX_TEXTURE_SIZE ${maxSize}; falling back to CPU`)
+    // Free the GPU context immediately. Mobile browsers enforce a hard limit
+    // (~8–16) on live WebGL contexts; a stream of oversized export attempts
+    // would otherwise starve subsequent GL work until GC reclaims them.
+    gl.getExtension('WEBGL_lose_context')?.loseContext()
+    return null
+  }
+  return { canvas, gl }
+}

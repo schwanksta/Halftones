@@ -1,5 +1,5 @@
 import { HalftoneSettings, PatternType } from '../../types'
-import { getSharedGL, isWebGL2Available, useGLOverride } from './context'
+import { createExportGL, getSharedGL, isWebGL2Available, useGLOverride } from './context'
 import { getOrCompileProgram, getUniform } from './program'
 import { getFullscreenQuadVAO } from './quad'
 import { uploadRGBATexture } from './texture'
@@ -29,6 +29,10 @@ export interface GLRenderOptions {
   width: number
   height: number
   pattern: PatternType
+  /** Set true for full-resolution exports — uses a dedicated (non-cached) GL
+   *  context so the shared preview context isn't resized/disrupted. Returns
+   *  false (→ CPU fallback) if the export size exceeds MAX_TEXTURE_SIZE. */
+  isExport?: boolean
 }
 
 function fragSrcFor(pattern: PatternType): string | null {
@@ -48,8 +52,10 @@ export function renderHalftoneGL(
   targetCtx: CanvasRenderingContext2D,
   opts: GLRenderOptions,
 ): boolean {
-  const { width, height, settings, source, renderDpi, pattern } = opts
-  const shared = getSharedGL(width, height)
+  const { width, height, settings, source, renderDpi, pattern, isExport } = opts
+  const shared = isExport
+    ? createExportGL(width, height)
+    : getSharedGL(width, height)
   if (!shared) return false
   const { gl, canvas } = shared
 
@@ -96,6 +102,16 @@ export function renderHalftoneGL(
     return false
   } finally {
     if (tex) gl.deleteTexture(tex)
+    // Export contexts are one-shot — release immediately. The preview context
+    // is shared across frames, so we leave it alive.
+    //
+    // Note: program and uniform caches (see program.ts) are keyed by the
+    // WebGLProgram for this gl instance. After loseContext() the program is
+    // invalid; both caches drop naturally because the next export creates a
+    // fresh gl + program. Do NOT reuse a program reference across this boundary.
+    if (isExport) {
+      gl.getExtension('WEBGL_lose_context')?.loseContext()
+    }
   }
 }
 

@@ -12,6 +12,9 @@ export interface RenderOptions {
   radialCenter?: { x: number; y: number }
   /** Output DPI — when provided, stochastic dithers at this density and scales up for display. */
   outputDpi?: number
+  /** Set true for full-resolution exports — routes GL to a dedicated one-shot
+   *  context so preview state isn't disrupted. */
+  isExport?: boolean
 }
 
 export function renderHalftone(
@@ -92,6 +95,7 @@ export function renderHalftone(
       source, settings, renderDpi,
       width, height,
       pattern,
+      isExport: !!options.isExport,
     })
     if (ok) return
   }

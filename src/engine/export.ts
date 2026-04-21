@@ -130,6 +130,7 @@ function renderSpotChannelCanvases(
         settings: { ...halftoneSettings, angle: color.angle, lpi: color.lpi },
         renderDpi: outputSettings.dpi,
         radialCenter,
+        isExport: true,
       })
     }
 
@@ -168,6 +169,7 @@ function renderChannelCanvases(options: ExportOptions): Map<string, HTMLCanvasEl
       settings: { ...halftoneSettings, angle: cmykSettings[ch].angle, lpi: cmykSettings[ch].lpi },
       renderDpi: outputSettings.dpi,
       radialCenter,
+      isExport: true,
     })
 
     result.set(ch, canvas)
@@ -216,6 +218,7 @@ function renderFullRes(options: ExportOptions): HTMLCanvasElement {
         settings: { ...halftoneSettings, angle: cmykSettings[ch].angle, lpi: cmykSettings[ch].lpi },
         renderDpi: outputSettings.dpi,
         radialCenter,
+        isExport: true,
       })
 
       ctx.globalCompositeOperation = 'multiply'
@@ -228,6 +231,7 @@ function renderFullRes(options: ExportOptions): HTMLCanvasElement {
       settings: halftoneSettings,
       renderDpi: outputSettings.dpi,
       radialCenter,
+      isExport: true,
     })
   }
 
@@ -292,6 +296,7 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
         renderDpi: dpi,
         radialCenter,
         outputDpi: dpi,
+        isExport: true,
       })
 
       const colored = colorizeForMultiply(offCtx.getImageData(0, 0, targetW, targetH), CMYK_INK[ch])
@@ -326,6 +331,7 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
           renderDpi: dpi,
           radialCenter,
           outputDpi: dpi,
+          isExport: true,
         })
       }
 
@@ -343,6 +349,7 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
       renderDpi: dpi,
       radialCenter,
       outputDpi: dpi,
+      isExport: true,
     })
   }
 
