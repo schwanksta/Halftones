@@ -9,9 +9,10 @@ import { ELLIPSE_FRAG } from './patterns/ellipse'
 import { DIAMOND_FRAG } from './patterns/diamond'
 import { HEX_FRAG } from './patterns/hex'
 import { EUCLIDEAN_FRAG } from './patterns/euclidean'
+import { LINE_FRAG } from './patterns/line'
 
 export const GL_SUPPORTED_PATTERNS: ReadonlySet<PatternType> = new Set<PatternType>([
-  'dot', 'ellipse', 'diamond', 'hex', 'euclidean',
+  'dot', 'ellipse', 'diamond', 'hex', 'euclidean', 'line',
 ])
 
 export function shouldUseGL(pattern: PatternType): boolean {
@@ -36,6 +37,7 @@ function fragSrcFor(pattern: PatternType): string | null {
     case 'diamond': return DIAMOND_FRAG
     case 'hex': return HEX_FRAG
     case 'euclidean': return EUCLIDEAN_FRAG
+    case 'line': return LINE_FRAG
     default: return null
   }
 }
