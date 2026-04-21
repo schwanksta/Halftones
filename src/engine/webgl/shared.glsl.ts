@@ -31,6 +31,11 @@ uniform vec3  uBgColor;        // [0,1]^3 paper
 
 // Keep in sync with engine/dot-settings.ts applyDotSettings()
 // Returns -1.0 if suppressed (raw < minDot), else clamped darkness in [0,1].
+//
+// Canonical guard for callers: \`if (darkness < 0.01) { ...skip... }\` — the
+// same branch catches both the -1.0 suppression sentinel AND near-zero
+// darkness (where shapes collapse to subpixel noise). New patterns should
+// follow this idiom rather than testing the sentinel explicitly.
 float applyDotSettings(float rawDarkness) {
   if (rawDarkness < uMinDot) return -1.0;
   float clamped = min(rawDarkness, uMaxDot);

@@ -115,7 +115,9 @@ export function renderHalftoneGL(
   }
 }
 
-export function hexToRgb01(hex: string): [number, number, number] {
+/** Internal — expects a `#rrggbb` 7-char hex string (no shorthand, no named colors).
+ *  Callers upstream (HalftoneSettings) already enforce this format via the colour pickers. */
+function hexToRgb01(hex: string): [number, number, number] {
   const h = hex.replace('#', '')
   return [
     parseInt(h.slice(0, 2), 16) / 255,
