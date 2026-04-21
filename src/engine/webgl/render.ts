@@ -5,9 +5,10 @@ import { getFullscreenQuadVAO } from './quad'
 import { uploadRGBATexture } from './texture'
 import { VERT_SRC } from './shared.glsl'
 import { DOT_FRAG } from './patterns/dot'
+import { ELLIPSE_FRAG } from './patterns/ellipse'
 
 export const GL_SUPPORTED_PATTERNS: ReadonlySet<PatternType> = new Set<PatternType>([
-  'dot',
+  'dot', 'ellipse',
 ])
 
 export function shouldUseGL(pattern: PatternType): boolean {
@@ -28,6 +29,7 @@ export interface GLRenderOptions {
 function fragSrcFor(pattern: PatternType): string | null {
   switch (pattern) {
     case 'dot': return DOT_FRAG
+    case 'ellipse': return ELLIPSE_FRAG
     default: return null
   }
 }
