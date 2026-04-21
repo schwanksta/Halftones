@@ -1,0 +1,29 @@
+[package]
+name = "halftones"
+version = "0.0.0"
+description = "Halftones desktop app"
+authors = []
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "halftones_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
