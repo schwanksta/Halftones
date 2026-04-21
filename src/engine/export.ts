@@ -1,7 +1,7 @@
 import { HalftoneSettings, CMYKSettings, OutputSettings, ImageTransformSettings, SpotSettings } from '../types'
 import { renderHalftone } from './halftone'
 import { separateChannels } from './cmyk'
-import { separateSpotChannels, renderFlat } from './spot-separation'
+import { separateSpotChannels, renderFlat, boostSaturation } from './spot-separation'
 import { setPngDpi } from './png-metadata'
 import { applyTransforms } from './transform'
 
@@ -335,7 +335,11 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
         })
       }
 
-      const colored = colorizeForOverlay(offCtx.getImageData(0, 0, targetW, targetH), color.hex)
+      // Match preview: vibrancy slider boosts saturation of the display hex.
+      // Proof is WYSIWYG of the preview, so apply it here (channel/PDF exports
+      // which go to the press keep the raw hex).
+      const displayHex = boostSaturation(color.hex, spotSettings.vibrancy ?? 0)
+      const colored = colorizeForOverlay(offCtx.getImageData(0, 0, targetW, targetH), displayHex)
       offCtx.putImageData(colored, 0, 0)
       imgCtx.globalCompositeOperation = 'source-over'
       imgCtx.drawImage(offCanvas, 0, 0)
