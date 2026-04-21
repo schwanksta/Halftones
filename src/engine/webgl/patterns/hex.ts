@@ -20,12 +20,12 @@ void main() {
   // depending on which half of the row's vertical band we're in.
   int altRow = (fRow - float(rowBase) >= 0.0) ? rowBase + 1 : rowBase - 1;
 
-  vec2 best;
+  vec2 best = vec2(0.0);
   float bestD = 1e20;
 
   for (int i = 0; i < 2; i++) {
     int row = (i == 0) ? rowBase : altRow;
-    float hexOffset = (row - (row / 2) * 2 != 0) ? uCellSize * 0.5 : 0.0;
+    float hexOffset = (row % 2 != 0) ? uCellSize * 0.5 : 0.0;
     float cx = floor((gridP.x - hexOffset) / uCellSize + 0.5) * uCellSize + hexOffset;
     float cy = float(row) * rowSpacing;
     vec2 c = vec2(cx, cy);
