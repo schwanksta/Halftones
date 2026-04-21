@@ -20,7 +20,10 @@ float capsuleCoverage(vec2 gridP, vec2 cellCenter, float darknessAtCell, float h
 float sampleDarknessAt(vec2 cellCenter) {
   vec2 srcP = rotate2(cellCenter, uAngle) + uSize * 0.5;
   float brightness = sampleLum(srcP);
-  return applyDotSettings(1.0 - brightness);
+  // Clamp the -1.0 "suppressed" sentinel to 0.0 — a suppressed cell
+  // contributes zero darkness, which is the right behaviour here.
+  // Avoids the sentinel crossing a function boundary undocumented.
+  return max(0.0, applyDotSettings(1.0 - brightness));
 }
 
 void main() {
@@ -29,9 +32,11 @@ void main() {
 
   // Primary cell containing gridP
   vec2 c0 = (floor(gridP / uCellSize) + 0.5) * uCellSize;
-  // Horizontal neighbour in grid space (lines run along x, so neighbour along x)
+  // Horizontal neighbour only: capsules extend ±0.75*cellSize along x
+  // and the cell pitch along y is exactly cellSize, so caps never protrude
+  // vertically into another row — no y-neighbour can contribute.
   float xSign = sign(gridP.x - c0.x);
-  if (xSign == 0.0) xSign = 1.0;
+  if (xSign == 0.0) xSign = 1.0;  // exact cell-boundary hit is vanishingly rare; fallback direction is arbitrary
   vec2 c1 = c0 + vec2(xSign * uCellSize, 0.0);
 
   float halfLen = uCellSize * 0.75;
