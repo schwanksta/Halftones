@@ -187,16 +187,22 @@ export function useAppShell(deps: AppShellDeps) {
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
         URL.revokeObjectURL(url)
         // Keep current halftone/color/spot settings (same as Open Image button).
-        // Only reset transform and re-derive output dimensions from new image size.
-        // This prevents a blank preview caused by resetToDefaults() switching to
-        // grayscale mode where cellSize < 1 at fit-to-view zoom.
+        // Only reset transform and re-fit output dimensions to the current
+        // paper size (preserving the image's aspect ratio).  This prevents a
+        // blank preview from resetToDefaults() switching to grayscale mode,
+        // and gives sensible print sizes for low-resolution source images
+        // where pixel-count ÷ DPI would yield absurdly small dimensions.
         const cur = deps.gatherSettings()
+        const imgAR   = canvas.width / canvas.height
+        const paperAR = cur.output.widthInches / cur.output.heightInches
+        const fitW = imgAR > paperAR ? cur.output.widthInches  : cur.output.heightInches * imgAR
+        const fitH = imgAR > paperAR ? cur.output.widthInches / imgAR : cur.output.heightInches
         deps.applySettings({
           ...cur,
           output: {
             ...cur.output,
-            widthInches:  Math.round(canvas.width  / cur.output.dpi * 100) / 100,
-            heightInches: Math.round(canvas.height / cur.output.dpi * 100) / 100,
+            widthInches:  Math.round(fitW * 100) / 100,
+            heightInches: Math.round(fitH * 100) / 100,
           },
           transform: DEFAULT_TRANSFORM_SETTINGS,
         })

@@ -29,6 +29,35 @@ import { AllSettings } from './platform/types'
 
 const AUTO_SAVE_DELAY = 1000 // ms
 
+/**
+ * Fit an image inside the current paper bounds while preserving its aspect
+ * ratio.  Returns print dimensions (inches) where one of the two dimensions
+ * equals its paper bound and the other is smaller.  This is the default
+ * sizing behaviour on image load — the older "pixelCount ÷ DPI" formula
+ * produced absurdly small outputs for low-resolution source images
+ * (e.g. a 768×1024 PNG at 300 DPI → 2.56×3.41 in).
+ */
+function fitToPaper(
+  imgW: number, imgH: number,
+  paperW: number, paperH: number,
+): { widthInches: number; heightInches: number } {
+  const imgAR   = imgW   / imgH
+  const paperAR = paperW / paperH
+  let w: number, h: number
+  if (imgAR > paperAR) {
+    // Image is wider (relative to paper) — constrain by paper width
+    w = paperW
+    h = paperW / imgAR
+  } else {
+    h = paperH
+    w = paperH * imgAR
+  }
+  return {
+    widthInches:  Math.round(w * 100) / 100,
+    heightInches: Math.round(h * 100) / 100,
+  }
+}
+
 function App() {
   const [projectName, setProjectName] = useState('untitled')
   const [source, setSource] = useState<SourceImage | null>(null)
@@ -150,14 +179,15 @@ function App() {
   const handleImageLoad = useCallback((image: SourceImage) => {
     setSource(image)
     setTransformSettings(DEFAULT_TRANSFORM_SETTINGS)
-    setOutputSettings((prev) => ({
-      ...prev,
-      // Derive native print dimensions from pixel count ÷ current DPI.
-      // This ensures width/height always match the image orientation
-      // (e.g., a 2625×3501 px file at 300 DPI → 8.75 × 11.67 in).
-      widthInches:  Math.round(image.width  / prev.dpi * 100) / 100,
-      heightInches: Math.round(image.height / prev.dpi * 100) / 100,
-    }))
+    // Suppress the dimension-recalc useEffect that would otherwise fire on
+    // the source change and overwrite the fit-to-paper values below.
+    skipDimensionRecalcRef.current = true
+    setOutputSettings((prev) => {
+      const { widthInches, heightInches } = fitToPaper(
+        image.width, image.height, prev.widthInches, prev.heightInches,
+      )
+      return { ...prev, widthInches, heightInches }
+    })
   }, [])
 
   const sourceAspect = source ? source.width / source.height : null
