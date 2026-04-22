@@ -5,12 +5,15 @@ Browser-based halftone image processor. React + TypeScript + Vite, no backend.
 ## Working Rules
 
 - **Always commit when done.** After completing any task, run `npm run build` to verify, then `git add -A && git commit`.
+- **On the `tauri` branch: also run `npm run tauri:build` when done.** This produces the `.app` and `.dmg` at `src-tauri/target/release/bundle/macos/`. Takes ~2–3 min on first build after Rust changes, seconds if only JS changed.
 
 ## Quick Reference
 
 ```bash
-npm run dev      # start dev server (Vite, port 5173)
-npm run build    # typecheck (tsc -b) then bundle
+npm run dev          # start dev server (Vite, port 5173)
+npm run build        # typecheck (tsc -b) then bundle
+npm run tauri:dev    # boot Vite + native window (for testing Tauri features)
+npm run tauri:build  # full release build → Halftones.app + .dmg
 ```
 
 ## Architecture
