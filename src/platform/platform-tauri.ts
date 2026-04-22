@@ -305,10 +305,15 @@ export function createPlatform(): PlatformAPI {
       ;(w as any).setDocumentEdited?.(dirty)?.catch?.(() => {})
     },
 
-    // ── Stub subscriptions (wired in later steps) ────────────────────────────
-
-    onBeforeQuit(_handler) {
-      // No-op: wired in Step 9
+    onBeforeQuit(handler) {
+      listen('close-requested', async () => {
+        const choice = await handler()
+        if (choice !== 'cancel') {
+          // Handler performed save (if chosen) before returning — safe to close.
+          invoke('confirm_close')
+        }
+        // 'cancel' → close already vetoed; do nothing.
+      })
     },
 
     onMenuEvent(event: MenuEvent, handler: (payload?: string) => void) {

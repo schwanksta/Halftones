@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { platform } from '../platform'
 import { AllSettings, ProjectFile } from '../platform/types'
 import { SourceImage } from '../types'
@@ -246,6 +246,26 @@ export function useAppShell(deps: AppShellDeps) {
     ]
     return () => unsubs.forEach(u => u())
   }, [deps.isTauri, newProject, openProject, save, saveAs, closeProject, openRecent, handleDroppedPaths])
+
+  // Quit handler — use a ref so the listen closure always sees the freshest
+  // confirmIfDirty/save callbacks without re-registering the listener.
+  const quitHandlerRef = useRef<() => Promise<'save' | 'discard' | 'cancel'>>(() => Promise.resolve('discard'))
+  useEffect(() => {
+    quitHandlerRef.current = async () => {
+      if (!deps.dirty) return 'discard'
+      const choice = await confirmIfDirty()
+      if (choice === 'save') {
+        const ok = await save()
+        if (!ok) return 'cancel'   // save failed → don't quit
+      }
+      return choice as 'save' | 'discard' | 'cancel'
+    }
+  })  // no deps — updates every render so callbacks are always fresh
+
+  useEffect(() => {
+    if (!deps.isTauri) return
+    platform.onBeforeQuit(() => quitHandlerRef.current())
+  }, [deps.isTauri])  // runs once
 
   return { currentPath, prompt, setPrompt }
 }
