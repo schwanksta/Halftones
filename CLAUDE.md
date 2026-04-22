@@ -21,6 +21,12 @@ npm run tauri:build  # full release build → Halftones.app + .dmg
 ```
 src/
   App.tsx                     # root: state, auto-save, image load handler
+  platform/
+    index.ts                  # detects Tauri vs web, exports `platform` singleton + `isTauri`
+    types.ts                  # PlatformAPI interface, AllSettings, ProjectFile, MenuEvent
+    platform-tauri.ts         # Tauri implementation (file I/O, dialogs, prefs, menus, window)
+    platform-web.ts           # Web stubs (blob download, localStorage, no-ops)
+    halftones-file.ts         # .halftones zip pack/unpack (JSZip, schemaVersion 1)
   types.ts                    # all interfaces, defaults, type unions
   components/
     TopBar.tsx                # project name (editable), projects dropdown, image loader
@@ -47,6 +53,29 @@ src/
     export.ts                 # exportPNG(), exportChannelPNGs(), exportPDF()
     png-metadata.ts           # setPngDpi() — inject pHYs chunk for DPI metadata
 ```
+
+## Tauri Branch — Key Facts
+
+### Platform Abstraction
+- `src/platform/index.ts` detects `'__TAURI_INTERNALS__' in window` and exports the right impl
+- `platform-web.ts` stubs keep `npm run dev` (browser) working unchanged
+- All file I/O, dialogs, exports, and recent-project state go through `platform.*`
+- Prefs stored at Tauri app data dir (`~/Library/Application Support/com.schwank.halftones/prefs.json`)
+
+### Icon Generation
+- Master SVG: `src-tauri/icons/halftones-icon.svg` (Inkscape-edited)
+- **Always regenerate via Tauri CLI** — manual ImageMagick produces 16-bit PNGs that crash on startup:
+  ```bash
+  npx @tauri-apps/cli@latest icon src-tauri/icons/halftones-icon.svg -o src-tauri/icons
+  ```
+- Commit the regenerated files, then `npm run tauri:build`
+
+### Tauri 2 Gotchas
+- Drag-drop: use `getCurrentWebview().onDragDropEvent()`, NOT `listen('tauri://file-drop')` (doesn't exist in v2)
+- `setDocumentEdited` is macOS-only; cast window to `any` and use optional chaining
+- `use tauri::Emitter` must be imported explicitly for `app.emit()` — not in prelude
+- Bundle identifier must NOT end in `.app` (`com.schwank.halftones`, not `com.halftones.app`)
+- `tauri-build` embeds icon PNGs at compile time — icon changes require a full `tauri:build`
 
 ## Key Design Decisions
 
@@ -109,3 +138,6 @@ src/
 - Circular imports: `applyDotSettings` is in its own `dot-settings.ts` to break patterns ↔ halftone cycle
 - `sourceAspect` in OutputControls is raw source aspect — doesn't account for transforms (crop/rotation)
 - Stipple in the preview hook bypasses the normal `renderHalftone` path — uses its own cached canvas + `drawImage`
+- **Output dimension clobbering on project load**: a `useEffect` watching `source` recalculates
+  `widthInches`/`heightInches` from pixel count. `applySettings()` sets `skipDimensionRecalcRef`
+  to suppress this on project load — if you add similar effects, honour the same ref.
