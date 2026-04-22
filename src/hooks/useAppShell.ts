@@ -13,6 +13,7 @@ interface AppShellDeps {
   resetToDefaults: () => void
   dirty: boolean
   markClean: () => void
+  markDirty: () => void
   isTauri: boolean
 }
 
@@ -145,6 +146,54 @@ export function useAppShell(deps: AppShellDeps) {
     }
   }, [confirmIfDirty, save, loadProjectFile])
 
+  const handleDroppedPaths = useCallback(async (paths: string[]) => {
+    if (paths.length !== 1) return  // multi-file drop → no-op per spec
+    const p = paths[0]
+    const ext = p.split('.').pop()?.toLowerCase() ?? ''
+
+    if (ext === 'halftones') {
+      const choice = await confirmIfDirty()
+      if (choice === 'cancel') return
+      if (choice === 'save') { const ok = await save(); if (!ok) return }
+      try {
+        const pf = await platform.loadProjectFromPath(p)
+        await loadProjectFile(pf, p)
+      } catch (e) {
+        alert(`Could not open file: ${(e as Error).message}`)
+      }
+    } else if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) {
+      const choice = await confirmIfDirty()
+      if (choice === 'cancel') return
+      if (choice === 'save') { const ok = await save(); if (!ok) return }
+      try {
+        const loaded = await platform.loadImageFromPath(p)
+        const blob = new Blob([loaded.bytes])
+        const url = URL.createObjectURL(blob)
+        const img = new Image()
+        await new Promise<void>((res, rej) => {
+          img.onload = () => res()
+          img.onerror = () => rej(new Error('decode failed'))
+          img.src = url
+        })
+        const canvas = document.createElement('canvas')
+        canvas.width = img.naturalWidth
+        canvas.height = img.naturalHeight
+        const ctx = canvas.getContext('2d')!
+        ctx.drawImage(img, 0, 0)
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+        URL.revokeObjectURL(url)
+        deps.resetToDefaults()
+        deps.setProjectName('untitled')
+        setCurrentPath(null)
+        deps.setSource({ imageData, width: canvas.width, height: canvas.height, fileName: loaded.fileName, rawBytes: loaded.bytes })
+        deps.markDirty()
+      } catch (e) {
+        alert(`Couldn't read dropped file: ${(e as Error).message}`)
+      }
+    }
+    // else: unsupported extension → no-op per spec
+  }, [confirmIfDirty, save, loadProjectFile, deps])
+
   // Menu subscriptions (Tauri only — web stubs are no-ops so this is safe)
   useEffect(() => {
     if (!deps.isTauri) return
@@ -159,9 +208,10 @@ export function useAppShell(deps: AppShellDeps) {
         await platform.refreshRecentMenu([])
       }),
       platform.onMenuEvent('openRecent', openRecent),
+      platform.onFileDropped(handleDroppedPaths),
     ]
     return () => unsubs.forEach(u => u())
-  }, [deps.isTauri, newProject, openProject, save, saveAs, closeProject, openRecent])
+  }, [deps.isTauri, newProject, openProject, save, saveAs, closeProject, openRecent, handleDroppedPaths])
 
   return { currentPath, prompt, setPrompt }
 }

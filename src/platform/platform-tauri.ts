@@ -319,9 +319,17 @@ export function createPlatform(): PlatformAPI {
       return () => { set!.delete(handler) }
     },
 
-    onFileDropped(_handler) {
-      // No-op: wired in Step 7
-      return () => {}
+    onFileDropped(handler) {
+      // Two sources: OS drag-drop and Finder double-click (file-opened)
+      let unlisten1: (() => void) | null = null
+      let unlisten2: (() => void) | null = null
+
+      Promise.all([
+        listen<{ paths: string[] }>('tauri://file-drop', e => handler(e.payload.paths)),
+        listen<string[]>('file-opened', e => handler(e.payload)),
+      ]).then(([u1, u2]) => { unlisten1 = u1; unlisten2 = u2 })
+
+      return () => { unlisten1?.(); unlisten2?.() }
     },
 
     async refreshRecentMenu(entries) {

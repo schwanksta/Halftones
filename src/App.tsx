@@ -79,7 +79,7 @@ function App() {
     }),
     [projectName, halftoneSettings, cmykSettings, spotSettings, outputSettings, transformSettings, source?.fileName],
   )
-  const { dirty, markClean } = useDirtyTracking(watchedKey)
+  const { dirty, markClean, markDirty } = useDirtyTracking(watchedKey)
 
   // ── Settings gather/apply/reset helpers (needed by useAppShell) ───────────
   const gatherSettings = useCallback((): AllSettings => ({
@@ -111,7 +111,7 @@ function App() {
     projectName, setProjectName,
     source, setSource,
     gatherSettings, applySettings, resetToDefaults,
-    dirty, markClean,
+    dirty, markClean, markDirty,
     isTauri,
   })
 
