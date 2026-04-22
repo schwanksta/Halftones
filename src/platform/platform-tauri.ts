@@ -1,4 +1,5 @@
 import { listen } from '@tauri-apps/api/event'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { invoke } from '@tauri-apps/api/core'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import {
@@ -325,14 +326,22 @@ export function createPlatform(): PlatformAPI {
     },
 
     onFileDropped(handler) {
-      // Two sources: OS drag-drop and Finder double-click (file-opened)
+      // Two sources:
+      //   1. OS drag-drop via the webview's onDragDropEvent (correct Tauri 2 API)
+      //   2. Finder double-click / "Open With" forwarded via Rust as "file-opened"
       let unlisten1: (() => void) | null = null
       let unlisten2: (() => void) | null = null
 
-      Promise.all([
-        listen<{ paths: string[] }>('tauri://file-drop', e => handler(e.payload.paths)),
-        listen<string[]>('file-opened', e => handler(e.payload)),
-      ]).then(([u1, u2]) => { unlisten1 = u1; unlisten2 = u2 })
+      getCurrentWebview()
+        .onDragDropEvent((e) => {
+          if (e.payload.type === 'drop') {
+            handler(e.payload.paths)
+          }
+        })
+        .then((u) => { unlisten1 = u })
+
+      listen<string[]>('file-opened', (e) => handler(e.payload))
+        .then((u) => { unlisten2 = u })
 
       return () => { unlisten1?.(); unlisten2?.() }
     },
