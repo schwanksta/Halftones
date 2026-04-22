@@ -8,6 +8,7 @@ import { renderStipple } from '../engine/stipple'
 import { renderFlat, separateSpotChannels, boostSaturation } from '../engine/spot-separation'
 import { separateChannels, compositeChannels } from '../engine/cmyk'
 import { applyTransforms } from '../engine/transform'
+import { dilateMask } from '../engine/dilate'
 import type { ChannelView } from '../types'
 import type { Viewport } from './useCanvasTransform'
 
@@ -246,6 +247,8 @@ export function useHalftonePreview(
       offCtx.fillStyle = bgColor
       offCtx.fillRect(0, 0, canvasW, canvasH)
 
+      const globalTrap = spotSettings.trap ?? 0
+
       for (const color of spotSettings.colors) {
         if (!color.enabled) continue
         const chCanvas = spotChannelCanvases.get(color.id)
@@ -270,9 +273,22 @@ export function useHalftonePreview(
           })
         }
 
+        // Trap: dilate the BW mask so this layer's ink spreads outward and
+        // bleeds under adjacent layers, hiding seams between halftone/flat.
+        // Per-color override (including 0) wins over the global value.
+        const effTrap = color.trap ?? globalTrap
+        // The trap value is in output-DPI pixels for physical WYSIWYG; scale
+        // down to viewport pixels for preview.  Enforce a 1-px minimum when
+        // trap > 0 so the effect is always visible at any zoom level.
+        const previewTrap = effTrap > 0
+          ? Math.max(1, Math.round(effTrap * renderDpi / outputSettings.dpi))
+          : 0
+        const maskCanvas = previewTrap > 0 ? dilateMask(bwCanvas, previewTrap) : bwCanvas
+
         // Colorize and composite (ink → spot color opaque, paper → transparent)
         const displayHex = boostSaturation(color.hex, spotSettings.vibrancy ?? 0)
-        const colored = colorizeSpot(bwCtx.getImageData(0, 0, canvasW, canvasH), displayHex)
+        const maskData = maskCanvas.getContext('2d')!.getImageData(0, 0, canvasW, canvasH)
+        const colored = colorizeSpot(maskData, displayHex)
         const colorCanvas = document.createElement('canvas')
         colorCanvas.width = canvasW; colorCanvas.height = canvasH
         colorCanvas.getContext('2d')!.putImageData(colored, 0, 0)
@@ -315,7 +331,7 @@ export function useHalftonePreview(
     ctx.restore()
   }, [
     canvasRef, transformed, transformedCanvas, stippleCanvas,
-    spotSettings.colors, spotSettings.vibrancy, spotChannelCanvases,
+    spotSettings.colors, spotSettings.vibrancy, spotSettings.trap, spotChannelCanvases,
     halftoneSettings, cmykSettings, channelView, outputSettings, viewport,
   ])
 

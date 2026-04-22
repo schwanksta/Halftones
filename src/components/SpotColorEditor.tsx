@@ -76,6 +76,16 @@ export function SpotColorEditor({ settings, onChange, sourceImageData, defaultLp
         />
       </div>
 
+      <div className="control-row" title="Expand each color's ink region so layers bleed into each other, hiding visible seams between halftone and flat layers. Per-color overrides this global value.">
+        <span>Trap <EditableValue value={settings.trap ?? 0} min={0} max={10} step={1} suffix="px" onChange={(v) => update({ trap: v })} /></span>
+        <input
+          type="range" min={0} max={10} step={1}
+          value={settings.trap ?? 0}
+          onChange={(e) => update({ trap: Number(e.target.value) })}
+          disabled={disabled}
+        />
+      </div>
+
       <div className="control-row">
         <span>Merge ΔE <EditableValue value={settings.mergeThreshold} min={0} max={50} step={1} onChange={(v) => update({ mergeThreshold: v })} /></span>
         <input
@@ -161,6 +171,7 @@ export function SpotColorEditor({ settings, onChange, sourceImageData, defaultLp
           color={color}
           index={idx}
           disabled={disabled}
+          globalTrap={settings.trap ?? 0}
           onChange={(partial) => updateColor(color.id, partial)}
           onRemove={() => removeColor(color.id)}
         />
@@ -175,11 +186,12 @@ interface RowProps {
   color: SpotColor
   index: number
   disabled: boolean
+  globalTrap: number
   onChange: (partial: Partial<SpotColor>) => void
   onRemove: () => void
 }
 
-function SpotColorRow({ color, index, disabled, onChange, onRemove }: RowProps) {
+function SpotColorRow({ color, index, disabled, globalTrap, onChange, onRemove }: RowProps) {
   const [expanded, setExpanded] = useState(false)
   const [hexDraft, setHexDraft] = useState(color.hex)
 
@@ -378,6 +390,49 @@ function SpotColorRow({ color, index, disabled, onChange, onRemove }: RowProps) 
               </div>
             </>
           )}
+
+          {/* Per-color trap override.  color.trap == null → inherit global. */}
+          <div className="control-row" title="Per-color trap override (px). Drag to override the global trap value for this color only.">
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              Trap
+              {color.trap == null ? (
+                <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>(global: {globalTrap})</span>
+              ) : (
+                <>
+                  <EditableValue
+                    value={color.trap}
+                    min={0}
+                    max={10}
+                    step={1}
+                    suffix="px"
+                    onChange={(v) => onChange({ trap: v })}
+                  />
+                  {!disabled && (
+                    <button
+                      onClick={() => onChange({ trap: null })}
+                      title="Use global trap value"
+                      style={{
+                        padding: '1px 4px',
+                        fontSize: 11,
+                        lineHeight: 1,
+                        borderRadius: 3,
+                        border: '1px solid var(--border)',
+                        cursor: 'pointer',
+                        background: 'none',
+                        color: 'var(--text-secondary)',
+                      }}
+                    >↺</button>
+                  )}
+                </>
+              )}
+            </span>
+            <input
+              type="range" min={0} max={10} step={1}
+              value={color.trap ?? globalTrap}
+              onChange={(e) => onChange({ trap: Number(e.target.value) })}
+              disabled={disabled}
+            />
+          </div>
 
           {/* Remove button */}
           <button

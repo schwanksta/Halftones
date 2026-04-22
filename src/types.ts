@@ -23,6 +23,12 @@ export interface SpotColor {
   /** 0–1: pixels lighter than this threshold are not inked (flat mode only) */
   threshold: number
   enabled: boolean
+  /**
+   * Per-color trap override in pixels. `null` (or undefined for older files) =
+   * use the global SpotSettings.trap value. A number here — including 0 — takes
+   * precedence over the global value for this color only.
+   */
+  trap?: number | null
 }
 
 export interface SpotSettings {
@@ -30,6 +36,14 @@ export interface SpotSettings {
   mergeThreshold: number
   /** 0–1: pushes each color's saturation toward fully vivid (preview only). */
   vibrancy: number
+  /**
+   * Global trap amount in pixels. Each color's mask is dilated (black expanded)
+   * by this many pixels before colorize, causing layers to bleed into each
+   * other and hiding visible outlines between halftone and flat layers.
+   * Interpreted as pixels in the current render target: viewport pixels in
+   * preview, output pixels at export DPI. 0 = no trap.
+   */
+  trap: number
   colors: SpotColor[]
 }
 
@@ -37,6 +51,7 @@ export const DEFAULT_SPOT_SETTINGS: SpotSettings = {
   numColors: 5,
   mergeThreshold: 15,
   vibrancy: 0,
+  trap: 0,
   colors: [],
 }
 

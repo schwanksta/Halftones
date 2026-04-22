@@ -1,10 +1,16 @@
-import { HalftoneSettings, CMYKSettings, OutputSettings, ImageTransformSettings, SpotSettings } from '../types'
+import { HalftoneSettings, CMYKSettings, OutputSettings, ImageTransformSettings, SpotSettings, SpotColor } from '../types'
 import { renderHalftone } from './halftone'
 import { separateChannels } from './cmyk'
 import { separateSpotChannels, renderFlat, boostSaturation } from './spot-separation'
 import { setPngDpi } from './png-metadata'
 import { applyTransforms } from './transform'
+import { dilateMask } from './dilate'
 import { platform } from '../platform'
+
+/** Effective trap (px at export DPI) for a color — per-color override wins. */
+function trapFor(color: SpotColor, spotSettings: SpotSettings): number {
+  return color.trap ?? spotSettings.trap ?? 0
+}
 
 interface ExportOptions {
   source: ImageData
@@ -135,7 +141,12 @@ function renderSpotChannelCanvases(
       })
     }
 
-    result.set(color.id, { canvas, label: color.name })
+    // Trap: dilate the plate so this layer's ink spreads outward, overlapping
+    // neighbouring colors on press and hiding visible paper seams.
+    const trap = trapFor(color, spotSettings)
+    const finalCanvas = trap > 0 ? dilateMask(canvas, trap) : canvas
+
+    result.set(color.id, { canvas: finalCanvas, label: color.name })
   }
 
   return result
@@ -336,14 +347,24 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
         })
       }
 
+      // Trap: dilate the BW mask before colorize so this layer bleeds into
+      // its neighbours in the proof — matches the preview and what channel
+      // plates will produce on press.
+      const trap = trapFor(color, spotSettings)
+      const maskCanvas = trap > 0 ? dilateMask(offCanvas, trap) : offCanvas
+      const maskCtx = maskCanvas.getContext('2d')!
+
       // Match preview: vibrancy slider boosts saturation of the display hex.
       // Proof is WYSIWYG of the preview, so apply it here (channel/PDF exports
       // which go to the press keep the raw hex).
       const displayHex = boostSaturation(color.hex, spotSettings.vibrancy ?? 0)
-      const colored = colorizeForOverlay(offCtx.getImageData(0, 0, targetW, targetH), displayHex)
-      offCtx.putImageData(colored, 0, 0)
+      const colored = colorizeForOverlay(maskCtx.getImageData(0, 0, targetW, targetH), displayHex)
+      const overlayCanvas = document.createElement('canvas')
+      overlayCanvas.width = targetW
+      overlayCanvas.height = targetH
+      overlayCanvas.getContext('2d')!.putImageData(colored, 0, 0)
       imgCtx.globalCompositeOperation = 'source-over'
-      imgCtx.drawImage(offCanvas, 0, 0)
+      imgCtx.drawImage(overlayCanvas, 0, 0)
     }
 
   } else {
