@@ -41,6 +41,10 @@ function App() {
 
   const { save, load, remove, projectNames, lastProjectName } = useProjectPersistence()
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // When applySettings is called (project load), suppress the dimension-recalc
+  // useEffect that fires because `source` changed — the saved widthInches/heightInches
+  // are already correct and must not be overwritten by pixel-count arithmetic.
+  const skipDimensionRecalcRef = useRef(false)
 
   // On mount, restore the last used project (web mode only — Tauri handles startup in Step 8)
   useEffect(() => {
@@ -92,6 +96,7 @@ function App() {
   }), [halftoneSettings, cmykSettings, spotSettings, outputSettings, transformSettings])
 
   const applySettings = useCallback((s: AllSettings) => {
+    skipDimensionRecalcRef.current = true
     setHalftoneSettings(s.halftone)
     setCmykSettings(s.cmyk)
     setSpotSettings(s.spot)
@@ -159,8 +164,14 @@ function App() {
 
   // Keep output width/height in sync with crop and rotation.
   // Only fires when the geometry changes (not on levels adjustments).
+  // Skipped on project load (applySettings sets the flag) because the
+  // saved widthInches/heightInches are already correct.
   useEffect(() => {
     if (!source) return
+    if (skipDimensionRecalcRef.current) {
+      skipDimensionRecalcRef.current = false
+      return
+    }
     let w = source.width, h = source.height
     if (transformSettings.rotation !== 0) {
       const rad = Math.abs(transformSettings.rotation) * Math.PI / 180
