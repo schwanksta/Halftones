@@ -155,87 +155,25 @@ export function useHalftonePreview(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transformed, halftoneSettings.colorMode, spotSeparationKey])
 
-  // ── Pre-rendered spot canvases ─────────────────────────────────────────────
+  // ── Spot channel canvases ──────────────────────────────────────────────────
   //
-  // PERF: Instead of renderFlat / renderHalftone + colorize inside the hot
-  // render loop (every animation frame), we pre-render each channel at source
-  // resolution and cache it.  The render loop then just calls drawImage — the
-  // same pattern used by the stipple engine.
-  //
-  // This memo re-runs when rendering properties change (threshold, angle, lpi,
-  // renderMode, hex) but NOT on pan/zoom.
+  // Convert per-color ImageData separations into HTMLCanvasElements so the
+  // render loop can call extractRegionFromCanvas on them.  Rendering (halftone
+  // or flat) happens inside the hot render loop at viewport DPI, which makes
+  // dots correctly rescale with zoom instead of being drawImage-scaled from a
+  // fixed source-resolution pre-render.
 
-  const spotRenderKey = useMemo(
-    () => [
-      spotSettings.colors
-        .map(c => `${c.id}:${c.enabled}:${c.renderMode}:${c.threshold}:${c.angle}:${c.lpi}:${c.hex}`)
-        .join('|'),
-      spotSettings.vibrancy ?? 0,
-    ].join('||'),
-    [spotSettings.colors, spotSettings.vibrancy],
-  )
-
-  // Also depends on global halftone settings that affect dot rendering
-  const spotHalftoneSettingsKey = useMemo(
-    () => [
-      halftoneSettings.pattern, halftoneSettings.minDot, halftoneSettings.maxDot,
-      halftoneSettings.dotGain, halftoneSettings.dotSize,
-      halftoneSettings.radialOriginX, halftoneSettings.radialOriginY,
-      outputSettings.widthInches, outputSettings.dpi,
-    ].join(':'),
-    [halftoneSettings, outputSettings],
-  )
-
-  const spotRenderedCanvases = useMemo(() => {
-    if (!spotChannels || !transformed) return null
-
-    // Render at source resolution — viewport just scales via drawImage
-    const W = transformed.width
-    const H = transformed.height
-    const sourceDpi = W / outputSettings.widthInches
-    const radialCenter = {
-      x: W * (halftoneSettings.radialOriginX ?? 0.5),
-      y: H * (halftoneSettings.radialOriginY ?? 0.5),
-    }
-
+  const spotChannelCanvases = useMemo(() => {
+    if (!spotChannels) return null
     const result = new Map<string, HTMLCanvasElement>()
-
-    for (const color of spotSettings.colors) {
-      if (!color.enabled) continue
-      const channelData = spotChannels.get(color.id)
-      if (!channelData) continue
-
-      // 1. Render black-on-white at source resolution
-      const bwCanvas = document.createElement('canvas')
-      bwCanvas.width = W; bwCanvas.height = H
-      const bwCtx = bwCanvas.getContext('2d')!
-
-      if (color.renderMode === 'flat') {
-        renderFlat(bwCtx, channelData, color.threshold)
-      } else {
-        renderHalftone(bwCtx, {
-          source: channelData,
-          settings: { ...halftoneSettings, angle: color.angle, lpi: color.lpi, fgColor: '#000000', bgColor: '#ffffff' },
-          renderDpi: sourceDpi,
-          radialCenter,
-          outputDpi: outputSettings.dpi,
-        })
-      }
-
-      // 2. Colorize: black-on-white → spot color with alpha (vibrancy boost applied)
-      const bwData = bwCtx.getImageData(0, 0, W, H)
-      const displayHex = boostSaturation(color.hex, spotSettings.vibrancy ?? 0)
-      const colored = colorizeSpot(bwData, displayHex)
-      const colorCanvas = document.createElement('canvas')
-      colorCanvas.width = W; colorCanvas.height = H
-      colorCanvas.getContext('2d')!.putImageData(colored, 0, 0)
-
-      result.set(color.id, colorCanvas)
+    for (const [id, data] of spotChannels) {
+      const c = document.createElement('canvas')
+      c.width = data.width; c.height = data.height
+      c.getContext('2d')!.putImageData(data, 0, 0)
+      result.set(id, c)
     }
-
     return result
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spotChannels, spotRenderKey, spotHalftoneSettingsKey])
+  }, [spotChannels])
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -303,21 +241,42 @@ export function useHalftonePreview(
         if (chData) offCtx.putImageData(chData, 0, 0)
       }
 
-    } else if (halftoneSettings.colorMode === 'spot' && spotSettings.colors.length > 0 && spotRenderedCanvases) {
-      // FAST PATH: pre-rendered+colorized canvases, just drawImage per channel.
+    } else if (halftoneSettings.colorMode === 'spot' && spotSettings.colors.length > 0 && spotChannelCanvases) {
+      // Render each spot channel at viewport DPI so dots rescale correctly with zoom.
       offCtx.fillStyle = bgColor
       offCtx.fillRect(0, 0, canvasW, canvasH)
 
-      // Map source-image coordinates → screen coordinates
-      const dx = -srcX * viewport.zoom
-      const dy = -srcY * viewport.zoom
-      const dw =  transformed.width  * viewport.zoom
-      const dh =  transformed.height * viewport.zoom
-
       for (const color of spotSettings.colors) {
         if (!color.enabled) continue
-        const preRendered = spotRenderedCanvases.get(color.id)
-        if (preRendered) offCtx.drawImage(preRendered, dx, dy, dw, dh)
+        const chCanvas = spotChannelCanvases.get(color.id)
+        if (!chCanvas) continue
+
+        // Extract the viewport region of this channel's separation
+        const regionData = extractRegionFromCanvas(chCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff')
+
+        // Render black-on-white at viewport DPI
+        const bwCanvas = document.createElement('canvas')
+        bwCanvas.width = canvasW; bwCanvas.height = canvasH
+        const bwCtx = bwCanvas.getContext('2d')!
+        if (color.renderMode === 'flat') {
+          renderFlat(bwCtx, regionData, color.threshold)
+        } else {
+          renderHalftone(bwCtx, {
+            source: regionData,
+            settings: { ...halftoneSettings, angle: color.angle, lpi: color.lpi, fgColor: '#000000', bgColor: '#ffffff' },
+            renderDpi,
+            radialCenter,
+            outputDpi: outputSettings.dpi,
+          })
+        }
+
+        // Colorize and composite (ink → spot color opaque, paper → transparent)
+        const displayHex = boostSaturation(color.hex, spotSettings.vibrancy ?? 0)
+        const colored = colorizeSpot(bwCtx.getImageData(0, 0, canvasW, canvasH), displayHex)
+        const colorCanvas = document.createElement('canvas')
+        colorCanvas.width = canvasW; colorCanvas.height = canvasH
+        colorCanvas.getContext('2d')!.putImageData(colored, 0, 0)
+        offCtx.drawImage(colorCanvas, 0, 0)
       }
 
     } else {
@@ -356,7 +315,7 @@ export function useHalftonePreview(
     ctx.restore()
   }, [
     canvasRef, transformed, transformedCanvas, stippleCanvas,
-    spotSettings.colors, spotRenderedCanvases,
+    spotSettings.colors, spotSettings.vibrancy, spotChannelCanvases,
     halftoneSettings, cmykSettings, channelView, outputSettings, viewport,
   ])
 
