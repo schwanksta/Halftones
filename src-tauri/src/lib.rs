@@ -1,10 +1,13 @@
 mod menu;
+mod startup;
 
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
+use startup::StartupFiles;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .manage(StartupFiles(std::sync::Mutex::new(vec![])))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
@@ -14,7 +17,10 @@ pub fn run() {
             Ok(())
         })
         .on_menu_event(menu::on_menu_event)
-        .invoke_handler(tauri::generate_handler![menu::set_recent_menu])
+        .invoke_handler(tauri::generate_handler![
+            menu::set_recent_menu,
+            startup::take_startup_files,
+        ])
         .build(tauri::generate_context!())
         .expect("error building tauri application");
 
@@ -26,6 +32,11 @@ pub fn run() {
                 .map(|p| p.to_string_lossy().to_string())
                 .collect();
             if !paths.is_empty() {
+                // Buffer first — JS drains this on startup via take_startup_files
+                if let Some(state) = app_handle.try_state::<StartupFiles>() {
+                    state.0.lock().unwrap().extend(paths.clone());
+                }
+                // Also emit for warm-reopen (when JS is already loaded)
                 let _ = app_handle.emit("file-opened", paths);
             }
         }

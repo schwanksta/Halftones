@@ -52,6 +52,8 @@ export interface PlatformAPI {
   // ── Session restore ────────────────────────────────────────────
   getLastProjectPath(): Promise<string | null>
   setLastProjectPath(path: string | null): Promise<void>
+  /** Drains file paths queued before JS was ready (cold-start file associations). */
+  getStartupFiles(): Promise<string[]>
 }
 
 export type MenuEvent =

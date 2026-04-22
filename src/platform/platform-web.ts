@@ -77,5 +77,9 @@ export function createPlatform(): PlatformAPI {
     },
 
     async setLastProjectPath(_path) {},
+
+    async getStartupFiles() {
+      return []
+    },
   }
 }

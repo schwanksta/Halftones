@@ -5,6 +5,7 @@ import { ControlPanel } from './components/ControlPanel'
 import { PreviewCanvas } from './components/PreviewCanvas'
 import { ExportBar } from './components/ExportBar'
 import { SavePromptModal } from './components/SavePromptModal'
+import { Toast } from './components/Toast'
 import { useProjectPersistence } from './hooks/useProjectPersistence'
 import { useDirtyTracking } from './hooks/useDirtyTracking'
 import { useAppShell } from './hooks/useAppShell'
@@ -106,6 +107,10 @@ function App() {
     transform: DEFAULT_TRANSFORM_SETTINGS,
   }), [applySettings])
 
+  // ── Toast notifications ───────────────────────────────────────────────────
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const showToast = useCallback((msg: string) => setToastMessage(msg), [])
+
   // ── App shell (Tauri menu handlers) ──────────────────────────────────────
   const { prompt } = useAppShell({
     projectName, setProjectName,
@@ -113,6 +118,7 @@ function App() {
     gatherSettings, applySettings, resetToDefaults,
     dirty, markClean, markDirty,
     isTauri,
+    showToast,
   })
 
   // ── Window title sync ────────────────────────────────────────────────────
@@ -185,6 +191,7 @@ function App() {
   return (
     <div className="app">
       {prompt && <SavePromptModal projectName={projectName} onChoose={prompt} />}
+      {toastMessage && <Toast message={toastMessage} onDismiss={() => setToastMessage(null)} />}
       <TopBar
         onImageLoad={handleImageLoad}
         fileName={source?.fileName}

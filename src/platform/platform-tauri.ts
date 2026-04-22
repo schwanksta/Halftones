@@ -350,5 +350,9 @@ export function createPlatform(): PlatformAPI {
       prefs.lastProjectPath = path
       await writePrefs(prefs)
     },
+
+    async getStartupFiles() {
+      return invoke<string[]>('take_startup_files')
+    },
   }
 }

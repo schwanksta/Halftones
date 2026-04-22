@@ -15,6 +15,7 @@ interface AppShellDeps {
   markClean: () => void
   markDirty: () => void
   isTauri: boolean
+  showToast: (msg: string) => void
 }
 
 export function useAppShell(deps: AppShellDeps) {
@@ -45,6 +46,7 @@ export function useAppShell(deps: AppShellDeps) {
     if (!path) return false
     setCurrentPath(path)
     deps.markClean()
+    await platform.setLastProjectPath(path)
     await platform.refreshRecentMenu(await platform.listRecent())
     return true
   }, [gatherProjectFile, deps])
@@ -56,6 +58,7 @@ export function useAppShell(deps: AppShellDeps) {
     try {
       await platform.saveProject(pf, currentPath)
       deps.markClean()
+      await platform.setLastProjectPath(currentPath)
       return true
     } catch (e) {
       console.error('Save failed:', e)
@@ -97,6 +100,7 @@ export function useAppShell(deps: AppShellDeps) {
     }
     setCurrentPath(path)
     await platform.addRecent(path, pf.name)
+    await platform.setLastProjectPath(path)
     await platform.refreshRecentMenu(await platform.listRecent())
     deps.markClean()
   }, [deps])
@@ -193,6 +197,36 @@ export function useAppShell(deps: AppShellDeps) {
     }
     // else: unsupported extension → no-op per spec
   }, [confirmIfDirty, save, loadProjectFile, deps])
+
+  // Startup restore (Tauri only — runs once on mount)
+  useEffect(() => {
+    if (!deps.isTauri) return
+
+    async function startup() {
+      // 1. Check for file-association cold-start files (buffered before JS was ready)
+      const startupFiles = await platform.getStartupFiles()
+      if (startupFiles.length > 0) {
+        await handleDroppedPaths(startupFiles)
+        return
+      }
+
+      // 2. Try to restore the last open project
+      const lastPath = await platform.getLastProjectPath()
+      if (!lastPath) return  // empty state — nothing to restore
+
+      try {
+        const pf = await platform.loadProjectFromPath(lastPath)
+        await loadProjectFile(pf, lastPath)
+      } catch {
+        // File moved or deleted — soft failure per spec §7
+        deps.showToast('Could not reopen previous project.')
+        // No setCurrentPath — stays at empty state
+      }
+    }
+
+    startup()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deps.isTauri])  // runs once; handleDroppedPaths and loadProjectFile are stable callbacks
 
   // Menu subscriptions (Tauri only — web stubs are no-ops so this is safe)
   useEffect(() => {
