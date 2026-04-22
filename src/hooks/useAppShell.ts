@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { platform } from '../platform'
 import { AllSettings, ProjectFile } from '../platform/types'
-import { SourceImage } from '../types'
+import { SourceImage, DEFAULT_TRANSFORM_SETTINGS } from '../types'
 
 interface AppShellDeps {
   projectName: string
@@ -186,7 +186,20 @@ export function useAppShell(deps: AppShellDeps) {
         ctx.drawImage(img, 0, 0)
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
         URL.revokeObjectURL(url)
-        deps.resetToDefaults()
+        // Keep current halftone/color/spot settings (same as Open Image button).
+        // Only reset transform and re-derive output dimensions from new image size.
+        // This prevents a blank preview caused by resetToDefaults() switching to
+        // grayscale mode where cellSize < 1 at fit-to-view zoom.
+        const cur = deps.gatherSettings()
+        deps.applySettings({
+          ...cur,
+          output: {
+            ...cur.output,
+            widthInches:  Math.round(canvas.width  / cur.output.dpi * 100) / 100,
+            heightInches: Math.round(canvas.height / cur.output.dpi * 100) / 100,
+          },
+          transform: DEFAULT_TRANSFORM_SETTINGS,
+        })
         deps.setProjectName('untitled')
         setCurrentPath(null)
         deps.setSource({ imageData, width: canvas.width, height: canvas.height, fileName: loaded.fileName, rawBytes: loaded.bytes })
