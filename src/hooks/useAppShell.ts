@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { platform } from '../platform'
 import { AllSettings, ProjectFile } from '../platform/types'
-import { SourceImage, DEFAULT_TRANSFORM_SETTINGS } from '../types'
+import { SourceImage, DEFAULT_TRANSFORM_SETTINGS, DEFAULT_OUTPUT_SETTINGS } from '../types'
 
 interface AppShellDeps {
   projectName: string
@@ -193,10 +193,15 @@ export function useAppShell(deps: AppShellDeps) {
         // and gives sensible print sizes for low-resolution source images
         // where pixel-count ÷ DPI would yield absurdly small dimensions.
         const cur = deps.gatherSettings()
+        // Guard against stale small paper bounds (sub-4" from a previous session).
+        const MIN_PAPER_IN = 4
+        const validBounds = cur.output.widthInches >= MIN_PAPER_IN && cur.output.heightInches >= MIN_PAPER_IN
+        const paperW = validBounds ? cur.output.widthInches  : DEFAULT_OUTPUT_SETTINGS.widthInches
+        const paperH = validBounds ? cur.output.heightInches : DEFAULT_OUTPUT_SETTINGS.heightInches
         const imgAR   = canvas.width / canvas.height
-        const paperAR = cur.output.widthInches / cur.output.heightInches
-        const fitW = imgAR > paperAR ? cur.output.widthInches  : cur.output.heightInches * imgAR
-        const fitH = imgAR > paperAR ? cur.output.widthInches / imgAR : cur.output.heightInches
+        const paperAR = paperW / paperH
+        const fitW = imgAR > paperAR ? paperW  : paperH * imgAR
+        const fitH = imgAR > paperAR ? paperW / imgAR : paperH
         deps.applySettings({
           ...cur,
           output: {

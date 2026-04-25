@@ -9,6 +9,7 @@ import { Toast } from './components/Toast'
 import { useProjectPersistence } from './hooks/useProjectPersistence'
 import { useDirtyTracking } from './hooks/useDirtyTracking'
 import { useAppShell } from './hooks/useAppShell'
+import { useUndoHistory } from './hooks/useUndoHistory'
 import { platform, isTauri } from './platform'
 import { applyTransforms } from './engine/transform'
 import {
@@ -153,6 +154,57 @@ function App() {
     transform: DEFAULT_TRANSFORM_SETTINGS,
   }), [applySettings])
 
+  // ── Undo / Redo ───────────────────────────────────────────────────────────
+  const { pushSnapshot, undo, redo, clearHistory, skipNextPushRef: undoSkipRef } = useUndoHistory(applySettings)
+
+  // Push a debounced snapshot on every settings change.
+  useEffect(() => {
+    pushSnapshot(gatherSettings())
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [halftoneSettings, cmykSettings, spotSettings, outputSettings, transformSettings])
+
+  // Clear undo history when the source image changes (new image or project
+  // load) so undo can't restore settings that don't match the current image.
+  useEffect(() => {
+    clearHistory()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source])
+
+  // Keep a ref so the keyboard listener always uses the freshest callbacks
+  // without being recreated on every settings change.
+  const undoActionsRef = useRef({ undo, redo, gatherSettings })
+  useEffect(() => { undoActionsRef.current = { undo, redo, gatherSettings } })
+
+  // Cmd/Ctrl+Z → undo, Cmd/Ctrl+Shift+Z → redo.
+  // Skipped when focus is inside a text input to avoid eating normal typing.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.metaKey && !e.ctrlKey) return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        const { undo, gatherSettings } = undoActionsRef.current
+        undo(gatherSettings())
+      } else if ((e.key === 'z' || e.key === 'Z') && e.shiftKey) {
+        e.preventDefault()
+        const { redo, gatherSettings } = undoActionsRef.current
+        redo(gatherSettings())
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, []) // stable — uses undoActionsRef
+
+  // Expose skipNextPushRef to applySettings so project/image loads don't push
+  // a redundant snapshot (applySettings is also called during undo/redo).
+  // We patch the ref directly here because useAppShell's loadProjectFile calls
+  // applySettings, and that call should not be recorded in undo history.
+  const applySettingsWithUndoSkip = useCallback((s: AllSettings) => {
+    undoSkipRef.current = true
+    applySettings(s)
+  }, [applySettings, undoSkipRef])
+
   // ── Toast notifications ───────────────────────────────────────────────────
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const showToast = useCallback((msg: string) => setToastMessage(msg), [])
@@ -161,7 +213,7 @@ function App() {
   const { prompt } = useAppShell({
     projectName, setProjectName,
     source, setSource,
-    gatherSettings, applySettings, resetToDefaults,
+    gatherSettings, applySettings: applySettingsWithUndoSkip, resetToDefaults,
     dirty, markClean, markDirty,
     isTauri,
     showToast,
@@ -176,6 +228,8 @@ function App() {
     const snapshot = load(name)
     if (!snapshot) return
     setProjectName(name)
+    // Suppress the next undo push (this is a load, not a user edit)
+    undoSkipRef.current = true
     setHalftoneSettings(snapshot.halftoneSettings)
     setCmykSettings(snapshot.cmykSettings)
     setSpotSettings(snapshot.spotSettings ?? DEFAULT_SPOT_SETTINGS)
@@ -190,7 +244,7 @@ function App() {
       cropTop: t.cropTop, cropBottom: t.cropBottom, rotation: t.rotation,
     }
     setTransformSettings(t)
-  }, [load])
+  }, [load, undoSkipRef])
 
   const handleDeleteProject = useCallback((name: string) => {
     remove(name)
@@ -204,8 +258,15 @@ function App() {
     // the source change and overwrite the fit-to-paper values below.
     skipDimensionRecalcRef.current = true
     setOutputSettings((prev) => {
+      // Guard against stale small paper bounds (e.g. from a previous session
+      // where pixelCount ÷ DPI produced sub-4" values that were auto-saved).
+      // If either dimension is suspiciously small, reset to the default paper.
+      const MIN_PAPER_IN = 4
+      const validBounds = prev.widthInches >= MIN_PAPER_IN && prev.heightInches >= MIN_PAPER_IN
+      const paperW = validBounds ? prev.widthInches  : DEFAULT_OUTPUT_SETTINGS.widthInches
+      const paperH = validBounds ? prev.heightInches : DEFAULT_OUTPUT_SETTINGS.heightInches
       const { widthInches, heightInches } = fitToPaper(
-        image.width, image.height, prev.widthInches, prev.heightInches,
+        image.width, image.height, paperW, paperH,
       )
       return { ...prev, widthInches, heightInches }
     })
