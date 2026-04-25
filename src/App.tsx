@@ -211,8 +211,6 @@ function App() {
     })
   }, [])
 
-  const sourceAspect = source ? source.width / source.height : null
-
   // Keep output width/height in sync with crop and rotation.
   // Only fires when the geometry changes (not on levels adjustments).
   // Skipped on project load / image load (caller sets skipDimensionRecalcRef).
@@ -282,6 +280,16 @@ function App() {
     if (!source) return null
     return applyTransforms(source.imageData, transformSettings)
   }, [source, transformSettings])
+
+  // Use the TRANSFORMED image's actual aspect ratio so that OutputControls'
+  // aspect-ratio lock uses the post-crop/rotation dimensions.  The raw
+  // source AR (source.width / source.height) ignores crop and rotation, so
+  // a user who crops a portrait image to landscape and then edits a
+  // dimension with the lock on would get the wrong (portrait) AR applied,
+  // snapping the output back to portrait.
+  const sourceAspect = transformedImageData
+    ? transformedImageData.width / transformedImageData.height
+    : (source ? source.width / source.height : null)
 
   return (
     <div className="app">
