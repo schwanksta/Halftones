@@ -74,6 +74,18 @@ function App() {
   // useEffect that fires because `source` changed — the saved widthInches/heightInches
   // are already correct and must not be overwritten by pixel-count arithmetic.
   const skipDimensionRecalcRef = useRef(false)
+  // Tracks the crop/rotation transform that the current output dimensions
+  // already reflect.  Used by the crop/rotation useEffect to compute how much
+  // the visible region has changed so dimensions can be scaled proportionally
+  // rather than derived from pixel-count ÷ DPI (which breaks when the load
+  // path uses fit-to-paper instead of native-DPI sizing).
+  const prevTransformRef = useRef({
+    cropLeft: DEFAULT_TRANSFORM_SETTINGS.cropLeft,
+    cropRight: DEFAULT_TRANSFORM_SETTINGS.cropRight,
+    cropTop: DEFAULT_TRANSFORM_SETTINGS.cropTop,
+    cropBottom: DEFAULT_TRANSFORM_SETTINGS.cropBottom,
+    rotation: DEFAULT_TRANSFORM_SETTINGS.rotation,
+  })
 
   // On mount, restore the last used project (web mode only — Tauri handles startup in Step 8)
   useEffect(() => {
@@ -168,7 +180,16 @@ function App() {
     setCmykSettings(snapshot.cmykSettings)
     setSpotSettings(snapshot.spotSettings ?? DEFAULT_SPOT_SETTINGS)
     setOutputSettings(snapshot.outputSettings)
-    setTransformSettings(snapshot.transformSettings)
+    // Suppress crop/rotation useEffect so saved widthInches/heightInches aren't
+    // overwritten; sync the baseline transform so the next user crop delta is
+    // computed from the correct starting point.
+    skipDimensionRecalcRef.current = true
+    const t = snapshot.transformSettings
+    prevTransformRef.current = {
+      cropLeft: t.cropLeft, cropRight: t.cropRight,
+      cropTop: t.cropTop, cropBottom: t.cropBottom, rotation: t.rotation,
+    }
+    setTransformSettings(t)
   }, [load])
 
   const handleDeleteProject = useCallback((name: string) => {
@@ -194,28 +215,61 @@ function App() {
 
   // Keep output width/height in sync with crop and rotation.
   // Only fires when the geometry changes (not on levels adjustments).
-  // Skipped on project load (applySettings sets the flag) because the
-  // saved widthInches/heightInches are already correct.
+  // Skipped on project load / image load (caller sets skipDimensionRecalcRef).
+  //
+  // Uses proportional scaling: computes the ratio of visible pixels BEFORE vs
+  // AFTER the crop/rotation change and applies that ratio to the existing
+  // output dimensions.  This is independent of DPI and works correctly whether
+  // the initial size came from fit-to-paper, native-DPI, or manual input.
   useEffect(() => {
     if (!source) return
     if (skipDimensionRecalcRef.current) {
       skipDimensionRecalcRef.current = false
+      // Sync the "previous" transform baseline to whatever was just applied
+      // (from project/image load), so the next crop delta is computed from
+      // the right starting point.
+      prevTransformRef.current = {
+        cropLeft:  transformSettings.cropLeft,
+        cropRight: transformSettings.cropRight,
+        cropTop:   transformSettings.cropTop,
+        cropBottom: transformSettings.cropBottom,
+        rotation:  transformSettings.rotation,
+      }
       return
     }
-    let w = source.width, h = source.height
-    if (transformSettings.rotation !== 0) {
-      const rad = Math.abs(transformSettings.rotation) * Math.PI / 180
-      const cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad))
-      ;[w, h] = [Math.round(w * cos + h * sin), Math.round(w * sin + h * cos)]
+
+    // Helper: compute visible pixel dimensions after rotation + crop.
+    const visiblePx = (t: typeof prevTransformRef.current) => {
+      let w = source.width, h = source.height
+      if (t.rotation !== 0) {
+        const rad = Math.abs(t.rotation) * Math.PI / 180
+        const cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad))
+        ;[w, h] = [Math.round(w * cos + h * sin), Math.round(w * sin + h * cos)]
+      }
+      const imgW = Math.max(1, w - Math.round(t.cropLeft  * w) - Math.round(t.cropRight  * w))
+      const imgH = Math.max(1, h - Math.round(t.cropTop   * h) - Math.round(t.cropBottom * h))
+      return { w: imgW, h: imgH }
     }
-    const { cropLeft, cropRight, cropTop, cropBottom } = transformSettings
-    const imgW = Math.max(1, w - Math.round(cropLeft * w) - Math.round(cropRight  * w))
-    const imgH = Math.max(1, h - Math.round(cropTop  * h) - Math.round(cropBottom * h))
-    setOutputSettings((prev) => ({
-      ...prev,
-      widthInches:  Math.round(imgW / prev.dpi * 100) / 100,
-      heightInches: Math.round(imgH / prev.dpi * 100) / 100,
+
+    const prev = prevTransformRef.current
+    const newT = {
+      cropLeft:  transformSettings.cropLeft,
+      cropRight: transformSettings.cropRight,
+      cropTop:   transformSettings.cropTop,
+      cropBottom: transformSettings.cropBottom,
+      rotation:  transformSettings.rotation,
+    }
+
+    const prevPx = visiblePx(prev)
+    const newPx  = visiblePx(newT)
+
+    setOutputSettings((prevOut) => ({
+      ...prevOut,
+      widthInches:  Math.round(prevOut.widthInches  * (newPx.w / prevPx.w) * 100) / 100,
+      heightInches: Math.round(prevOut.heightInches * (newPx.h / prevPx.h) * 100) / 100,
     }))
+
+    prevTransformRef.current = newT
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source,
     transformSettings.cropLeft, transformSettings.cropRight,
