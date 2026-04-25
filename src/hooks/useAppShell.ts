@@ -193,11 +193,10 @@ export function useAppShell(deps: AppShellDeps) {
         // and gives sensible print sizes for low-resolution source images
         // where pixel-count ÷ DPI would yield absurdly small dimensions.
         const cur = deps.gatherSettings()
-        // Guard against stale small paper bounds (sub-4" from a previous session).
-        const MIN_PAPER_IN = 4
-        const validBounds = cur.output.widthInches >= MIN_PAPER_IN && cur.output.heightInches >= MIN_PAPER_IN
-        const paperW = validBounds ? cur.output.widthInches  : DEFAULT_OUTPUT_SETTINGS.widthInches
-        const paperH = validBounds ? cur.output.heightInches : DEFAULT_OUTPUT_SETTINGS.heightInches
+        // Always fit new images into the default paper bounds so that stale
+        // output dimensions from a previous session never carry over.
+        const paperW = DEFAULT_OUTPUT_SETTINGS.widthInches
+        const paperH = DEFAULT_OUTPUT_SETTINGS.heightInches
         const imgAR   = canvas.width / canvas.height
         const paperAR = paperW / paperH
         const fitW = imgAR > paperAR ? paperW  : paperH * imgAR

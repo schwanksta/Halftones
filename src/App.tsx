@@ -258,15 +258,12 @@ function App() {
     // the source change and overwrite the fit-to-paper values below.
     skipDimensionRecalcRef.current = true
     setOutputSettings((prev) => {
-      // Guard against stale small paper bounds (e.g. from a previous session
-      // where pixelCount ÷ DPI produced sub-4" values that were auto-saved).
-      // If either dimension is suspiciously small, reset to the default paper.
-      const MIN_PAPER_IN = 4
-      const validBounds = prev.widthInches >= MIN_PAPER_IN && prev.heightInches >= MIN_PAPER_IN
-      const paperW = validBounds ? prev.widthInches  : DEFAULT_OUTPUT_SETTINGS.widthInches
-      const paperH = validBounds ? prev.heightInches : DEFAULT_OUTPUT_SETTINGS.heightInches
+      // Always fit new images into the default paper bounds so that stale
+      // output dimensions from a previous session never carry over.
+      // The user can resize after loading.
       const { widthInches, heightInches } = fitToPaper(
-        image.width, image.height, paperW, paperH,
+        image.width, image.height,
+        DEFAULT_OUTPUT_SETTINGS.widthInches, DEFAULT_OUTPUT_SETTINGS.heightInches,
       )
       return { ...prev, widthInches, heightInches }
     })
