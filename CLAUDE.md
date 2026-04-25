@@ -136,7 +136,7 @@ src/
 - `radialOriginX/Y` can be undefined from stale state — always `?? 0.5`
 - Radial `maxRadius` must use max of all 4 corner distances (not just one)
 - Circular imports: `applyDotSettings` is in its own `dot-settings.ts` to break patterns ↔ halftone cycle
-- `sourceAspect` in OutputControls is raw source aspect — doesn't account for transforms (crop/rotation)
+- `sourceAspect` in OutputControls is derived from `transformedImageData` so the aspect lock uses the post-crop/rotation ratio (NOT the raw source)
 - Stipple in the preview hook bypasses the normal `renderHalftone` path — uses its own cached canvas + `drawImage`
 - **Output dimension clobbering on project load**: a `useEffect` watching `source` recalculates
   `widthInches`/`heightInches` from pixel count. `applySettings()` sets `skipDimensionRecalcRef`
