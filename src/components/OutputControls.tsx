@@ -76,6 +76,16 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
         <span>Lock aspect ratio</span>
       </label>
 
+      <label className="control-row" style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+        <input
+          type="checkbox"
+          checked={settings.cropMarks !== false}
+          onChange={(e) => onChange({ ...settings, cropMarks: e.target.checked })}
+          disabled={disabled}
+        />
+        <span>Crop marks (PDF)</span>
+      </label>
+
       <label className="control-row">
         <span>DPI</span>
         <div style={{ display: 'flex', gap: 4 }}>

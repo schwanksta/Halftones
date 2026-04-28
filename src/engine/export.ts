@@ -446,7 +446,8 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
   const margin = (outputSettings.marginInches != null && isFinite(outputSettings.marginInches))
     ? outputSettings.marginInches
     : 1
-  const cropMarkPts = 0.5 * 72
+  const showCropMarks = outputSettings.cropMarks !== false
+  const cropMarkPts = showCropMarks ? 0.5 * 72 : 0
   const marginPts   = margin * 72
   const imageWPts   = widthInches  * 72
   const imageHPts   = heightInches * 72
@@ -488,7 +489,7 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
         : `Halftone — ${color?.angle ?? 45}° @ ${color?.lpi ?? 55} LPI`
 
       pdf.text(`${label} — ${modeLabel}`, imgOffX, pieceY0 - 6)
-      drawCropMarks(pdf, pieceX0, pieceY0, pieceX1, pieceY1, cropMarkPts)
+      if (showCropMarks) drawCropMarks(pdf, pieceX0, pieceY0, pieceX1, pieceY1, cropMarkPts)
     }
   } else if (halftoneSettings.colorMode === 'cmyk') {
     const channelCanvases = renderChannelCanvases(options)
@@ -511,13 +512,13 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
         pieceY0 - 6,
       )
 
-      drawCropMarks(pdf, pieceX0, pieceY0, pieceX1, pieceY1, cropMarkPts)
+      if (showCropMarks) drawCropMarks(pdf, pieceX0, pieceY0, pieceX1, pieceY1, cropMarkPts)
     }
   } else {
     const canvas = renderFullRes(options)
     const imgData = canvas.toDataURL('image/png')
     pdf.addImage(imgData, 'PNG', imgOffX, imgOffY, imageWPts, imageHPts)
-    drawCropMarks(pdf, pieceX0, pieceY0, pieceX1, pieceY1, cropMarkPts)
+    if (showCropMarks) drawCropMarks(pdf, pieceX0, pieceY0, pieceX1, pieceY1, cropMarkPts)
   }
 
   const stem = toStem(options.projectName, options.halftoneSettings.pattern)

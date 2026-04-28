@@ -98,6 +98,8 @@ export interface OutputSettings {
   lockAspectRatio: boolean
   /** Margin around the image for registration/crop marks, in inches. */
   marginInches: number
+  /** Whether to include crop marks in PDF export. Defaults to true. */
+  cropMarks?: boolean
 }
 
 export interface ImageTransformSettings {
@@ -156,6 +158,7 @@ export const DEFAULT_OUTPUT_SETTINGS: OutputSettings = {
   dpi: 300,
   lockAspectRatio: true,
   marginInches: 1,
+  cropMarks: true,
 }
 
 export type CMYKChannel = 'c' | 'm' | 'y' | 'k'
