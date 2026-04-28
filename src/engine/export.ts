@@ -447,8 +447,9 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
     ? outputSettings.marginInches
     : 1
   const showCropMarks = outputSettings.cropMarks !== false
+  const showMargin    = outputSettings.showMargin !== false
   const cropMarkPts = showCropMarks ? 0.5 * 72 : 0
-  const marginPts   = margin * 72
+  const marginPts   = showMargin ? margin * 72 : 0
   const imageWPts   = widthInches  * 72
   const imageHPts   = heightInches * 72
 
