@@ -75,6 +75,7 @@ export function renderHalftone(
   const cellSize = renderDpi / lpi
 
   if (pattern === 'radial' || pattern === 'radial-lines') {
+    if (cellSize < 1) return   // sub-pixel cell → millions of arcs → hang
     const cx = radialCenter?.x ?? width / 2
     const cy = radialCenter?.y ?? height / 2
     if (pattern === 'radial') renderRadial(source, ctx, cellSize, cx, cy, settings, fgColor, bgColor)
