@@ -2,29 +2,36 @@ import { OutputSettings } from '../types'
 
 interface Props {
   settings: OutputSettings
-  sourceAspect: number | null
+  sourceAspect: number | null   // kept for API compatibility; no longer used internally
   onChange: (settings: OutputSettings) => void
   disabled: boolean
 }
 
 const DPI_PRESETS = [150, 300, 600]
 
-export function OutputControls({ settings, sourceAspect, onChange, disabled }: Props) {
+export function OutputControls({ settings, onChange, disabled }: Props) {
   const pixelWidth = Math.round(settings.widthInches * settings.dpi)
   const pixelHeight = Math.round(settings.heightInches * settings.dpi)
 
+  // Aspect-ratio lock maintains the *current output ratio*, not the image's
+  // natural ratio.  Using the image AR caused wild jumps whenever the saved
+  // project dimensions didn't exactly match the image's native proportions.
+  const currentAR = settings.heightInches > 0
+    ? settings.widthInches / settings.heightInches
+    : null
+
   const updateWidth = (w: number) => {
     const next = { ...settings, widthInches: w }
-    if (settings.lockAspectRatio && sourceAspect) {
-      next.heightInches = Math.round((w / sourceAspect) * 100) / 100
+    if (settings.lockAspectRatio && currentAR) {
+      next.heightInches = Math.round((w / currentAR) * 100) / 100
     }
     onChange(next)
   }
 
   const updateHeight = (h: number) => {
     const next = { ...settings, heightInches: h }
-    if (settings.lockAspectRatio && sourceAspect) {
-      next.widthInches = Math.round(h * sourceAspect * 100) / 100
+    if (settings.lockAspectRatio && currentAR) {
+      next.widthInches = Math.round(h * currentAR * 100) / 100
     }
     onChange(next)
   }
