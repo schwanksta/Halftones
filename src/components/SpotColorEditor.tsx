@@ -371,9 +371,9 @@ function SpotColorRow({ color, index, disabled, globalTrap, onChange, onRemove }
           {color.renderMode === 'halftone' && (
             <>
               <div className="control-row">
-                <span>LPI <EditableValue value={color.lpi} min={10} max={100} step={1} onChange={(v) => onChange({ lpi: v })} /></span>
+                <span>LPI <EditableValue value={color.lpi} min={1} max={100} step={1} onChange={(v) => onChange({ lpi: v })} /></span>
                 <input
-                  type="range" min={10} max={100}
+                  type="range" min={1} max={100}
                   value={color.lpi}
                   onChange={(e) => onChange({ lpi: Number(e.target.value) })}
                   disabled={disabled}

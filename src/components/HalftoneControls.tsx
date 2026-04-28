@@ -64,7 +64,7 @@ export function HalftoneControls({ settings, onChange, disabled }: Props) {
               {isStipple ? 'Density' : 'LPI'}{' '}
               <EditableValue
                 value={settings.lpi}
-                min={isStipple ? 5 : 10}
+                min={isStipple ? 5 : 1}
                 max={isStipple ? 80 : 100}
                 step={1}
                 suffix={isStipple ? ' dpi' : ''}
@@ -73,7 +73,7 @@ export function HalftoneControls({ settings, onChange, disabled }: Props) {
             </span>
             <input
               type="range"
-              min={isStipple ? 5 : 10}
+              min={isStipple ? 5 : 1}
               max={isStipple ? 80 : 100}
               value={settings.lpi}
               onChange={(e) => update({ lpi: Number(e.target.value) })}
