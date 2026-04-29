@@ -102,6 +102,8 @@ export interface OutputSettings {
   cropMarks?: boolean
   /** Whether to include the margin in PDF export. Defaults to true. */
   showMargin?: boolean
+  /** Render dots/lines as PDF vector paths instead of an embedded raster image. Defaults to true. */
+  vectorPDF?: boolean
 }
 
 export interface ImageTransformSettings {
@@ -162,6 +164,7 @@ export const DEFAULT_OUTPUT_SETTINGS: OutputSettings = {
   marginInches: 1,
   cropMarks: true,
   showMargin: true,
+  vectorPDF: true,
 }
 
 export type CMYKChannel = 'c' | 'm' | 'y' | 'k'

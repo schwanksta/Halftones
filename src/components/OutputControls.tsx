@@ -96,6 +96,16 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
         <span>Margin (PDF)</span>
       </label>
 
+      <label className="control-row" style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+        <input
+          type="checkbox"
+          checked={settings.vectorPDF !== false}
+          onChange={(e) => onChange({ ...settings, vectorPDF: e.target.checked })}
+          disabled={disabled}
+        />
+        <span>Vector PDF (dots/lines)</span>
+      </label>
+
       <label className="control-row">
         <span>DPI</span>
         <div style={{ display: 'flex', gap: 4 }}>

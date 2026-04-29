@@ -6,6 +6,8 @@ import { setPngDpi } from './png-metadata'
 import { applyTransforms } from './transform'
 import { dilateMask } from './dilate'
 import { platform } from '../platform'
+import { precomputeGrayscale, sampleGray } from './sampling'
+import { applyDotSettings } from './dot-settings'
 
 /** Effective trap (px at export DPI) for a color — per-color override wins. */
 function trapFor(color: SpotColor, spotSettings: SpotSettings): number {
@@ -438,6 +440,203 @@ export async function exportChannelPNGs(options: ExportOptions): Promise<void> {
   await platform.exportChannelsWithDialog(entries, stem)
 }
 
+// ─── Vector PDF rendering ─────────────────────────────────────────────────────
+
+/**
+ * Patterns that can be rendered as PDF vector paths.
+ * Others fall back to the raster (PNG-embed) path.
+ */
+const VECTOR_PATTERNS = new Set(['dot', 'hex', 'ellipse', 'diamond', 'line', 'euclidean', 'radial-lines'])
+
+type JsPDF = InstanceType<typeof import('jspdf').jsPDF>
+
+/**
+ * Render a grayscale halftone layer directly as vector PDF paths.
+ * Uses the same grid iteration as the canvas renderer; emits jsPDF
+ * draw calls instead of Path2D.  Only called for VECTOR_PATTERNS.
+ */
+function renderVectorLayer(
+  source: ImageData,
+  pdf: JsPDF,
+  halftoneSettings: HalftoneSettings,
+  outputSettings: OutputSettings,
+  imgOffX: number,
+  imgOffY: number,
+  imageWPts: number,
+  imageHPts: number,
+) {
+  const { lpi, angle, pattern } = halftoneSettings
+  const { width, height } = source
+
+  // Cell size in source-image pixels (not output pixels)
+  const sourcePixelsPerInch = width / outputSettings.widthInches
+  const cellSizePx = sourcePixelsPerInch / lpi
+  if (cellSizePx < 0.5) return  // too fine to be useful
+
+  // Scale from source pixels → PDF points
+  const pxToPtX = imageWPts / width
+  const pxToPtY = imageHPts / height
+
+  const gray = precomputeGrayscale(source)
+  const angleRad = (angle * Math.PI) / 180
+  const cos = Math.cos(angleRad)
+  const sin = Math.sin(angleRad)
+
+  const isHex = pattern === 'hex'
+  const rowSpacing = isHex ? cellSizePx * (Math.sqrt(3) / 2) : cellSizePx
+  const diagonal   = Math.sqrt(width * width + height * height)
+  const gridCols   = Math.ceil(diagonal / cellSizePx) + 2
+  const gridRows   = Math.ceil(diagonal / rowSpacing) + 2
+  const offsetX    = width  / 2
+  const offsetY    = height / 2
+
+  pdf.setFillColor(0, 0, 0)
+  pdf.setDrawColor(0, 0, 0)
+
+  for (let row = -gridRows; row <= gridRows; row++) {
+    for (let col = -gridCols; col <= gridCols; col++) {
+      const hexOffset = isHex && row % 2 !== 0 ? cellSizePx / 2 : 0
+      const gx = col * cellSizePx + hexOffset
+      const gy = row * rowSpacing
+      const ix = gx * cos - gy * sin + offsetX
+      const iy = gx * sin + gy * cos + offsetY
+
+      if (ix < -cellSizePx || ix > width  + cellSizePx) continue
+      if (iy < -cellSizePx || iy > height + cellSizePx) continue
+
+      const brightness  = sampleGray(gray, width, height, ix, iy, cellSizePx)
+      const rawDarkness = 1 - brightness
+      const darkness    = applyDotSettings(rawDarkness, halftoneSettings)
+      if (darkness === null || darkness < 0.01) continue
+
+      const pdfX = imgOffX + ix * pxToPtX
+      const pdfY = imgOffY + iy * pxToPtY
+
+      if (pattern === 'dot' || pattern === 'hex') {
+        const r = (cellSizePx * 0.5) * Math.sqrt(darkness)
+        const rPt = r * pxToPtX
+        if (rPt < 0.05) continue
+        pdf.circle(pdfX, pdfY, rPt, 'F')
+
+      } else if (pattern === 'euclidean') {
+        if (darkness <= 0.5) {
+          const r = (cellSizePx * 0.5) * Math.sqrt(darkness * 2)
+          const rPt = r * pxToPtX
+          if (rPt < 0.05) continue
+          pdf.circle(pdfX, pdfY, rPt, 'F')
+        } else {
+          // Dark cell with white punch-out circle
+          const half = (cellSizePx * 0.5) * pxToPtX
+          pdf.rect(pdfX - half, pdfY - half, half * 2, half * 2, 'F')
+          const r = (cellSizePx * 0.5) * Math.sqrt((1 - darkness) * 2)
+          const rPt = r * pxToPtX
+          if (rPt >= 0.05) {
+            pdf.setFillColor(255, 255, 255)
+            pdf.circle(pdfX, pdfY, rPt, 'F')
+            pdf.setFillColor(0, 0, 0)
+          }
+        }
+
+      } else if (pattern === 'ellipse') {
+        const maxR = cellSizePx * 0.48
+        const ry   = maxR * Math.sqrt(darkness)
+        const rx   = ry * 1.5
+        if (rx * pxToPtX < 0.05) continue
+        pdf.ellipse(pdfX, pdfY, rx * pxToPtX, ry * pxToPtY, 'F')
+
+      } else if (pattern === 'diamond') {
+        const h   = (cellSizePx * 0.5) * Math.sqrt(darkness)
+        const hPt = h * pxToPtX
+        if (hPt < 0.05) continue
+        // Diamond: four vertices relative to (pdfX - hPt, pdfY)
+        pdf.lines([[hPt, -hPt], [hPt, hPt], [-hPt, hPt]], pdfX - hPt, pdfY, [1, 1], 'F', true)
+
+      } else if (pattern === 'line') {
+        const thickness = cellSizePx * darkness
+        if (thickness < 0.1) continue
+        const halfLen = (cellSizePx * 0.75) / 2
+        const lx = Math.cos(angleRad) * halfLen
+        const ly = Math.sin(angleRad) * halfLen
+        pdf.setLineWidth(thickness * pxToPtX)
+        pdf.line(pdfX - lx * pxToPtX, pdfY - ly * pxToPtY,
+                 pdfX + lx * pxToPtX, pdfY + ly * pxToPtY)
+      }
+    }
+  }
+
+  if (pattern === 'radial-lines') {
+    // Radial arc segments — each arc drawn as a cubic bezier approximation.
+    // Uses the same geometry as renderRadialLines() in patterns.ts.
+    const cx = width  * (halftoneSettings.radialOriginX ?? 0.5)
+    const cy = height * (halftoneSettings.radialOriginY ?? 0.5)
+    const cxPdf = imgOffX + cx * pxToPtX
+    const cyPdf = imgOffY + cy * pxToPtY
+
+    const maxRadius = Math.max(
+      Math.sqrt(cx * cx + cy * cy),
+      Math.sqrt((width - cx) ** 2 + cy * cy),
+      Math.sqrt(cx * cx + (height - cy) ** 2),
+      Math.sqrt((width - cx) ** 2 + (height - cy) ** 2),
+    ) + cellSizePx
+
+    pdf.setDrawColor(0, 0, 0)
+    pdf.setLineCap('round')
+
+    for (let ring = 1; ring * cellSizePx <= maxRadius; ring++) {
+      const radius = ring * cellSizePx
+      const circumference = 2 * Math.PI * radius
+      const numSegments = Math.max(6, Math.round(circumference / cellSizePx))
+      const angleStep = (2 * Math.PI) / numSegments
+      // Bezier control point coefficient for this arc span
+      const k = (4 / 3) * Math.tan(angleStep / 4)
+
+      // Ellipse radii in PDF points (handles non-square px→pt scaling)
+      const rPtX = radius * pxToPtX
+      const rPtY = radius * pxToPtY
+
+      for (let seg = 0; seg < numSegments; seg++) {
+        const α = seg * angleStep
+        const β = α + angleStep
+        const midAngle = α + angleStep / 2
+
+        // Sample brightness at arc midpoint
+        const px = cx + radius * Math.cos(midAngle)
+        const py = cy + radius * Math.sin(midAngle)
+        if (px < -cellSizePx || px > width + cellSizePx) continue
+        if (py < -cellSizePx || py > height + cellSizePx) continue
+
+        const brightness  = sampleGray(gray, width, height, px, py, cellSizePx)
+        const rawDarkness = 1 - brightness
+        const darkness    = applyDotSettings(rawDarkness, halftoneSettings)
+        if (darkness === null || darkness < 0.01) continue
+
+        const strokeWidthPt = cellSizePx * darkness * pxToPtX
+        if (strokeWidthPt < 0.05) continue
+
+        // Bezier control points for an elliptical arc α→β
+        // P0/P3 are arc endpoints; P1/P2 are control points using
+        // the tangent vectors scaled by k.
+        const p0x = cxPdf + rPtX * Math.cos(α)
+        const p0y = cyPdf + rPtY * Math.sin(α)
+        const p3x = cxPdf + rPtX * Math.cos(β)
+        const p3y = cyPdf + rPtY * Math.sin(β)
+        const p1x = p0x - k * rPtX * Math.sin(α)
+        const p1y = p0y + k * rPtY * Math.cos(α)
+        const p2x = p3x + k * rPtX * Math.sin(β)
+        const p2y = p3y - k * rPtY * Math.cos(β)
+
+        pdf.setLineWidth(strokeWidthPt)
+        pdf.moveTo(p0x, p0y)
+        pdf.curveTo(p1x, p1y, p2x, p2y, p3x, p3y)
+        pdf.stroke()
+      }
+    }
+
+    // Restore default line cap for any subsequent drawing
+    pdf.setLineCap('butt')
+  }
+}
+
 export async function exportPDF(options: ExportOptions): Promise<void> {
   const { default: jsPDF } = await import('jspdf')
   const { halftoneSettings, cmykSettings, spotSettings, outputSettings } = options
@@ -516,9 +715,25 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
       if (showCropMarks) drawCropMarks(pdf, pieceX0, pieceY0, pieceX1, pieceY1, cropMarkPts)
     }
   } else {
-    const canvas = renderFullRes(options)
-    const imgData = canvas.toDataURL('image/png')
-    pdf.addImage(imgData, 'PNG', imgOffX, imgOffY, imageWPts, imageHPts)
+    const useVector = outputSettings.vectorPDF !== false
+      && VECTOR_PATTERNS.has(halftoneSettings.pattern)
+
+    if (useVector) {
+      const targetWidth  = Math.round(widthInches  * outputSettings.dpi)
+      const targetHeight = Math.round(heightInches * outputSettings.dpi)
+      const transformed  = applyTransforms(options.source, options.transformSettings)
+      const scaled       = scaleImageData(transformed, targetWidth, targetHeight)
+
+      // White background for the image area
+      pdf.setFillColor(255, 255, 255)
+      pdf.rect(imgOffX, imgOffY, imageWPts, imageHPts, 'F')
+
+      renderVectorLayer(scaled, pdf, bwSettings(halftoneSettings), outputSettings, imgOffX, imgOffY, imageWPts, imageHPts)
+    } else {
+      const canvas = renderFullRes(options)
+      const imgData = canvas.toDataURL('image/png')
+      pdf.addImage(imgData, 'PNG', imgOffX, imgOffY, imageWPts, imageHPts)
+    }
     if (showCropMarks) drawCropMarks(pdf, pieceX0, pieceY0, pieceX1, pieceY1, cropMarkPts)
   }
 
