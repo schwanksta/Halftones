@@ -141,23 +141,21 @@ export function useHalftonePreview(
   // We derive a stable string key from just the parts that affect separation:
   // color IDs and LAB values.  Rendering properties are excluded from this key.
 
-  // Separation key: includes enabled so toggling a color re-separates.
-  // Disabled colors are excluded from the color set entirely — pixels that
-  // would have matched them get reassigned to the nearest *enabled* color,
-  // which makes the preview composite match what the export will produce.
   const spotSeparationKey = useMemo(
-    () => spotSettings.colors.map(c => `${c.id}:${c.lab.join(',')}:${c.enabled}`).join('|'),
+    () => spotSettings.colors.map(c => `${c.id}:${c.lab.join(',')}`).join('|'),
     [spotSettings.colors],
   )
 
   const spotChannels = useMemo(() => {
-    const enabledColors = spotSettings.colors.filter(c => c.enabled)
-    if (!transformed || halftoneSettings.colorMode !== 'spot' || !enabledColors.length) {
+    if (!transformed || halftoneSettings.colorMode !== 'spot' || !spotSettings.colors.length) {
       return null
     }
-    return separateSpotChannels(transformed, enabledColors)
+    // Separate ALL colors (including disabled) so each pixel is claimed by its
+    // true nearest color.  Disabled colors are simply not rendered, leaving
+    // their pixels as paper/white — matching the intended export behavior.
+    return separateSpotChannels(transformed, spotSettings.colors)
     // spotSeparationKey intentionally stands in for spotSettings.colors —
-    // LAB values + IDs + enabled flag all gate re-separation.
+    // only LAB values + IDs gate re-separation.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transformed, halftoneSettings.colorMode, spotSeparationKey])
 
