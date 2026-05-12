@@ -99,6 +99,16 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
       <label className="control-row" style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
         <input
           type="checkbox"
+          checked={!!settings.alignmentMarks}
+          onChange={(e) => onChange({ ...settings, alignmentMarks: e.target.checked })}
+          disabled={disabled}
+        />
+        <span>Alignment marks (PDF)</span>
+      </label>
+
+      <label className="control-row" style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+        <input
+          type="checkbox"
           checked={settings.vectorPDF !== false}
           onChange={(e) => onChange({ ...settings, vectorPDF: e.target.checked })}
           disabled={disabled}

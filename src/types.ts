@@ -104,6 +104,8 @@ export interface OutputSettings {
   showMargin?: boolean
   /** Render dots/lines as PDF vector paths instead of an embedded raster image. Defaults to true. */
   vectorPDF?: boolean
+  /** Draw registration marks (circle + crosshair) at side midpoints for multi-layer alignment. */
+  alignmentMarks?: boolean
 }
 
 export interface ImageTransformSettings {
@@ -165,6 +167,7 @@ export const DEFAULT_OUTPUT_SETTINGS: OutputSettings = {
   cropMarks: true,
   showMargin: true,
   vectorPDF: true,
+  alignmentMarks: false,
 }
 
 export type CMYKChannel = 'c' | 'm' | 'y' | 'k'

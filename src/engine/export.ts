@@ -652,8 +652,9 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
   const margin = (outputSettings.marginInches != null && isFinite(outputSettings.marginInches))
     ? outputSettings.marginInches
     : 1
-  const showCropMarks = outputSettings.cropMarks !== false
-  const showMargin    = outputSettings.showMargin !== false
+  const showCropMarks    = outputSettings.cropMarks !== false
+  const showMargin       = outputSettings.showMargin !== false
+  const showAlignMarks   = !!outputSettings.alignmentMarks
   const cropMarkPts = showCropMarks ? 0.5 * 72 : 0
   const marginPts   = showMargin ? margin * 72 : 0
   const imageWPts   = widthInches  * 72
@@ -697,6 +698,7 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
 
       pdf.text(`${label} — ${modeLabel}`, imgOffX, pieceY0 - 6)
       if (showCropMarks) drawCropMarks(pdf, pieceX0, pieceY0, pieceX1, pieceY1, cropMarkPts)
+      if (showAlignMarks) drawAlignmentMarks(pdf, imgOffX, imgOffY, imageWPts, imageHPts, marginPts, cropMarkPts)
     }
   } else if (halftoneSettings.colorMode === 'cmyk') {
     const channelCanvases = renderChannelCanvases(options)
@@ -720,6 +722,7 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
       )
 
       if (showCropMarks) drawCropMarks(pdf, pieceX0, pieceY0, pieceX1, pieceY1, cropMarkPts)
+      if (showAlignMarks) drawAlignmentMarks(pdf, imgOffX, imgOffY, imageWPts, imageHPts, marginPts, cropMarkPts)
     }
   } else {
     const useVector = outputSettings.vectorPDF !== false
@@ -751,6 +754,48 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Draw screenprint registration marks (circle + crosshair) at the midpoint
+ * of each side of the image, centred in the available border space.
+ * Used on every plate so layers can be aligned on press.
+ */
+function drawAlignmentMarks(
+  pdf: InstanceType<typeof import('jspdf').jsPDF>,
+  imgOffX: number,
+  imgOffY: number,
+  imageWPts: number,
+  imageHPts: number,
+  marginPts: number,
+  cropMarkPts: number,
+) {
+  const border = marginPts + cropMarkPts
+  if (border < 6) return  // no room
+
+  // Centre the mark in the border strip on each side
+  const offset = border / 2
+  const radius = Math.min(10, border * 0.36)   // ≤ 10 pt (~0.14")
+  const armLen = radius * 1.7                  // crosshair extends beyond circle
+
+  const cx = imgOffX + imageWPts / 2
+  const cy = imgOffY + imageHPts / 2
+
+  const positions = [
+    { x: cx,                              y: imgOffY - offset },              // top
+    { x: cx,                              y: imgOffY + imageHPts + offset },  // bottom
+    { x: imgOffX - offset,                y: cy },                            // left
+    { x: imgOffX + imageWPts + offset,    y: cy },                            // right
+  ]
+
+  pdf.setDrawColor(0, 0, 0)
+  pdf.setLineWidth(0.5)
+
+  for (const { x, y } of positions) {
+    pdf.circle(x, y, radius, 'S')                 // ring
+    pdf.line(x - armLen, y, x + armLen, y)        // horizontal arm
+    pdf.line(x, y - armLen, x, y + armLen)        // vertical arm
+  }
+}
 
 function drawCropMarks(
   pdf: InstanceType<typeof import('jspdf').jsPDF>,
