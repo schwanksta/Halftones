@@ -767,14 +767,14 @@ function drawAlignmentMarks(
   imageWPts: number,
   imageHPts: number,
   marginPts: number,
-  cropMarkPts: number,
+  _cropMarkPts: number,
 ) {
-  const border = marginPts + cropMarkPts
-  if (border < 6) return  // no room
+  // Marks must live in the margin (inside the crop cut line) so they
+  // survive trimming and remain on the finished print for alignment.
+  if (marginPts < 6) return  // no usable margin
 
-  // Centre the mark in the border strip on each side
-  const offset = border / 2
-  const radius = Math.min(10, border * 0.36)   // ≤ 10 pt (~0.14")
+  const offset = marginPts / 2                    // centre of the margin strip
+  const radius = Math.min(10, marginPts * 0.36)  // ≤ 10 pt (~0.14")
   const armLen = radius * 1.7                  // crosshair extends beyond circle
 
   const cx = imgOffX + imageWPts / 2
