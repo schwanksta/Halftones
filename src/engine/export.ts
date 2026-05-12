@@ -767,33 +767,37 @@ function drawAlignmentMarks(
   imageWPts: number,
   imageHPts: number,
   marginPts: number,
-  _cropMarkPts: number,
+  cropMarkPts: number,
 ) {
-  // Marks must live in the margin (inside the crop cut line) so they
-  // survive trimming and remain on the finished print for alignment.
-  if (marginPts < 6) return  // no usable margin
+  // Marks live in the crop-mark waste strip (outside the cut line) so they
+  // are removed when the piece is trimmed — never inside the margin.
+  if (cropMarkPts < 6) return  // no waste strip to place marks in
 
-  const offset = marginPts / 2                    // centre of the margin strip
-  const radius = Math.min(10, marginPts * 0.36)  // ≤ 10 pt (~0.14")
-  const armLen = radius * 1.7                  // crosshair extends beyond circle
+  // Centre of each waste strip, at the midpoint of the image edge.
+  // imgOffX = cropMarkPts + marginPts, so:
+  //   left waste centre  = cropMarkPts / 2
+  //   right waste centre = imgOffX + imageWPts + marginPts + cropMarkPts / 2
+  const half = cropMarkPts / 2
+  const radius = Math.min(10, cropMarkPts * 0.36)
+  const armLen = radius * 1.7
 
   const cx = imgOffX + imageWPts / 2
   const cy = imgOffY + imageHPts / 2
 
   const positions = [
-    { x: cx,                              y: imgOffY - offset },              // top
-    { x: cx,                              y: imgOffY + imageHPts + offset },  // bottom
-    { x: imgOffX - offset,                y: cy },                            // left
-    { x: imgOffX + imageWPts + offset,    y: cy },                            // right
+    { x: cx,                                            y: half },                                          // top
+    { x: cx,                                            y: imgOffY + imageHPts + marginPts + half },        // bottom
+    { x: half,                                          y: cy },                                            // left
+    { x: imgOffX + imageWPts + marginPts + half,        y: cy },                                            // right
   ]
 
   pdf.setDrawColor(0, 0, 0)
   pdf.setLineWidth(0.5)
 
   for (const { x, y } of positions) {
-    pdf.circle(x, y, radius, 'S')                 // ring
-    pdf.line(x - armLen, y, x + armLen, y)        // horizontal arm
-    pdf.line(x, y - armLen, x, y + armLen)        // vertical arm
+    pdf.circle(x, y, radius, 'S')
+    pdf.line(x - armLen, y, x + armLen, y)
+    pdf.line(x, y - armLen, x, y + armLen)
   }
 }
 
