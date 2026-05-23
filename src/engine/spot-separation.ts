@@ -477,6 +477,8 @@ export function separateSpotChannels(
 
   for (let i = 0; i < n; i++) {
     const p = i * 4
+    // Transparent pixels → no ink on any plate; leave all buffers at 255.
+    if (data[p + 3] < 128) continue
     const r = data[p], g = data[p + 1], b = data[p + 2]
     const pixLab = rgbToLab(r, g, b)
 

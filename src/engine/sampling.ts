@@ -8,7 +8,10 @@ export function precomputeGrayscale(source: ImageData): Uint8Array {
   const gray = new Uint8Array(len)
   for (let i = 0; i < len; i++) {
     const j = i * 4
-    gray[i] = (77 * data[j] + 150 * data[j + 1] + 29 * data[j + 2]) >> 8
+    // Treat transparent pixels as paper (255) so they produce no halftone dots.
+    gray[i] = data[j + 3] < 128
+      ? 255
+      : (77 * data[j] + 150 * data[j + 1] + 29 * data[j + 2]) >> 8
   }
   return gray
 }

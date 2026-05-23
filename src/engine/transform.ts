@@ -84,10 +84,6 @@ function cropImageData(
   cropCanvas.width = newWidth
   cropCanvas.height = newHeight
   const cropCtx = cropCanvas.getContext('2d')!
-  // Fill white so transparent pixels in the source (PNG cut-outs) composite
-  // onto white rather than remaining transparent (which halftone reads as black).
-  cropCtx.fillStyle = '#ffffff'
-  cropCtx.fillRect(0, 0, newWidth, newHeight)
   cropCtx.drawImage(canvas, x0, y0, newWidth, newHeight, 0, 0, newWidth, newHeight)
 
   return cropCtx.getImageData(0, 0, newWidth, newHeight)

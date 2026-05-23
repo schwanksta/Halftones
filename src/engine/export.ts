@@ -45,10 +45,6 @@ function scaleImageData(source: ImageData, targetWidth: number, targetHeight: nu
   dstCanvas.width = targetWidth
   dstCanvas.height = targetHeight
   const dstCtx = dstCanvas.getContext('2d')!
-  // Fill white before compositing so transparent source pixels (PNG cut-outs)
-  // become opaque white instead of being read as black by precomputeGrayscale.
-  dstCtx.fillStyle = '#ffffff'
-  dstCtx.fillRect(0, 0, targetWidth, targetHeight)
   dstCtx.drawImage(srcCanvas, 0, 0, targetWidth, targetHeight)
 
   return dstCtx.getImageData(0, 0, targetWidth, targetHeight)
