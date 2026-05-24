@@ -68,10 +68,13 @@ vec2 rotate2(vec2 p, float a) {
 
 /** Sample the source image at an (x,y) pixel coordinate in destination space.
  *  Source is uploaded at exactly the destination size (we extract the viewport
- *  region on CPU before upload), so UVs map 1:1. */
+ *  region on CPU before upload), so UVs map 1:1.
+ *  Transparent pixels (alpha < 0.5) are treated as fully bright (no ink),
+ *  matching the CPU precomputeGrayscale() alpha guard in sampling.ts. */
 float sampleLum(vec2 pxCoord) {
   vec2 uv = clamp(pxCoord / uSize, vec2(0.0), vec2(1.0));
-  vec3 rgb = texture(uSrc, uv).rgb;
-  return dot(rgb, vec3(0.299, 0.587, 0.114));
+  vec4 rgba = texture(uSrc, uv);
+  if (rgba.a < 0.5) return 1.0;  // transparent → paper (no ink)
+  return dot(rgba.rgb, vec3(0.299, 0.587, 0.114));
 }
 `
