@@ -72,6 +72,12 @@ export interface HalftoneSettings {
   dotGain: number
   /** Dot size multiplier (0.5–1.5). Scales all marks relative to their cell. */
   dotSize: number
+  /** Tone curve gamma (0.5–3). > 1 boosts midtone dots; < 1 flattens them. */
+  halftoneGamma: number
+  /** Shadow contrast boost (0–1). Expands dot variation in dark tones. */
+  shadowBoost: number
+  /** Highlight contrast boost (0–1). Expands dot variation in light tones. */
+  highlightBoost: number
   /** Ink color (foreground). Defaults to black. */
   fgColor: string
   /** Paper color (background). Defaults to white. */
@@ -147,6 +153,9 @@ export const DEFAULT_HALFTONE_SETTINGS: HalftoneSettings = {
   maxDot: 0.95,
   dotGain: 0,
   dotSize: 1,
+  halftoneGamma: 1,
+  shadowBoost: 0,
+  highlightBoost: 0,
   fgColor: '#000000',
   bgColor: '#ffffff',
 }

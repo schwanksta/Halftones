@@ -174,6 +174,54 @@ export function HalftoneControls({ settings, onChange, disabled }: Props) {
               disabled={disabled}
             />
           </label>
+          <label className="control-row">
+            <span>
+              Gamma{' '}
+              <EditableValue
+                value={settings.halftoneGamma ?? 1}
+                min={0.5} max={3} step={0.05} decimals={2}
+                onChange={(v) => update({ halftoneGamma: v })}
+              />
+            </span>
+            <input
+              type="range" min={0.5} max={3} step={0.05}
+              value={settings.halftoneGamma ?? 1}
+              onChange={(e) => update({ halftoneGamma: Number(e.target.value) })}
+              disabled={disabled}
+            />
+          </label>
+          <label className="control-row">
+            <span>
+              Shadows{' '}
+              <EditableValue
+                value={Math.round((settings.shadowBoost ?? 0) * 100)}
+                min={0} max={100} step={5} suffix="%"
+                onChange={(v) => update({ shadowBoost: v / 100 })}
+              />
+            </span>
+            <input
+              type="range" min={0} max={1} step={0.05}
+              value={settings.shadowBoost ?? 0}
+              onChange={(e) => update({ shadowBoost: Number(e.target.value) })}
+              disabled={disabled}
+            />
+          </label>
+          <label className="control-row">
+            <span>
+              Highlights{' '}
+              <EditableValue
+                value={Math.round((settings.highlightBoost ?? 0) * 100)}
+                min={0} max={100} step={5} suffix="%"
+                onChange={(v) => update({ highlightBoost: v / 100 })}
+              />
+            </span>
+            <input
+              type="range" min={0} max={1} step={0.05}
+              value={settings.highlightBoost ?? 0}
+              onChange={(e) => update({ highlightBoost: Number(e.target.value) })}
+              disabled={disabled}
+            />
+          </label>
         </>
       )}
 
