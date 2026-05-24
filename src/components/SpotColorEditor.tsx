@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { SpotColor, SpotSettings } from '../types'
+import { SpotColor, SpotSettings, KeyPlateSettings, DEFAULT_KEY_PLATE } from '../types'
 import { extractPalette, mergeSimilarColors, labToHex } from '../engine/spot-separation'
 import { EditableValue } from './EditableValue'
 
@@ -16,6 +16,12 @@ export function SpotColorEditor({ settings, onChange, sourceImageData, defaultLp
   const [extracting, setExtracting] = useState(false)
 
   const update = (partial: Partial<SpotSettings>) => onChange({ ...settings, ...partial })
+
+  const updateKey = (partial: Partial<KeyPlateSettings>) => {
+    const current = settings.key ?? { ...DEFAULT_KEY_PLATE, lpi: defaultLpi }
+    update({ key: { ...current, ...partial } })
+  }
+  const keySettings = settings.key
 
   const updateColor = (id: string, partial: Partial<SpotColor>) => {
     onChange({
@@ -176,6 +182,89 @@ export function SpotColorEditor({ settings, onChange, sourceImageData, defaultLp
           onRemove={() => removeColor(color.id)}
         />
       ))}
+
+      {/* Key plate */}
+      <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+        <label className="control-row control-row--toggle">
+          <span style={{ fontWeight: 600 }}>
+            Key Plate{' '}
+            <small style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>halftone over all colors</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={keySettings?.enabled ?? false}
+            onChange={(e) => updateKey({ enabled: e.target.checked })}
+            disabled={disabled}
+          />
+        </label>
+
+        {keySettings?.enabled && (
+          <>
+            <div className="control-row control-row--colors">
+              <span>Ink</span>
+              <div className="color-pair">
+                <label className="color-swatch-label" title="Key plate ink color">
+                  <span className="color-swatch-hint">Key</span>
+                  <input
+                    type="color"
+                    value={keySettings.color}
+                    onChange={(e) => updateKey({ color: e.target.value })}
+                    disabled={disabled}
+                  />
+                </label>
+              </div>
+            </div>
+            <label className="control-row">
+              <span>
+                LPI{' '}
+                <EditableValue
+                  value={keySettings.lpi}
+                  min={1} max={100} step={1}
+                  onChange={(v) => updateKey({ lpi: v })}
+                />
+              </span>
+              <input
+                type="range" min={1} max={100}
+                value={keySettings.lpi}
+                onChange={(e) => updateKey({ lpi: Number(e.target.value) })}
+                disabled={disabled}
+              />
+            </label>
+            <label className="control-row">
+              <span>
+                Angle{' '}
+                <EditableValue
+                  value={keySettings.angle}
+                  min={0} max={180} step={1} suffix="°"
+                  onChange={(v) => updateKey({ angle: v })}
+                />
+              </span>
+              <input
+                type="range" min={0} max={180}
+                value={keySettings.angle}
+                onChange={(e) => updateKey({ angle: Number(e.target.value) })}
+                disabled={disabled}
+              />
+            </label>
+            <label className="control-row">
+              <span>
+                Min Dot{' '}
+                <EditableValue
+                  value={Math.round(keySettings.minDot * 100)}
+                  min={0} max={50} step={1} suffix="%"
+                  onChange={(v) => updateKey({ minDot: v / 100 })}
+                />
+              </span>
+              <input
+                type="range" min={0} max={0.5} step={0.01}
+                value={keySettings.minDot}
+                onChange={(e) => updateKey({ minDot: Number(e.target.value) })}
+                disabled={disabled}
+              />
+            </label>
+          </>
+        )}
+      </div>
     </div>
   )
 }

@@ -298,6 +298,39 @@ export function useHalftonePreview(
         offCtx.drawImage(colorCanvas, 0, 0)
       }
 
+      // Key plate: halftone of the full image overprinted on top of all colors.
+      if (spotSettings.key?.enabled) {
+        const key = spotSettings.key
+        const keyRegion = extractRegionFromCanvas(
+          transformedCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff',
+        )
+        const keyBwCanvas = document.createElement('canvas')
+        keyBwCanvas.width = canvasW; keyBwCanvas.height = canvasH
+        const keyBwCtx = keyBwCanvas.getContext('2d')!
+        renderHalftone(keyBwCtx, {
+          source: keyRegion,
+          settings: {
+            ...halftoneSettings,
+            lpi: key.lpi,
+            angle: key.angle,
+            minDot: key.minDot,
+            maxDot: key.maxDot,
+            fgColor: '#000000',
+            bgColor: '#ffffff',
+            invert: false,
+          },
+          renderDpi,
+          radialCenter,
+          outputDpi: outputSettings.dpi,
+        })
+        const keyImgData = keyBwCtx.getImageData(0, 0, canvasW, canvasH)
+        const keyColored = colorizeSpot(keyImgData, key.color)
+        const keyCanvas = document.createElement('canvas')
+        keyCanvas.width = canvasW; keyCanvas.height = canvasH
+        keyCanvas.getContext('2d')!.putImageData(keyColored, 0, 0)
+        offCtx.drawImage(keyCanvas, 0, 0)
+      }
+
     } else {
       renderHalftone(offCtx, {
         source: regionData,
@@ -334,7 +367,7 @@ export function useHalftonePreview(
     ctx.restore()
   }, [
     canvasRef, transformed, transformedCanvas, stippleCanvas,
-    spotSettings.colors, spotSettings.vibrancy, spotSettings.trap, spotChannelCanvases,
+    spotSettings.colors, spotSettings.vibrancy, spotSettings.trap, spotSettings.key, spotChannelCanvases,
     halftoneSettings, cmykSettings, channelView, outputSettings, viewport,
   ])
 

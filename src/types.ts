@@ -31,6 +31,32 @@ export interface SpotColor {
   trap?: number | null
 }
 
+/**
+ * Key plate: a halftone of the full luminance image composited (overprint)
+ * on top of all spot color layers.  Adds tonal depth and detail to flat color
+ * separations — the classic screenprint "key" technique.
+ */
+export interface KeyPlateSettings {
+  enabled: boolean
+  /** Ink color (hex). Default black. */
+  color: string
+  lpi: number
+  angle: number
+  /** Minimum darkness — suppress near-white tones so highlights stay clean. */
+  minDot: number
+  /** Maximum darkness ceiling. */
+  maxDot: number
+}
+
+export const DEFAULT_KEY_PLATE: KeyPlateSettings = {
+  enabled: true,
+  color: '#000000',
+  lpi: 55,
+  angle: 45,
+  minDot: 0.1,
+  maxDot: 0.95,
+}
+
 export interface SpotSettings {
   numColors: number
   mergeThreshold: number
@@ -45,6 +71,11 @@ export interface SpotSettings {
    */
   trap: number
   colors: SpotColor[]
+  /**
+   * Optional key plate: a halftone of the full image rendered on top of all
+   * spot color layers (overprint).  Undefined / absent = no key plate.
+   */
+  key?: KeyPlateSettings
 }
 
 export const DEFAULT_SPOT_SETTINGS: SpotSettings = {

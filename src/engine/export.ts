@@ -153,6 +153,32 @@ function renderSpotChannelCanvases(
     result.set(color.id, { canvas: finalCanvas, label: color.name })
   }
 
+  // Key plate: halftone of the full image (not color-separated).
+  if (spotSettings.key?.enabled) {
+    const key = spotSettings.key
+    const keyCanvas = document.createElement('canvas')
+    keyCanvas.width  = targetWidth
+    keyCanvas.height = targetHeight
+    const keyCtx = keyCanvas.getContext('2d')!
+    renderHalftone(keyCtx, {
+      source: scaled,
+      settings: {
+        ...halftoneSettings,
+        lpi: key.lpi,
+        angle: key.angle,
+        minDot: key.minDot,
+        maxDot: key.maxDot,
+        fgColor: '#000000',
+        bgColor: '#ffffff',
+        invert: false,
+      },
+      renderDpi: outputSettings.dpi,
+      radialCenter,
+      isExport: true,
+    })
+    result.set('__key__', { canvas: keyCanvas, label: 'Key' })
+  }
+
   return result
 }
 
@@ -370,6 +396,36 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
       overlayCanvas.getContext('2d')!.putImageData(colored, 0, 0)
       imgCtx.globalCompositeOperation = 'source-over'
       imgCtx.drawImage(overlayCanvas, 0, 0)
+    }
+
+    // Key plate: overprint halftone of the full image on top of all colors.
+    if (spotSettings.key?.enabled) {
+      const key = spotSettings.key
+      const keyCanvas = document.createElement('canvas')
+      keyCanvas.width = targetW; keyCanvas.height = targetH
+      const keyCtx = keyCanvas.getContext('2d')!
+      renderHalftone(keyCtx, {
+        source: scaled,
+        settings: {
+          ...bwSettings(halftoneSettings),
+          lpi: key.lpi,
+          angle: key.angle,
+          minDot: key.minDot,
+          maxDot: key.maxDot,
+          invert: false,
+        },
+        renderDpi: dpi,
+        radialCenter,
+        outputDpi: dpi,
+        isExport: true,
+      })
+      const keyImgData = keyCtx.getImageData(0, 0, targetW, targetH)
+      const keyColored = colorizeForOverlay(keyImgData, key.color)
+      const keyOverlay = document.createElement('canvas')
+      keyOverlay.width = targetW; keyOverlay.height = targetH
+      keyOverlay.getContext('2d')!.putImageData(keyColored, 0, 0)
+      imgCtx.globalCompositeOperation = 'source-over'
+      imgCtx.drawImage(keyOverlay, 0, 0)
     }
 
   } else {
@@ -687,10 +743,16 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
       pdf.setFontSize(8)
       pdf.setTextColor(0)
 
-      const color = spotSettings.colors.find((c) => c.id === id)
-      const modeLabel = color?.renderMode === 'flat'
-        ? `Flat — threshold ${Math.round((color.threshold) * 100)}%`
-        : `Halftone — ${color?.angle ?? 45}° @ ${color?.lpi ?? 55} LPI`
+      let modeLabel: string
+      if (id === '__key__') {
+        const k = spotSettings.key!
+        modeLabel = `Halftone — ${k.angle}° @ ${k.lpi} LPI`
+      } else {
+        const color = spotSettings.colors.find((c) => c.id === id)
+        modeLabel = color?.renderMode === 'flat'
+          ? `Flat — threshold ${Math.round((color.threshold) * 100)}%`
+          : `Halftone — ${color?.angle ?? 45}° @ ${color?.lpi ?? 55} LPI`
+      }
 
       pdf.text(`${label} — ${modeLabel}`, imgOffX, pieceY0 - 6)
       if (showCropMarks) drawCropMarks(pdf, pieceX0, pieceY0, pieceX1, pieceY1, cropMarkPts)
