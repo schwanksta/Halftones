@@ -90,6 +90,9 @@ export function renderHalftoneGL(
     gl.uniform1f(getUniform(gl, prog, 'uMaxDot'), settings.maxDot ?? 1)
     gl.uniform1f(getUniform(gl, prog, 'uDotGain'), settings.dotGain ?? 0)
     gl.uniform1f(getUniform(gl, prog, 'uDotSize'), settings.dotSize ?? 1)
+    gl.uniform1f(getUniform(gl, prog, 'uHalftoneGamma'), settings.halftoneGamma ?? 1)
+    gl.uniform1f(getUniform(gl, prog, 'uShadowBoost'), settings.shadowBoost ?? 0)
+    gl.uniform1f(getUniform(gl, prog, 'uHighlightBoost'), settings.highlightBoost ?? 0)
     gl.uniform3fv(getUniform(gl, prog, 'uFgColor'), hexToRgb01(fg))
     gl.uniform3fv(getUniform(gl, prog, 'uBgColor'), hexToRgb01(bg))
 

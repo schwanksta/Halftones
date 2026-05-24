@@ -22,16 +22,19 @@ precision highp float;
 in vec2 vUv;
 out vec4 fragColor;
 
-uniform sampler2D uSrc;       // RGBA source image; luminance computed in sampleLum()
-uniform vec2  uSize;           // destination size in pixels
-uniform float uCellSize;       // cell size in destination pixels
-uniform float uAngle;          // radians
-uniform float uMinDot;         // 0..1, same semantics as HalftoneSettings.minDot
-uniform float uMaxDot;         // 0..1
-uniform float uDotGain;        // 0..1
-uniform float uDotSize;        // multiplier
-uniform vec3  uFgColor;        // [0,1]^3 ink
-uniform vec3  uBgColor;        // [0,1]^3 paper
+uniform sampler2D uSrc;          // RGBA source image; luminance computed in sampleLum()
+uniform vec2  uSize;              // destination size in pixels
+uniform float uCellSize;          // cell size in destination pixels
+uniform float uAngle;             // radians
+uniform float uMinDot;            // 0..1, same semantics as HalftoneSettings.minDot
+uniform float uMaxDot;            // 0..1
+uniform float uDotGain;           // 0..1
+uniform float uDotSize;           // multiplier
+uniform float uHalftoneGamma;     // 0.5..3, power curve over full tonal range
+uniform float uShadowBoost;       // 0..1, piecewise boost in dark tones
+uniform float uHighlightBoost;    // 0..1, piecewise boost in light tones
+uniform vec3  uFgColor;           // [0,1]^3 ink
+uniform vec3  uBgColor;           // [0,1]^3 paper
 
 // Keep in sync with engine/dot-settings.ts applyDotSettings()
 // Returns -1.0 if suppressed (raw < minDot), else clamped darkness in [0,1].
@@ -41,8 +44,20 @@ uniform vec3  uBgColor;        // [0,1]^3 paper
 // darkness (where shapes collapse to subpixel noise). New patterns should
 // follow this idiom rather than testing the sentinel explicitly.
 float applyDotSettings(float rawDarkness) {
-  if (rawDarkness < uMinDot) return -1.0;
-  float clamped = min(rawDarkness, uMaxDot);
+  float d = rawDarkness;
+
+  // Halftone gamma — power curve over the full tonal range.
+  if (uHalftoneGamma != 1.0 && d > 0.0) d = pow(d, 1.0 / uHalftoneGamma);
+
+  // Shadow / highlight boost — piecewise power on each half of the range.
+  if (d < 0.5 && uHighlightBoost > 0.0) {
+    d = pow(d * 2.0, 1.0 / (1.0 + uHighlightBoost)) * 0.5;
+  } else if (d >= 0.5 && uShadowBoost > 0.0) {
+    d = pow((d - 0.5) * 2.0, 1.0 / (1.0 + uShadowBoost)) * 0.5 + 0.5;
+  }
+
+  if (d < uMinDot) return -1.0;
+  float clamped = min(d, uMaxDot);
   return min(1.0, clamped * (1.0 - uDotGain) * uDotSize);
 }
 
