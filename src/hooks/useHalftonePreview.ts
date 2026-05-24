@@ -245,60 +245,64 @@ export function useHalftonePreview(
         if (chData) offCtx.putImageData(chData, 0, 0)
       }
 
-    } else if (halftoneSettings.colorMode === 'spot' && spotSettings.colors.length > 0 && spotChannelCanvases) {
-      // Render each spot channel at viewport DPI so dots rescale correctly with zoom.
+    } else if (halftoneSettings.colorMode === 'spot') {
+      // Spot mode: fill background, render color channels, then key plate.
       offCtx.fillStyle = bgColor
       offCtx.fillRect(0, 0, canvasW, canvasH)
 
-      const globalTrap = spotSettings.trap ?? 0
+      // Spot color channels — only when separation is available.
+      if (spotSettings.colors.length > 0 && spotChannelCanvases) {
+        const globalTrap = spotSettings.trap ?? 0
 
-      for (const color of spotSettings.colors) {
-        if (!color.enabled) continue
-        const chCanvas = spotChannelCanvases.get(color.id)
-        if (!chCanvas) continue
+        for (const color of spotSettings.colors) {
+          if (!color.enabled) continue
+          const chCanvas = spotChannelCanvases.get(color.id)
+          if (!chCanvas) continue
 
-        // Extract the viewport region of this channel's separation
-        const regionData = extractRegionFromCanvas(chCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff')
+          // Extract the viewport region of this channel's separation
+          const chRegionData = extractRegionFromCanvas(chCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff')
 
-        // Render black-on-white at viewport DPI
-        const bwCanvas = document.createElement('canvas')
-        bwCanvas.width = canvasW; bwCanvas.height = canvasH
-        const bwCtx = bwCanvas.getContext('2d')!
-        if (color.renderMode === 'flat') {
-          renderFlat(bwCtx, regionData, color.threshold)
-        } else {
-          renderHalftone(bwCtx, {
-            source: regionData,
-            settings: { ...halftoneSettings, angle: color.angle, lpi: color.lpi, fgColor: '#000000', bgColor: '#ffffff' },
-            renderDpi,
-            radialCenter,
-            outputDpi: outputSettings.dpi,
-          })
+          // Render black-on-white at viewport DPI
+          const bwCanvas = document.createElement('canvas')
+          bwCanvas.width = canvasW; bwCanvas.height = canvasH
+          const bwCtx = bwCanvas.getContext('2d')!
+          if (color.renderMode === 'flat') {
+            renderFlat(bwCtx, chRegionData, color.threshold)
+          } else {
+            renderHalftone(bwCtx, {
+              source: chRegionData,
+              settings: { ...halftoneSettings, angle: color.angle, lpi: color.lpi, fgColor: '#000000', bgColor: '#ffffff' },
+              renderDpi,
+              radialCenter,
+              outputDpi: outputSettings.dpi,
+            })
+          }
+
+          // Trap: dilate the BW mask so this layer's ink spreads outward and
+          // bleeds under adjacent layers, hiding seams between halftone/flat.
+          // Per-color override (including 0) wins over the global value.
+          const effTrap = color.trap ?? globalTrap
+          // The trap value is in output-DPI pixels for physical WYSIWYG; scale
+          // down to viewport pixels for preview.  Enforce a 1-px minimum when
+          // trap > 0 so the effect is always visible at any zoom level.
+          const previewTrap = effTrap > 0
+            ? Math.max(1, Math.round(effTrap * renderDpi / outputSettings.dpi))
+            : 0
+          const maskCanvas = previewTrap > 0 ? dilateMask(bwCanvas, previewTrap) : bwCanvas
+
+          // Colorize and composite (ink → spot color opaque, paper → transparent)
+          const displayHex = boostSaturation(color.hex, spotSettings.vibrancy ?? 0)
+          const maskData = maskCanvas.getContext('2d')!.getImageData(0, 0, canvasW, canvasH)
+          const colored = colorizeSpot(maskData, displayHex)
+          const colorCanvas = document.createElement('canvas')
+          colorCanvas.width = canvasW; colorCanvas.height = canvasH
+          colorCanvas.getContext('2d')!.putImageData(colored, 0, 0)
+          offCtx.drawImage(colorCanvas, 0, 0)
         }
-
-        // Trap: dilate the BW mask so this layer's ink spreads outward and
-        // bleeds under adjacent layers, hiding seams between halftone/flat.
-        // Per-color override (including 0) wins over the global value.
-        const effTrap = color.trap ?? globalTrap
-        // The trap value is in output-DPI pixels for physical WYSIWYG; scale
-        // down to viewport pixels for preview.  Enforce a 1-px minimum when
-        // trap > 0 so the effect is always visible at any zoom level.
-        const previewTrap = effTrap > 0
-          ? Math.max(1, Math.round(effTrap * renderDpi / outputSettings.dpi))
-          : 0
-        const maskCanvas = previewTrap > 0 ? dilateMask(bwCanvas, previewTrap) : bwCanvas
-
-        // Colorize and composite (ink → spot color opaque, paper → transparent)
-        const displayHex = boostSaturation(color.hex, spotSettings.vibrancy ?? 0)
-        const maskData = maskCanvas.getContext('2d')!.getImageData(0, 0, canvasW, canvasH)
-        const colored = colorizeSpot(maskData, displayHex)
-        const colorCanvas = document.createElement('canvas')
-        colorCanvas.width = canvasW; colorCanvas.height = canvasH
-        colorCanvas.getContext('2d')!.putImageData(colored, 0, 0)
-        offCtx.drawImage(colorCanvas, 0, 0)
       }
 
       // Key plate: halftone of the full image overprinted on top of all colors.
+      // Rendered independently — does not require spot colors to be present.
       if (spotSettings.key?.enabled) {
         const key = spotSettings.key
         const keyRegion = extractRegionFromCanvas(
@@ -325,10 +329,10 @@ export function useHalftonePreview(
         })
         const keyImgData = keyBwCtx.getImageData(0, 0, canvasW, canvasH)
         const keyColored = colorizeSpot(keyImgData, key.color)
-        const keyCanvas = document.createElement('canvas')
-        keyCanvas.width = canvasW; keyCanvas.height = canvasH
-        keyCanvas.getContext('2d')!.putImageData(keyColored, 0, 0)
-        offCtx.drawImage(keyCanvas, 0, 0)
+        const keyOverlay = document.createElement('canvas')
+        keyOverlay.width = canvasW; keyOverlay.height = canvasH
+        keyOverlay.getContext('2d')!.putImageData(keyColored, 0, 0)
+        offCtx.drawImage(keyOverlay, 0, 0)
       }
 
     } else {
