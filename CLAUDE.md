@@ -35,7 +35,7 @@ src/
     HalftoneControls.tsx      # pattern selector, LPI, angle, dot controls, color pickers
     OutputControls.tsx        # width/height (inches), DPI, margin
     TransformControls.tsx     # crop, rotation, levels (black/white point, gamma)
-    SpotColorEditor.tsx       # spot color list, per-color controls, global trap/vibrancy
+    SpotColorEditor.tsx       # spot color list, per-color controls, global trap/vibrancy, key plate
     PreviewCanvas.tsx         # viewport canvas, zoom controls, drag-drop
     ExportBar.tsx             # PNG / channel PNG / PDF / color proof export buttons
     ImageLoader.tsx           # file picker
@@ -49,7 +49,7 @@ src/
     patterns.ts               # grid-based patterns: dot, line, ellipse, diamond, hex, euclidean,
                               #   crosshatch, concentric, brick, radial, radial-lines, stochastic
     stipple.ts                # Poisson-disk stipple (Bridson's algorithm, variable spacing)
-    dot-settings.ts           # applyDotSettings() — minDot/maxDot/dotGain/dotSize pipeline
+    dot-settings.ts           # applyDotSettings() — minDot/maxDot/dotGain/dotSize/gamma/shadow/highlight pipeline
     sampling.ts               # precomputeGrayscale(), sampleGray() — fast luminance sampling
     cmyk.ts                   # separateChannels(), compositeChannels()
     transform.ts              # applyTransforms() — rotation, crop, levels
@@ -96,11 +96,13 @@ src/
 - **Channel canvases**: separation ImageData is converted to HTMLCanvasElement once per separation (also memoized)
 - **Per-frame render**: each enabled color is extracted from its channel canvas via `extractRegionFromCanvas` at the current viewport region, then rendered (`renderFlat` or `renderHalftone`) at `renderDpi = viewport.zoom × sourcePixelsPerInch` — same approach as CMYK, so dots rescale correctly with zoom
 - **Trap**: after rendering BW mask, `dilateMask(bwCanvas, trapPx)` expands the black ink region outward, causing layers to bleed into each other and hiding paper-coloured seams between halftone and flat layers. Trap value in UI = output-DPI pixels; preview scales by `renderDpi / outputDpi` with a 1-px floor for visible feedback at low zoom
+- **Key plate**: `spotSettings.key` (optional `KeyPlateSettings`) renders a halftone of the full image on top of all color layers. Independent of whether spot colors are present — the `colorMode === 'spot'` branch always checks for key separately from the color channel loop.
 
 ### Spot Color Export
-- `exportChannelPNGs` / `exportPDF` both call `renderSpotChannelCanvases()` which: transforms → scales to output resolution → separates → renders each plate (halftone or flat) → applies trap dilation → returns per-color BW canvases
-- `exportColorProof` composites all colors with their actual hex colours source-over on white, using `colorizeForOverlay()`. Height is derived from the transformed image's actual AR (not outputSettings.heightInches) to avoid distortion
+- `exportChannelPNGs` / `exportPDF` both call `renderSpotChannelCanvases()` which: transforms → scales to output resolution → separates → renders each plate (halftone or flat) → applies trap dilation → returns per-color BW canvases. Key plate (if enabled) is appended with id `'__key__'` and label `'Key'`.
+- `exportColorProof` composites all colors with their actual hex colours source-over on white, using `colorizeForOverlay()`. Key plate composited last (source-over). Height is derived from the transformed image's actual AR (not outputSettings.heightInches) to avoid distortion
 - Trap is applied in all three paths; per-color override (`color.trap`) wins over global (`spotSettings.trap`); `null` = use global (safe for older .halftones files that don't have the field)
+- In `exportPDF` spot loop: `id === '__key__'` is detected to generate the correct plate label
 
 ### Performance
 - **Path2D batching**: dot/hex/diamond/ellipse all add to one `Path2D`, single `ctx.fill()` call
@@ -114,6 +116,14 @@ src/
 - MAX_DOTS = 40,000 auto-scaling cap to keep computation under ~500ms
 - Best at Density (LPI) 5–30; higher values auto-scale up spacing
 
+### WebGL Fast Path
+- `src/engine/webgl/` — GL2 renderer for dot, hex, ellipse, diamond, line, crosshatch, euclidean
+- `shouldUseGL(pattern)` gates on `GL_SUPPORTED_PATTERNS` + `isWebGL2Available()`; CPU fallback on failure
+- Shared preview GL context (`getSharedGL`) reused across frames; export uses one-shot `createExportGL`
+- `shared.glsl.ts` contains the vertex shader, shared uniforms, and `applyDotSettings()` / `sampleLum()` in GLSL — **must be kept in sync with `dot-settings.ts` and `sampling.ts`**
+- `sampleLum()` checks `rgba.a < 0.5` → returns 1.0 (paper/no-ink) for transparent pixels, matching the CPU alpha guard in `precomputeGrayscale()`
+- All tone-curve uniforms (`uHalftoneGamma`, `uShadowBoost`, `uHighlightBoost`) and dot uniforms (`uMinDot`, `uMaxDot`, `uDotGain`, `uDotSize`) must be uploaded in `render.ts` — adding new controls to `dot-settings.ts` requires parallel updates to the GLSL and uniform uploads
+
 ### Colors (preview only)
 - `fgColor`/`bgColor` in `HalftoneSettings` — ink/paper color pickers
 - `invert` swaps them at render time
@@ -126,8 +136,10 @@ src/
 - **`skipDimensionRecalcRef`**: set by `handleImageLoad`, `applySettings`, and `handleLoadProject` to suppress the crop/rotation useEffect once. The skip branch also syncs `prevTransformRef` to the newly applied transforms.
 - PDF layout: image + margin + 0.5" crop mark waste strip on all sides
 - Crop marks in waste strip only — cutting along them preserves full margin
+- Alignment marks (circle + crosshair) live in the waste strip midpoints — removed on trim. Only rendered when `outputSettings.alignmentMarks` is true and `cropMarkPts >= 6`.
 - PNG export includes DPI metadata via pHYs chunk
 - Filenames: `[project-slug]-[pattern].ext`
+- **Transparent source pixels**: treated as paper (no ink) throughout — `precomputeGrayscale()` maps alpha<128 → 255, `separateSpotChannels()` skips alpha<128 pixels, GLSL `sampleLum()` returns 1.0 for alpha<0.5
 
 ### Project Persistence
 - localStorage key `halftones_projects` → `Record<string, ProjectSnapshot>`
@@ -154,6 +166,11 @@ src/
 | stochastic | standalone | no | FM dither, DPI-accurate preview |
 | stipple | cached full-image | no | Poisson disk, density 5–40 |
 
+### Tone Curve Controls
+- `halftoneGamma` (0.5–3): power curve over the full tonal range. Applied first in `applyDotSettings()`.
+- `shadowBoost` / `highlightBoost` (0–1): piecewise power on each half of the range (split at d=0.5). Continuous at boundary regardless of boost value.
+- Both CPU (`dot-settings.ts`) and GPU (`shared.glsl.ts`) implementations must match exactly.
+
 ## Common Gotchas
 - `radialOriginX/Y` can be undefined from stale state — always `?? 0.5`
 - Radial `maxRadius` must use max of all 4 corner distances (not just one)
@@ -164,3 +181,6 @@ src/
 - **Spot trap `color.trap` nullable**: `null`/`undefined` means "use global `spotSettings.trap`". A number (including 0) overrides. Older .halftones files omit the field → `undefined` → falls through to global cleanly. Use `color.trap ?? spotSettings.trap ?? 0` everywhere.
 - **`dilateMask` returns a NEW canvas** of the same dimensions. It does NOT modify the source. The iterative 8-neighbour darken-composite approach expands black regions by N pixels (Chebyshev metric) in N passes.
 - **Drag-drop image in Tauri uses `handleDroppedPaths`** (in `useAppShell.ts`), NOT `handleImageLoad` (in App.tsx). Both must apply the same fit-to-paper logic; keep them in sync if you change either.
+- **Key plate is independent of spot color channels**: in the preview hook, `colorMode === 'spot'` is the outer condition; spot channel rendering and key plate rendering are separate sub-blocks. Key plate must NOT be nested inside `spotSettings.colors.length > 0 && spotChannelCanvases` — it can render even with no colors extracted.
+- **Adding new tone-curve controls**: update `dot-settings.ts` (CPU), `shared.glsl.ts` (GLSL uniform declaration + applyDotSettings body), and `render.ts` (uniform upload). All three must stay in sync.
+- **DMG bundler occasionally flakes** on macOS — if `npm run tauri:build` fails at `bundle_dmg.sh`, just re-run; it succeeds on the next attempt.
