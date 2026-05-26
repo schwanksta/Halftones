@@ -1,39 +1,59 @@
 # Halftones
 
-A browser-based halftone image processor for screen printing, risograph, and graphic arts workflows. Drop in a photo, choose a pattern, adjust settings, and export print-ready files.
+A native macOS app (and browser tool) for halftone image processing aimed at screen printing, risograph, and graphic arts workflows. Drop in a photo, choose a pattern, adjust settings, and export print-ready files.
 
 ## Features
 
-- **13 halftone patterns**: dot, euclidean dot, ellipse, diamond, hexagonal, line, crosshatch, concentric, brick, radial (dots & lines), stochastic (FM dither), and Poisson-disk stipple
-- **CMYK separation**: per-channel angle/LPI control with composite preview
-- **Dot controls**: min/max dot, dot gain compensation, dot size multiplier
-- **Image transforms**: crop, rotation, levels (black/white point + gamma)
-- **Ink & paper color preview**: preview any ink/paper color combination; exports always produce clean black-on-white
-- **Print-ready export**: PNG (with DPI metadata), per-channel PNGs, and multi-page PDF with crop marks
-- **Adjustable margin**: user-set margin preserved inside crop marks; marks live in a separate waste strip
-- **Project persistence**: settings auto-save to localStorage; named projects with instant switching
-- **Viewport**: pan/zoom with mouse wheel; "Fit" and "100%" (output-accurate) zoom presets
+### Halftone Patterns
+13 patterns: dot, euclidean dot, ellipse, diamond, hexagonal, line, crosshatch, concentric, brick, radial dots, radial lines, stochastic (FM dither), and Poisson-disk stipple.
+
+### Color Modes
+- **Grayscale** — single halftone layer with ink/paper color preview
+- **CMYK** — four-channel process separation with per-channel angle/LPI and composite preview
+- **Spot Color** — LAB k-means palette extraction, per-color flat or halftone rendering, and a **key plate** (halftone of the full image overprinted on top of all color layers for tonal depth)
+
+### Dot & Tone Controls
+- Min/max dot, dot gain compensation, dot size multiplier
+- **Gamma** — power curve over the full tonal range
+- **Shadows / Highlights** — independent piecewise boost for each half of the tonal range
+- Invert (swap ink/paper)
+
+### Image Transforms
+Crop, rotation, levels (black/white point + midtone gamma). All applied before halftoning.
+
+### Export
+- **PNG** — full-resolution with embedded DPI metadata
+- **Channel PNGs** — one black-on-white plate per channel (CMYK or spot), including key plate
+- **PDF** — multi-page with crop marks, optional margin, optional alignment marks (crosshair + circle at each side midpoint for multi-layer registration)
+- **Color Proof** — WYSIWYG composite of all layers in their actual ink colors
+- Vector PDF paths for dot, hex, ellipse, diamond, line, euclidean, and radial-line patterns
+
+### Other
+- Adjustable margin; crop marks and alignment marks in the waste strip (removed on trim)
+- Pan/zoom viewport with Fit and 100% (output-accurate) presets
+- Transparent PNG source: transparent areas produce no ink on any plate
+- Project persistence: named projects with auto-save; `.halftones` file format (zip of JSON + source image)
 
 ## Getting Started
 
 ```bash
 npm install
-npm run dev
+npm run dev        # browser dev server at localhost:5173
+npm run tauri:dev  # native macOS window
 ```
 
-Open http://localhost:5173, drop an image, and start tweaking.
+Drop an image onto the canvas or use the file picker.
 
-## Export
+## Building
 
-- **Export PNG** — full-resolution halftone with embedded DPI
-- **Export Channels** (CMYK mode) — one PNG per separation
-- **Export PDF** — image + margin + crop marks, one page per channel in CMYK mode
-
-Output dimensions are derived from the source image's native resolution at your selected DPI. Filenames follow the pattern `[project]-[pattern].png`.
+```bash
+npm run build        # typecheck + Vite bundle
+npm run tauri:build  # Halftones.app + .dmg → src-tauri/target/release/bundle/
+```
 
 ## Tech
 
-React 18 + TypeScript + Vite. No backend, no dependencies beyond jsPDF for PDF export. All rendering is canvas-based with Path2D batching and grayscale pre-computation for performance.
+React 18 + TypeScript + Vite + Tauri 2. No backend. Rendering is canvas/WebGL2 (GPU fast path for common patterns with CPU fallback) + jsPDF for PDF export. Path2D batching and grayscale pre-computation keep the preview loop fast.
 
 ## License
 
