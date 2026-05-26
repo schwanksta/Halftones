@@ -36,6 +36,10 @@ Crop, rotation, levels (black/white point + midtone gamma). All applied before h
 - Transparent PNG source: transparent areas produce no ink on any plate
 - Project persistence: named projects with auto-save; `.halftones` file format (zip of JSON + source image)
 
+## Download
+
+**[Download for macOS (Apple Silicon)](https://github.com/schwanksta/Halftones/releases/latest)** — unsigned app; on first launch right-click → Open, or go to System Settings → Privacy & Security → Open Anyway.
+
 ## Getting Started
 
 ```bash
