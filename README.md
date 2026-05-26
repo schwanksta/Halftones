@@ -2,6 +2,8 @@
 
 A native macOS app (and browser tool) for halftone image processing aimed at screen printing, risograph, and graphic arts workflows. Drop in a photo, choose a pattern, adjust settings, and export print-ready files. Built with Claude for my own purposes, but perhaps it's useful to you as well.
 
+![Halftones screenshot](docs/screenshot.png)
+
 ## Features
 
 ### Halftone Patterns
