@@ -55,6 +55,8 @@ npm run tauri:build  # Halftones.app + .dmg → src-tauri/target/release/bundle/
 
 React 18 + TypeScript + Vite + Tauri 2. No backend. Rendering is canvas/WebGL2 (GPU fast path for common patterns with CPU fallback) + jsPDF for PDF export. Path2D batching and grayscale pre-computation keep the preview loop fast.
 
+Currently built and tested on macOS only. Tauri 2 supports Windows and Linux and the codebase has no meaningful platform-specific code, so builds for other targets should be straightforward — mainly a matter of adjusting the bundle targets in `tauri.conf.json` and restructuring the app menu.
+
 ## License
 
 MIT
