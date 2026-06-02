@@ -29,6 +29,13 @@ export interface SpotColor {
    * precedence over the global value for this color only.
    */
   trap?: number | null
+  /**
+   * 'background': mask is derived from the source image's alpha channel
+   * (transparent pixels = full ink, opaque = no ink) rather than LAB distance.
+   * Used to add a background color plate behind cutout/transparent images.
+   * Absent or undefined = normal LAB-distance separation.
+   */
+  type?: 'background'
 }
 
 /**

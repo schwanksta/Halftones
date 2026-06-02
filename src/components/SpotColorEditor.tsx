@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { SpotColor, SpotSettings, KeyPlateSettings, DEFAULT_KEY_PLATE } from '../types'
 import { extractPalette, mergeSimilarColors, labToHex, rgbToLab, guessColorName } from '../engine/spot-separation'
 import { EditableValue } from './EditableValue'
@@ -38,14 +38,45 @@ export function SpotColorEditor({
     })
   }
 
+  /** True when the source image has any transparent pixels. */
+  const hasTransparency = useMemo(() => {
+    if (!sourceImageData) return false
+    const d = sourceImageData.data
+    for (let i = 3; i < d.length; i += 4) {
+      if (d[i] < 128) return true
+    }
+    return false
+  }, [sourceImageData])
+
+  const hasBgLayer = settings.colors.some(c => c.type === 'background')
+
+  const addBackground = () => {
+    const bgColor: SpotColor = {
+      id: `bg-${Date.now()}`,
+      name: 'Background',
+      hex: '#ffffff',
+      lab: [100, 0, 0],   // white — separation ignores lab for background type
+      angle: 45,
+      lpi: defaultLpi,
+      renderMode: 'flat',
+      threshold: 0.5,
+      enabled: true,
+      type: 'background',
+    }
+    // Insert at index 0 so it renders first (underneath all subject colors)
+    update({ colors: [bgColor, ...settings.colors] })
+  }
+
   const handleExtract = () => {
     if (!sourceImageData) return
     setExtracting(true)
     setTimeout(() => {
       try {
         const seeds = seedColors.length ? seedColors : undefined
-        const colors = extractPalette(sourceImageData, settings.numColors, defaultLpi, seeds)
-        update({ colors })
+        const newColors = extractPalette(sourceImageData, settings.numColors, defaultLpi, seeds)
+        // Preserve any background layers — keep them at the front
+        const bgColors = settings.colors.filter(c => c.type === 'background')
+        update({ colors: [...bgColors, ...newColors] })
       } finally {
         setExtracting(false)
       }
@@ -54,7 +85,11 @@ export function SpotColorEditor({
 
   const handleMerge = () => {
     if (!settings.colors.length) return
-    update({ colors: mergeSimilarColors(settings.colors, settings.mergeThreshold) })
+    // Background colors don't participate in LAB-distance merging
+    const bgColors = settings.colors.filter(c => c.type === 'background')
+    const regularColors = settings.colors.filter(c => c.type !== 'background')
+    const merged = mergeSimilarColors(regularColors, settings.mergeThreshold)
+    update({ colors: [...bgColors, ...merged] })
   }
 
   const removeColor = (id: string) => {
@@ -178,7 +213,7 @@ export function SpotColorEditor({
         >
           {extracting ? 'Extracting…' : '⬇ Extract Palette'}
         </button>
-        {settings.colors.length > 1 && (
+        {settings.colors.filter(c => c.type !== 'background').length > 1 && (
           <button
             onClick={handleMerge}
             disabled={disabled}
@@ -189,6 +224,30 @@ export function SpotColorEditor({
           </button>
         )}
       </div>
+
+      {/* Background layer button — only when image has transparent pixels */}
+      {hasTransparency && (
+        <div className="control-row" style={{ marginTop: 2 }}>
+          <button
+            onClick={addBackground}
+            disabled={disabled || hasBgLayer}
+            title={hasBgLayer ? 'Background layer already added' : 'Add a color plate for the transparent background area'}
+            style={{
+              width: '100%',
+              padding: '4px 8px',
+              fontSize: 11,
+              borderRadius: 4,
+              border: '1px solid var(--border)',
+              background: 'var(--bg-primary)',
+              color: hasBgLayer ? 'var(--text-secondary)' : 'var(--text-primary)',
+              cursor: disabled || hasBgLayer ? 'not-allowed' : 'pointer',
+              opacity: disabled || hasBgLayer ? 0.5 : 1,
+            }}
+          >
+            {hasBgLayer ? '✓ Background Layer Added' : '+ Add Background Layer'}
+          </button>
+        </div>
+      )}
 
       {settings.colors.length > 0 && (
         <div className="control-row" style={{ gap: 4 }}>
@@ -403,6 +462,12 @@ function SpotColorRow({ color, index, disabled, globalTrap, onChange, onRemove }
         <span style={{ flex: 1, fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {index + 1}. {color.name}
         </span>
+        {/* Background badge */}
+        {color.type === 'background' && (
+          <span style={{ fontSize: 9, background: 'rgba(120,160,255,0.2)', color: 'var(--text-secondary)', borderRadius: 3, padding: '1px 4px', flexShrink: 0 }}>
+            BG
+          </span>
+        )}
         {/* Mode badge */}
         <span style={{ fontSize: 10, color: 'var(--text-secondary)', flexShrink: 0 }}>
           {color.renderMode === 'flat' ? 'Flat' : 'Halftone'}
@@ -437,7 +502,7 @@ function SpotColorRow({ color, index, disabled, globalTrap, onChange, onRemove }
                 disabled={disabled}
                 style={{ width: 32, height: 24, padding: 1, cursor: 'pointer', flexShrink: 0 }}
               />
-              {isModified && !disabled && (
+              {isModified && !disabled && !color.type && (
                 <button
                   onClick={() => { onChange({ hex: originalHex }); setHexDraft(originalHex) }}
                   title="Reset to extracted color"

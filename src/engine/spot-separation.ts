@@ -140,6 +140,7 @@ function samplePixelsToLab(source: ImageData, maxSamples = 12000): Float32Array 
   let idx = 0
   for (let i = 0; i < total; i += stride) {
     const p = i * 4
+    if (data[p + 3] < 128) continue  // skip transparent pixels
     const [L, a, b] = rgbToLab(data[p], data[p + 1], data[p + 2])
     out[idx++] = L
     out[idx++] = a
@@ -560,6 +561,28 @@ export function mergeSimilarColors(colors: SpotColor[], threshold: number): Spot
 // ─── Channel separation ───────────────────────────────────────────────────────
 
 /**
+ * Generate a grayscale mask for a background color layer.
+ * transparent pixels (alpha < 128) → 0 (full ink — this is the background)
+ * opaque pixels (alpha ≥ 128)      → 255 (no ink — this is the subject)
+ *
+ * Channel convention matches the rest of the separation system:
+ *   black (0)   = full ink   white (255) = no ink
+ */
+function generateBackgroundChannel(source: ImageData): ImageData {
+  const { data, width, height } = source
+  const n = width * height
+  const buf = new Uint8ClampedArray(n * 4)
+  for (let i = 0; i < n; i++) {
+    const v = data[i * 4 + 3] < 128 ? 0 : 255   // transparent → ink, opaque → paper
+    buf[i * 4]     = v
+    buf[i * 4 + 1] = v
+    buf[i * 4 + 2] = v
+    buf[i * 4 + 3] = 255
+  }
+  return new ImageData(buf, width, height)
+}
+
+/**
  * Separate an RGB ImageData into one grayscale ImageData per spot color.
  *
  * Each pixel is assigned to its nearest palette color (by ΔE in LAB).
@@ -574,46 +597,61 @@ export function separateSpotChannels(
   const { data, width, height } = source
   const n = width * height
 
-  // Pre-allocate all channel buffers filled with 255 (no ink)
+  // Background-type colors use alpha-based separation, not LAB distance.
+  // Separate them out so they don't participate in the LAB clustering loop.
+  const labColors = colors.filter(c => c.type !== 'background')
+
+  // Pre-allocate channel buffers filled with 255 (no ink) for LAB colors only
   const bufs = new Map<string, Uint8ClampedArray>()
-  for (const color of colors) {
+  for (const color of labColors) {
     const buf = new Uint8ClampedArray(n * 4).fill(255)
     for (let i = 3; i < n * 4; i += 4) buf[i] = 255  // alpha
     bufs.set(color.id, buf)
   }
 
-  const labs = colors.map(c => c.lab)
-  const ids = colors.map(c => c.id)
+  const labs = labColors.map(c => c.lab)
+  const ids = labColors.map(c => c.id)
 
-  for (let i = 0; i < n; i++) {
-    const p = i * 4
-    // Transparent pixels → no ink on any plate; leave all buffers at 255.
-    if (data[p + 3] < 128) continue
-    const r = data[p], g = data[p + 1], b = data[p + 2]
-    const pixLab = rgbToLab(r, g, b)
+  if (labColors.length > 0) {
+    for (let i = 0; i < n; i++) {
+      const p = i * 4
+      // Transparent pixels → no ink on any plate; leave all buffers at 255.
+      if (data[p + 3] < 128) continue
+      const r = data[p], g = data[p + 1], b = data[p + 2]
+      const pixLab = rgbToLab(r, g, b)
 
-    // Nearest spot color
-    let nearestIdx = 0, minDE = Infinity
-    for (let c = 0; c < labs.length; c++) {
-      const de = deltaE(pixLab, labs[c])
-      if (de < minDE) { minDE = de; nearestIdx = c }
+      // Nearest spot color
+      let nearestIdx = 0, minDE = Infinity
+      for (let c = 0; c < labs.length; c++) {
+        const de = deltaE(pixLab, labs[c])
+        if (de < minDE) { minDE = de; nearestIdx = c }
+      }
+
+      // Channel value: lightness-based ink coverage.
+      // L*=0 (black) → channel value 0 (full ink)
+      // L*=100 (white) → channel value 255 (no ink)
+      const channelValue = Math.round(pixLab[0] / 100 * 255)
+      const buf = bufs.get(ids[nearestIdx])!
+      buf[p] = channelValue
+      buf[p + 1] = channelValue
+      buf[p + 2] = channelValue
+      // alpha stays 255
     }
-
-    // Channel value: lightness-based ink coverage.
-    // L*=0 (black) → channel value 0 (full ink)
-    // L*=100 (white) → channel value 255 (no ink)
-    const channelValue = Math.round(pixLab[0] / 100 * 255)
-    const buf = bufs.get(ids[nearestIdx])!
-    buf[p] = channelValue
-    buf[p + 1] = channelValue
-    buf[p + 2] = channelValue
-    // alpha stays 255
   }
 
   const result = new Map<string, ImageData>()
   for (const [id, buf] of bufs) {
     result.set(id, new ImageData(buf, width, height))
   }
+
+  // Generate alpha-based channels for background-type colors.
+  // transparent pixels → 0 (ink), opaque → 255 (paper).
+  for (const color of colors) {
+    if (color.type === 'background') {
+      result.set(color.id, generateBackgroundChannel(source))
+    }
+  }
+
   return result
 }
 

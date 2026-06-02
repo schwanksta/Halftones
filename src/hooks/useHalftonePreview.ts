@@ -142,7 +142,11 @@ export function useHalftonePreview(
   // color IDs and LAB values.  Rendering properties are excluded from this key.
 
   const spotSeparationKey = useMemo(
-    () => spotSettings.colors.map(c => `${c.id}:${c.lab.join(',')}`).join('|'),
+    // Background colors use alpha separation — their LAB is irrelevant, so we
+    // use ':bg' to avoid spurious re-separations when only the display hex changes.
+    () => spotSettings.colors.map(c =>
+      c.type === 'background' ? `${c.id}:bg` : `${c.id}:${c.lab.join(',')}`
+    ).join('|'),
     [spotSettings.colors],
   )
 
