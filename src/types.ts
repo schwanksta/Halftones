@@ -79,6 +79,11 @@ export interface KeyPlateSettings {
    * extends outward from the subject boundary. Default 3.
    */
   outlineWidth?: number
+  /**
+   * Whether to render the halftone dot/pattern layer. Default true.
+   * Set to false to use only edge stroke and/or outline without tonal dots.
+   */
+  dotsEnabled?: boolean
 }
 
 export const DEFAULT_KEY_PLATE: KeyPlateSettings = {

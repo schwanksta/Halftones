@@ -161,22 +161,27 @@ function renderSpotChannelCanvases(
     keyCanvas.width  = targetWidth
     keyCanvas.height = targetHeight
     const keyCtx = keyCanvas.getContext('2d')!
-    renderHalftone(keyCtx, {
-      source: scaled,
-      settings: {
-        ...halftoneSettings,
-        lpi: key.lpi,
-        angle: key.angle,
-        minDot: key.minDot,
-        maxDot: key.maxDot,
-        fgColor: '#000000',
-        bgColor: '#ffffff',
-        invert: false,
-      },
-      renderDpi: outputSettings.dpi,
-      radialCenter,
-      isExport: true,
-    })
+    if (key.dotsEnabled !== false) {
+      renderHalftone(keyCtx, {
+        source: scaled,
+        settings: {
+          ...halftoneSettings,
+          lpi: key.lpi,
+          angle: key.angle,
+          minDot: key.minDot,
+          maxDot: key.maxDot,
+          fgColor: '#000000',
+          bgColor: '#ffffff',
+          invert: false,
+        },
+        renderDpi: outputSettings.dpi,
+        radialCenter,
+        isExport: true,
+      })
+    } else {
+      keyCtx.fillStyle = '#ffffff'
+      keyCtx.fillRect(0, 0, targetWidth, targetHeight)
+    }
 
     // Edge stroke (Sobel): burn contour lines into the key plate.
     if (key.strokeEnabled) {
@@ -427,23 +432,28 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
       const keyCanvas = document.createElement('canvas')
       keyCanvas.width = targetW; keyCanvas.height = targetH
       const keyCtx = keyCanvas.getContext('2d')!
-      renderHalftone(keyCtx, {
-        source: scaled,
-        settings: {
-          ...bwSettings(halftoneSettings),
-          lpi: key.lpi,
-          angle: key.angle,
-          minDot: key.minDot,
-          maxDot: key.maxDot,
-          invert: false,
-        },
-        renderDpi: dpi,
-        radialCenter,
-        outputDpi: dpi,
-        isExport: true,
-      })
+      if (key.dotsEnabled !== false) {
+        renderHalftone(keyCtx, {
+          source: scaled,
+          settings: {
+            ...bwSettings(halftoneSettings),
+            lpi: key.lpi,
+            angle: key.angle,
+            minDot: key.minDot,
+            maxDot: key.maxDot,
+            invert: false,
+          },
+          renderDpi: dpi,
+          radialCenter,
+          outputDpi: dpi,
+          isExport: true,
+        })
+      } else {
+        keyCtx.fillStyle = '#ffffff'
+        keyCtx.fillRect(0, 0, targetW, targetH)
+      }
 
-        // Edge stroke (Sobel) on color proof matches the plate output.
+      // Edge stroke (Sobel) on color proof matches the plate output.
       if (key.strokeEnabled) {
         const edgeMask = computeEdgeMask(scaled, key.strokeThreshold ?? 0.3)
         const strokePx = key.strokeWidth ?? 2

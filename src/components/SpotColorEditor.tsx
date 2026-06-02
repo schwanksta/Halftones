@@ -316,6 +316,15 @@ export function SpotColorEditor({
 
         {keySettings?.enabled && (
           <>
+            <label className="control-row control-row--toggle">
+              <span>Halftone Dots</span>
+              <input
+                type="checkbox"
+                checked={keySettings.dotsEnabled !== false}
+                onChange={(e) => updateKey({ dotsEnabled: e.target.checked })}
+                disabled={disabled}
+              />
+            </label>
             <div className="control-row control-row--colors">
               <span>Ink</span>
               <div className="color-pair">
@@ -330,7 +339,7 @@ export function SpotColorEditor({
                 </label>
               </div>
             </div>
-            <label className="control-row">
+            <label className="control-row" style={{ opacity: keySettings.dotsEnabled === false ? 0.4 : 1 }}>
               <span>
                 LPI{' '}
                 <EditableValue
@@ -343,10 +352,10 @@ export function SpotColorEditor({
                 type="range" min={1} max={100}
                 value={keySettings.lpi}
                 onChange={(e) => updateKey({ lpi: Number(e.target.value) })}
-                disabled={disabled}
+                disabled={disabled || keySettings.dotsEnabled === false}
               />
             </label>
-            <label className="control-row">
+            <label className="control-row" style={{ opacity: keySettings.dotsEnabled === false ? 0.4 : 1 }}>
               <span>
                 Angle{' '}
                 <EditableValue
@@ -359,10 +368,10 @@ export function SpotColorEditor({
                 type="range" min={0} max={180}
                 value={keySettings.angle}
                 onChange={(e) => updateKey({ angle: Number(e.target.value) })}
-                disabled={disabled}
+                disabled={disabled || keySettings.dotsEnabled === false}
               />
             </label>
-            <label className="control-row">
+            <label className="control-row" style={{ opacity: keySettings.dotsEnabled === false ? 0.4 : 1 }}>
               <span>
                 Min Dot{' '}
                 <EditableValue
@@ -375,7 +384,7 @@ export function SpotColorEditor({
                 type="range" min={0} max={0.5} step={0.01}
                 value={keySettings.minDot}
                 onChange={(e) => updateKey({ minDot: Number(e.target.value) })}
-                disabled={disabled}
+                disabled={disabled || keySettings.dotsEnabled === false}
               />
             </label>
 

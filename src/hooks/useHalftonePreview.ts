@@ -337,22 +337,28 @@ export function useHalftonePreview(
         const keyBwCanvas = document.createElement('canvas')
         keyBwCanvas.width = canvasW; keyBwCanvas.height = canvasH
         const keyBwCtx = keyBwCanvas.getContext('2d')!
-        renderHalftone(keyBwCtx, {
-          source: keyRegion,
-          settings: {
-            ...halftoneSettings,
-            lpi: key.lpi,
-            angle: key.angle,
-            minDot: key.minDot,
-            maxDot: key.maxDot,
-            fgColor: '#000000',
-            bgColor: '#ffffff',
-            invert: false,
-          },
-          renderDpi,
-          radialCenter,
-          outputDpi: outputSettings.dpi,
-        })
+        if (key.dotsEnabled !== false) {
+          renderHalftone(keyBwCtx, {
+            source: keyRegion,
+            settings: {
+              ...halftoneSettings,
+              lpi: key.lpi,
+              angle: key.angle,
+              minDot: key.minDot,
+              maxDot: key.maxDot,
+              fgColor: '#000000',
+              bgColor: '#ffffff',
+              invert: false,
+            },
+            renderDpi,
+            radialCenter,
+            outputDpi: outputSettings.dpi,
+          })
+        } else {
+          // No dots — fill white so strokes composite correctly
+          keyBwCtx.fillStyle = '#ffffff'
+          keyBwCtx.fillRect(0, 0, canvasW, canvasH)
+        }
 
         // Edge stroke: overlay Sobel contour lines on the key plate halftone.
         if (key.strokeEnabled) {
