@@ -6,6 +6,7 @@ import {
 import { renderHalftone } from '../engine/halftone'
 import { renderStipple } from '../engine/stipple'
 import { renderFlat, separateSpotChannels, boostSaturation } from '../engine/spot-separation'
+import { computeEdgeMask, applyEdgeMaskToCanvas } from '../engine/edge'
 import { separateChannels, compositeChannels } from '../engine/cmyk'
 import { applyTransforms } from '../engine/transform'
 import { dilateMask } from '../engine/dilate'
@@ -331,6 +332,27 @@ export function useHalftonePreview(
           radialCenter,
           outputDpi: outputSettings.dpi,
         })
+
+        // Edge stroke: overlay Sobel contour lines on the key plate halftone.
+        if (key.strokeEnabled) {
+          const edgeMask = computeEdgeMask(keyRegion, key.strokeThreshold ?? 0.3)
+          // strokeWidth is in output-DPI pixels; scale to viewport pixels, min 1
+          const outStrokePx = key.strokeWidth ?? 2
+          const previewStrokePx = outStrokePx > 0
+            ? Math.max(1, Math.round(outStrokePx * renderDpi / outputSettings.dpi))
+            : 0
+
+          let edgeToDraw: ImageData = edgeMask
+          if (previewStrokePx > 1) {
+            const edgeTmp = document.createElement('canvas')
+            edgeTmp.width = canvasW; edgeTmp.height = canvasH
+            edgeTmp.getContext('2d')!.putImageData(edgeMask, 0, 0)
+            const dilated = dilateMask(edgeTmp, previewStrokePx)
+            edgeToDraw = dilated.getContext('2d')!.getImageData(0, 0, canvasW, canvasH)
+          }
+          applyEdgeMaskToCanvas(keyBwCanvas, edgeToDraw)
+        }
+
         const keyImgData = keyBwCtx.getImageData(0, 0, canvasW, canvasH)
         const keyColored = colorizeSpot(keyImgData, key.color)
         const keyOverlay = document.createElement('canvas')

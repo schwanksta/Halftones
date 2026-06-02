@@ -53,6 +53,21 @@ export interface KeyPlateSettings {
   minDot: number
   /** Maximum darkness ceiling. */
   maxDot: number
+  /**
+   * Edge stroke: overlay Sobel-detected contour lines on the key plate halftone.
+   * Produces hard drawn-looking outlines at tonal transitions in the source image.
+   */
+  strokeEnabled?: boolean
+  /**
+   * Gradient magnitude threshold 0–1. Lower = more / finer edges detected;
+   * higher = only the sharpest transitions. Default 0.3.
+   */
+  strokeThreshold?: number
+  /**
+   * Stroke line width in output-DPI pixels. Dilates detected edges to control
+   * line weight. Default 2. Scaled to viewport pixels in preview.
+   */
+  strokeWidth?: number
 }
 
 export const DEFAULT_KEY_PLATE: KeyPlateSettings = {

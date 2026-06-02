@@ -1,4 +1,5 @@
 import { HalftoneSettings, CMYKSettings, OutputSettings, ImageTransformSettings, SpotSettings, SpotColor } from '../types'
+import { computeEdgeMask, applyEdgeMaskToCanvas } from './edge'
 import { renderHalftone } from './halftone'
 import { separateChannels } from './cmyk'
 import { separateSpotChannels, renderFlat, boostSaturation } from './spot-separation'
@@ -176,6 +177,22 @@ function renderSpotChannelCanvases(
       radialCenter,
       isExport: true,
     })
+
+    // Edge stroke: burn Sobel contour lines into the key plate.
+    if (key.strokeEnabled) {
+      const edgeMask = computeEdgeMask(scaled, key.strokeThreshold ?? 0.3)
+      const strokePx = key.strokeWidth ?? 2
+      let edgeToDraw: ImageData = edgeMask
+      if (strokePx > 1) {
+        const edgeTmp = document.createElement('canvas')
+        edgeTmp.width = targetWidth; edgeTmp.height = targetHeight
+        edgeTmp.getContext('2d')!.putImageData(edgeMask, 0, 0)
+        const dilated = dilateMask(edgeTmp, strokePx)
+        edgeToDraw = dilated.getContext('2d')!.getImageData(0, 0, targetWidth, targetHeight)
+      }
+      applyEdgeMaskToCanvas(keyCanvas, edgeToDraw)
+    }
+
     result.set('__key__', { canvas: keyCanvas, label: 'Key' })
   }
 
@@ -419,6 +436,22 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
         outputDpi: dpi,
         isExport: true,
       })
+
+      // Edge stroke on color proof matches the plate output.
+      if (key.strokeEnabled) {
+        const edgeMask = computeEdgeMask(scaled, key.strokeThreshold ?? 0.3)
+        const strokePx = key.strokeWidth ?? 2
+        let edgeToDraw: ImageData = edgeMask
+        if (strokePx > 1) {
+          const edgeTmp = document.createElement('canvas')
+          edgeTmp.width = targetW; edgeTmp.height = targetH
+          edgeTmp.getContext('2d')!.putImageData(edgeMask, 0, 0)
+          const dilated = dilateMask(edgeTmp, strokePx)
+          edgeToDraw = dilated.getContext('2d')!.getImageData(0, 0, targetW, targetH)
+        }
+        applyEdgeMaskToCanvas(keyCanvas, edgeToDraw)
+      }
+
       const keyImgData = keyCtx.getImageData(0, 0, targetW, targetH)
       const keyColored = colorizeForOverlay(keyImgData, key.color)
       const keyOverlay = document.createElement('canvas')

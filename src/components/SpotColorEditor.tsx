@@ -378,6 +378,56 @@ export function SpotColorEditor({
                 disabled={disabled}
               />
             </label>
+
+            {/* Edge stroke */}
+            <label className="control-row control-row--toggle" style={{ marginTop: 4 }}>
+              <span title="Overlay Sobel edge detection lines on the key plate halftone — adds hard drawn-looking contours at tonal transitions">
+                Edge Stroke
+              </span>
+              <input
+                type="checkbox"
+                checked={keySettings.strokeEnabled ?? false}
+                onChange={(e) => updateKey({ strokeEnabled: e.target.checked })}
+                disabled={disabled}
+              />
+            </label>
+
+            {keySettings.strokeEnabled && (
+              <>
+                <label className="control-row">
+                  <span title="Gradient magnitude threshold — lower detects more/finer edges, higher detects only strong edges">
+                    Threshold{' '}
+                    <EditableValue
+                      value={Math.round((keySettings.strokeThreshold ?? 0.3) * 100)}
+                      min={1} max={100} step={1} suffix="%"
+                      onChange={(v) => updateKey({ strokeThreshold: v / 100 })}
+                    />
+                  </span>
+                  <input
+                    type="range" min={0.01} max={1} step={0.01}
+                    value={keySettings.strokeThreshold ?? 0.3}
+                    onChange={(e) => updateKey({ strokeThreshold: Number(e.target.value) })}
+                    disabled={disabled}
+                  />
+                </label>
+                <label className="control-row">
+                  <span title="Edge line width in output pixels">
+                    Width{' '}
+                    <EditableValue
+                      value={keySettings.strokeWidth ?? 2}
+                      min={1} max={10} step={1} suffix="px"
+                      onChange={(v) => updateKey({ strokeWidth: v })}
+                    />
+                  </span>
+                  <input
+                    type="range" min={1} max={10} step={1}
+                    value={keySettings.strokeWidth ?? 2}
+                    onChange={(e) => updateKey({ strokeWidth: Number(e.target.value) })}
+                    disabled={disabled}
+                  />
+                </label>
+              </>
+            )}
           </>
         )}
       </div>
