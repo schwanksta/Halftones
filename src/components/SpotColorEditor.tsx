@@ -300,7 +300,9 @@ function SpotColorRow({ color, index, disabled, globalTrap, onChange, onRemove }
       const b = parseInt(hex.slice(5, 7), 16)
       const lab = rgbToLab(r, g, b)
       const name = guessColorName(lab[0], lab[1], lab[2])
-      onChange({ hex, lab, name })
+      // Update hex and name only — lab stays anchored to the original extracted
+      // color so separation boundaries don't shift when the display color changes.
+      onChange({ hex, name })
       setHexDraft(hex)
     } else {
       setHexDraft(color.hex)
