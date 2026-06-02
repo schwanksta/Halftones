@@ -7,6 +7,7 @@ Packaged as a native macOS app via Tauri 2. The `tauri` branch was merged to `ma
 
 - **Always commit when done.** After completing any task, run `npm run build` to verify, then `git add -A && git commit`.
 - **Also run `npm run tauri:build` when done.** This produces the `.app` and `.dmg` at `src-tauri/target/release/bundle/macos/`. Takes ~50s on second+ Rust builds (just JS changed), ~2–3 min after Rust changes.
+- **Before creating a GitHub release, ask the user what version number to use.** Don't infer it from prior releases.
 
 ## Quick Reference
 
