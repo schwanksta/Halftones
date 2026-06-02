@@ -1,5 +1,5 @@
 import { HalftoneSettings, CMYKSettings, OutputSettings, ImageTransformSettings, SpotSettings, SpotColor } from '../types'
-import { computeEdgeMask, applyEdgeMaskToCanvas } from './edge'
+import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from './edge'
 import { renderHalftone } from './halftone'
 import { separateChannels } from './cmyk'
 import { separateSpotChannels, renderFlat, boostSaturation } from './spot-separation'
@@ -178,7 +178,7 @@ function renderSpotChannelCanvases(
       isExport: true,
     })
 
-    // Edge stroke: burn Sobel contour lines into the key plate.
+    // Edge stroke (Sobel): burn contour lines into the key plate.
     if (key.strokeEnabled) {
       const edgeMask = computeEdgeMask(scaled, key.strokeThreshold ?? 0.3)
       const strokePx = key.strokeWidth ?? 2
@@ -191,6 +191,12 @@ function renderSpotChannelCanvases(
         edgeToDraw = dilated.getContext('2d')!.getImageData(0, 0, targetWidth, targetHeight)
       }
       applyEdgeMaskToCanvas(keyCanvas, edgeToDraw)
+    }
+
+    // Alpha boundary outline: solid ring around the subject silhouette.
+    if (key.outlineEnabled) {
+      const outlineMask = computeAlphaBoundaryMask(scaled, key.outlineWidth ?? 3)
+      applyEdgeMaskToCanvas(keyCanvas, outlineMask)
     }
 
     result.set('__key__', { canvas: keyCanvas, label: 'Key' })
@@ -437,7 +443,7 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
         isExport: true,
       })
 
-      // Edge stroke on color proof matches the plate output.
+        // Edge stroke (Sobel) on color proof matches the plate output.
       if (key.strokeEnabled) {
         const edgeMask = computeEdgeMask(scaled, key.strokeThreshold ?? 0.3)
         const strokePx = key.strokeWidth ?? 2
@@ -450,6 +456,12 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
           edgeToDraw = dilated.getContext('2d')!.getImageData(0, 0, targetW, targetH)
         }
         applyEdgeMaskToCanvas(keyCanvas, edgeToDraw)
+      }
+
+      // Alpha boundary outline: solid ring around the subject silhouette.
+      if (key.outlineEnabled) {
+        const outlineMask = computeAlphaBoundaryMask(scaled, key.outlineWidth ?? 3)
+        applyEdgeMaskToCanvas(keyCanvas, outlineMask)
       }
 
       const keyImgData = keyCtx.getImageData(0, 0, targetW, targetH)

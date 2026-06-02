@@ -13,6 +13,7 @@
  */
 
 import { precomputeGrayscale } from './sampling'
+import { dilateMask } from './dilate'
 
 /**
  * Compute a black-on-white edge mask via the Sobel operator.
@@ -68,6 +69,70 @@ export function computeEdgeMask(source: ImageData, threshold: number): ImageData
   }
 
   return new ImageData(buf, width, height)
+}
+
+/**
+ * Compute a solid outline ring traced around the subject's alpha-channel silhouette.
+ *
+ * Produces a binary mask where only the pixels immediately outside the subject
+ * boundary (up to `strokeWidth` pixels) are black (ink). All other pixels are
+ * white (paper). Unlike Sobel edge detection, this traces only the silhouette —
+ * internal tonal edges in the image are ignored entirely.
+ *
+ * Only meaningful for transparent-background images. For fully opaque images the
+ * returned mask is empty (all white).
+ *
+ * @param source      - Source ImageData with an alpha channel.
+ * @param strokeWidth - How many pixels outward from the subject edge to fill.
+ * @returns           - Black-on-white ImageData: outline pixels are 0, rest are 255.
+ */
+export function computeAlphaBoundaryMask(source: ImageData, strokeWidth: number): ImageData {
+  const { data, width, height } = source
+  const n = width * height
+
+  if (strokeWidth <= 0) {
+    return new ImageData(new Uint8ClampedArray(n * 4).fill(255), width, height)
+  }
+
+  // Build binary subject mask: subject (alpha ≥ 128) → 0 (black), transparent → 255 (white)
+  const subjectBuf = new Uint8ClampedArray(n * 4)
+  let hasTransparent = false
+  for (let i = 0; i < n; i++) {
+    const isSubject = data[i * 4 + 3] >= 128
+    if (!isSubject) hasTransparent = true
+    const v = isSubject ? 0 : 255
+    subjectBuf[i * 4]     = v
+    subjectBuf[i * 4 + 1] = v
+    subjectBuf[i * 4 + 2] = v
+    subjectBuf[i * 4 + 3] = 255
+  }
+
+  // No transparent pixels → no silhouette boundary → return empty mask
+  if (!hasTransparent) {
+    return new ImageData(new Uint8ClampedArray(n * 4).fill(255), width, height)
+  }
+
+  // Dilate the subject mask outward by strokeWidth pixels
+  const subjectCanvas = document.createElement('canvas')
+  subjectCanvas.width = width; subjectCanvas.height = height
+  subjectCanvas.getContext('2d')!.putImageData(new ImageData(subjectBuf, width, height), 0, 0)
+  const dilatedCanvas = dilateMask(subjectCanvas, strokeWidth)
+  const dilatedData = dilatedCanvas.getContext('2d')!.getImageData(0, 0, width, height).data
+
+  // Ring = pixels that became black in the dilated mask but were white (transparent) originally.
+  // These are the pixels added by dilation — the outer stroke ring.
+  const ringBuf = new Uint8ClampedArray(n * 4)
+  for (let i = 0; i < n; i++) {
+    const inDilated  = dilatedData[i * 4] < 128    // black in dilated = covered
+    const inOriginal = subjectBuf[i * 4]  < 128    // black in original = subject
+    const v = (inDilated && !inOriginal) ? 0 : 255  // ring pixel = added by dilation
+    ringBuf[i * 4]     = v
+    ringBuf[i * 4 + 1] = v
+    ringBuf[i * 4 + 2] = v
+    ringBuf[i * 4 + 3] = 255
+  }
+
+  return new ImageData(ringBuf, width, height)
 }
 
 /**

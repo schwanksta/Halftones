@@ -68,6 +68,17 @@ export interface KeyPlateSettings {
    * line weight. Default 2. Scaled to viewport pixels in preview.
    */
   strokeWidth?: number
+  /**
+   * Outline stroke: a clean solid ring traced around the alpha-channel silhouette.
+   * Only meaningful for transparent-background images — traces exactly where the
+   * subject meets the transparent area, adding a crisp printed outline.
+   */
+  outlineEnabled?: boolean
+  /**
+   * Outline width in output-DPI pixels. Controls how many pixels the stroke
+   * extends outward from the subject boundary. Default 3.
+   */
+  outlineWidth?: number
 }
 
 export const DEFAULT_KEY_PLATE: KeyPlateSettings = {

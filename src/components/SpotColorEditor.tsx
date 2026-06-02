@@ -428,6 +428,38 @@ export function SpotColorEditor({
                 </label>
               </>
             )}
+
+            {/* Silhouette outline (alpha boundary) */}
+            <label className="control-row control-row--toggle" style={{ marginTop: 4 }}>
+              <span title="Solid outline ring traced around the subject's alpha-channel silhouette — clean crisp border, no internal edges">
+                Outline{hasTransparency ? '' : ' (needs transparency)'}
+              </span>
+              <input
+                type="checkbox"
+                checked={keySettings.outlineEnabled ?? false}
+                onChange={(e) => updateKey({ outlineEnabled: e.target.checked })}
+                disabled={disabled || !hasTransparency}
+              />
+            </label>
+
+            {keySettings.outlineEnabled && hasTransparency && (
+              <label className="control-row">
+                <span title="Outline width in output pixels — how far the stroke extends from the silhouette edge">
+                  Width{' '}
+                  <EditableValue
+                    value={keySettings.outlineWidth ?? 3}
+                    min={1} max={20} step={1} suffix="px"
+                    onChange={(v) => updateKey({ outlineWidth: v })}
+                  />
+                </span>
+                <input
+                  type="range" min={1} max={20} step={1}
+                  value={keySettings.outlineWidth ?? 3}
+                  onChange={(e) => updateKey({ outlineWidth: Number(e.target.value) })}
+                  disabled={disabled}
+                />
+              </label>
+            )}
           </>
         )}
       </div>

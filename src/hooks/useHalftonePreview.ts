@@ -6,7 +6,7 @@ import {
 import { renderHalftone } from '../engine/halftone'
 import { renderStipple } from '../engine/stipple'
 import { renderFlat, separateSpotChannels, boostSaturation } from '../engine/spot-separation'
-import { computeEdgeMask, applyEdgeMaskToCanvas } from '../engine/edge'
+import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from '../engine/edge'
 import { separateChannels, compositeChannels } from '../engine/cmyk'
 import { applyTransforms } from '../engine/transform'
 import { dilateMask } from '../engine/dilate'
@@ -184,6 +184,27 @@ export function useHalftonePreview(
     return result
   }, [spotChannels])
 
+  // ── Alpha boundary outline canvas ─────────────────────────────────────────
+  //
+  // Computed at full source resolution (so alpha channel is intact), then
+  // extracted to viewport coordinates at render time — same pattern as
+  // spotChannelCanvases.  Memoized so the dilation only re-runs when the
+  // source image or outline settings change, not on every frame.
+
+  const alphaOutlineCanvas = useMemo(() => {
+    if (!transformed || halftoneSettings.colorMode !== 'spot') return null
+    if (!spotSettings.key?.outlineEnabled) return null
+    const outlineWidth = spotSettings.key.outlineWidth ?? 3
+    const sourcePixelsPerInch = transformed.width / outputSettings.widthInches
+    // Convert output-DPI pixels → source-image pixels
+    const outlineWidthSourcePx = Math.max(1, Math.round(outlineWidth * sourcePixelsPerInch / outputSettings.dpi))
+    const mask = computeAlphaBoundaryMask(transformed, outlineWidthSourcePx)
+    const c = document.createElement('canvas')
+    c.width = transformed.width; c.height = transformed.height
+    c.getContext('2d')!.putImageData(mask, 0, 0)
+    return c
+  }, [transformed, halftoneSettings.colorMode, spotSettings.key, outputSettings.widthInches, outputSettings.dpi])
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   const render = useCallback(() => {
@@ -353,6 +374,15 @@ export function useHalftonePreview(
           applyEdgeMaskToCanvas(keyBwCanvas, edgeToDraw)
         }
 
+        // Alpha boundary outline: solid ring around the subject silhouette.
+        // Computed at source resolution (memoized), extracted to viewport here.
+        if (key.outlineEnabled && alphaOutlineCanvas) {
+          const outlineViewport = extractRegionFromCanvas(
+            alphaOutlineCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff',
+          )
+          applyEdgeMaskToCanvas(keyBwCanvas, outlineViewport)
+        }
+
         const keyImgData = keyBwCtx.getImageData(0, 0, canvasW, canvasH)
         const keyColored = colorizeSpot(keyImgData, key.color)
         const keyOverlay = document.createElement('canvas')
@@ -397,7 +427,8 @@ export function useHalftonePreview(
     ctx.restore()
   }, [
     canvasRef, transformed, transformedCanvas, stippleCanvas,
-    spotSettings.colors, spotSettings.vibrancy, spotSettings.trap, spotSettings.key, spotChannelCanvases,
+    spotSettings.colors, spotSettings.vibrancy, spotSettings.trap, spotSettings.key,
+    spotChannelCanvases, alphaOutlineCanvas,
     halftoneSettings, cmykSettings, channelView, outputSettings, viewport,
   ])
 
