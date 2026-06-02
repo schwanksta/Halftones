@@ -148,19 +148,35 @@ function samplePixelsToLab(source: ImageData, maxSamples = 12000): Float32Array 
   return out.slice(0, idx)
 }
 
-/** k-means++ initialisation: pick first centroid randomly, then weight remaining. */
-function initCentroids(pixels: Float32Array, k: number): Float32Array {
+/**
+ * k-means++ initialisation.
+ * If `seeds` is provided, those LAB triples are planted as the first centroids;
+ * k-means++ fills the remaining slots by weighted-random distance selection.
+ */
+function initCentroids(pixels: Float32Array, k: number, seeds?: Array<[number,number,number]>): Float32Array {
   const n = pixels.length / 3
   const centroids = new Float32Array(k * 3)
 
-  // First centroid: random
-  let pick = Math.floor(Math.random() * n) * 3
-  centroids[0] = pixels[pick]; centroids[1] = pixels[pick + 1]; centroids[2] = pixels[pick + 2]
+  // Plant user-provided seeds first
+  const numSeeds = Math.min(seeds?.length ?? 0, k)
+  for (let s = 0; s < numSeeds; s++) {
+    centroids[s * 3]     = seeds![s][0]
+    centroids[s * 3 + 1] = seeds![s][1]
+    centroids[s * 3 + 2] = seeds![s][2]
+  }
+
+  // If no seeds at all, pick the first centroid randomly (standard k-means++)
+  let placed = numSeeds
+  if (placed === 0) {
+    const pick = Math.floor(Math.random() * n) * 3
+    centroids[0] = pixels[pick]; centroids[1] = pixels[pick + 1]; centroids[2] = pixels[pick + 2]
+    placed = 1
+  }
 
   const dist2 = new Float32Array(n)
 
-  for (let c = 1; c < k; c++) {
-    // Compute distance² to nearest existing centroid
+  // Fill remaining slots with k-means++ weighted picks
+  for (let c = placed; c < k; c++) {
     let total = 0
     for (let i = 0; i < n; i++) {
       let minD = Infinity
@@ -174,12 +190,11 @@ function initCentroids(pixels: Float32Array, k: number): Float32Array {
       dist2[i] = minD
       total += minD
     }
-    // Weighted random pick
     let r = Math.random() * total
     for (let i = 0; i < n; i++) {
       r -= dist2[i]
       if (r <= 0) {
-        pick = i * 3
+        const pick = i * 3
         centroids[c * 3] = pixels[pick]
         centroids[c * 3 + 1] = pixels[pick + 1]
         centroids[c * 3 + 2] = pixels[pick + 2]
@@ -190,10 +205,27 @@ function initCentroids(pixels: Float32Array, k: number): Float32Array {
   return centroids
 }
 
-/** Run k-means iterations. Returns final centroid array [L,a,b, L,a,b, ...]. */
-function kmeans(pixels: Float32Array, k: number, maxIter = 50): Float32Array {
+/** Total within-cluster variance — lower = better clustering. */
+function computeInertia(pixels: Float32Array, centroids: Float32Array, k: number): number {
   const n = pixels.length / 3
-  const centroids = initCentroids(pixels, k)
+  let inertia = 0
+  for (let i = 0; i < n; i++) {
+    let minD = Infinity
+    for (let j = 0; j < k; j++) {
+      const dl = pixels[i * 3] - centroids[j * 3]
+      const da = pixels[i * 3 + 1] - centroids[j * 3 + 1]
+      const db = pixels[i * 3 + 2] - centroids[j * 3 + 2]
+      minD = Math.min(minD, dl * dl + da * da + db * db)
+    }
+    inertia += minD
+  }
+  return inertia
+}
+
+/** Run k-means iterations. Returns final centroid array [L,a,b, L,a,b, ...]. */
+function kmeans(pixels: Float32Array, k: number, maxIter = 50, seeds?: Array<[number,number,number]>): Float32Array {
+  const n = pixels.length / 3
+  const centroids = initCentroids(pixels, k, seeds)
   const assignments = new Int32Array(n)
   const sums = new Float32Array(k * 3)
   const counts = new Int32Array(k)
@@ -441,10 +473,32 @@ const DEFAULT_ANGLES = [45, 75, 15, 0, 30, 60, 105, 90]
 /**
  * Extract a spot color palette from an image via k-means++ in LAB space.
  * Returns SpotColor objects ready to use.
+ *
+ * @param seeds  Optional LAB values to use as fixed starting centroids.
+ *               Each seed guarantees a cluster anchored near that color.
+ *               Remaining clusters are filled by k-means++ and iteration.
  */
-export function extractPalette(source: ImageData, k: number, defaultLpi: number): SpotColor[] {
+export function extractPalette(
+  source: ImageData,
+  k: number,
+  defaultLpi: number,
+  seeds?: Array<[number, number, number]>,
+): SpotColor[] {
   const pixels = samplePixelsToLab(source)
-  const centroids = kmeans(pixels, Math.max(1, Math.min(k, 16)))
+  const clampedK = Math.max(1, Math.min(k, 16))
+
+  // Run multiple restarts and keep the best result (lowest within-cluster variance).
+  // With user seeds the init is largely deterministic; without seeds this avoids
+  // unlucky random initialisations that converge to poor local optima.
+  const RESTARTS = seeds?.length ? 2 : 4
+  let bestCentroids = kmeans(pixels, clampedK, 50, seeds)
+  let bestInertia   = computeInertia(pixels, bestCentroids, clampedK)
+  for (let r = 1; r < RESTARTS; r++) {
+    const c = kmeans(pixels, clampedK, 50, seeds)
+    const inertia = computeInertia(pixels, c, clampedK)
+    if (inertia < bestInertia) { bestCentroids = c; bestInertia = inertia }
+  }
+  const centroids = bestCentroids
 
   return Array.from({ length: k }, (_, i) => {
     const L = centroids[i * 3]

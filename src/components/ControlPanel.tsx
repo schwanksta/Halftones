@@ -21,6 +21,10 @@ interface Props {
   onOutputChange: (settings: OutputSettings) => void
   onTransformChange: (settings: ImageTransformSettings) => void
   onChannelViewChange: (view: ChannelView) => void
+  seedColors: Array<[number, number, number]>
+  onClearSeeds: () => void
+  seedPickingActive: boolean
+  onToggleSeedPicking: () => void
 }
 
 export function ControlPanel({
@@ -39,6 +43,10 @@ export function ControlPanel({
   onOutputChange,
   onTransformChange,
   onChannelViewChange,
+  seedColors,
+  onClearSeeds,
+  seedPickingActive,
+  onToggleSeedPicking,
 }: Props) {
   return (
     <div className="sidebar">
@@ -63,6 +71,10 @@ export function ControlPanel({
           sourceImageData={sourceImageData}
           defaultLpi={halftoneSettings.lpi}
           disabled={!hasImage}
+          seedColors={seedColors}
+          onClearSeeds={onClearSeeds}
+          seedPickingActive={seedPickingActive}
+          onToggleSeedPicking={onToggleSeedPicking}
         />
       )}
       <TransformControls

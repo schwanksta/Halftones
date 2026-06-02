@@ -6,6 +6,7 @@ import {
 import { useHalftonePreview } from '../hooks/useHalftonePreview'
 import { useCanvasTransform } from '../hooks/useCanvasTransform'
 import { CropOverlay } from './CropOverlay'
+import { rgbToLab } from '../engine/spot-separation'
 
 interface Props {
   source: SourceImage | null
@@ -17,16 +18,26 @@ interface Props {
   outputSettings: OutputSettings
   onImageLoad: (image: SourceImage) => void
   onTransformChange: (settings: ImageTransformSettings) => void
+  /** When true, clicks on the canvas sample the source image color as a seed. */
+  seedPickingActive?: boolean
+  /** Called with the LAB value of the sampled pixel when a seed click is detected. */
+  onSeedPick?: (lab: [number, number, number]) => void
+  /** Source image data for seed color sampling (pre-halftone, post-transform). */
+  transformedImageData?: ImageData | null
 }
 
 export function PreviewCanvas({
   source, transformSettings, halftoneSettings,
   cmykSettings, spotSettings, channelView, outputSettings,
   onImageLoad, onTransformChange,
+  seedPickingActive, onSeedPick, transformedImageData,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [dragOver, setDragOver] = useState(false)
+
+  // Track mouse-down position — set up after viewport is available (see below).
+  const seedMouseDown = useRef<{ x: number; y: number } | null>(null)
 
   // Editable zoom state
   const [zoomEditing, setZoomEditing] = useState(false)
@@ -37,6 +48,34 @@ export function PreviewCanvas({
   const viewportH = source?.height ?? 0
 
   const { viewport, fitToView, zoomTo } = useCanvasTransform(containerRef, viewportW, viewportH)
+
+  const handleSeedMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!seedPickingActive) return
+    seedMouseDown.current = { x: e.clientX, y: e.clientY }
+  }, [seedPickingActive])
+
+  const handleSeedMouseUp = useCallback((e: React.MouseEvent) => {
+    if (!seedPickingActive || !onSeedPick || !transformedImageData || !seedMouseDown.current) return
+    const dx = e.clientX - seedMouseDown.current.x
+    const dy = e.clientY - seedMouseDown.current.y
+    seedMouseDown.current = null
+    if (Math.sqrt(dx * dx + dy * dy) > 5) return  // drag, not click
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const canvasX = e.clientX - rect.left
+    const canvasY = e.clientY - rect.top
+    const srcX = Math.round(viewport.panX + canvasX / viewport.zoom)
+    const srcY = Math.round(viewport.panY + canvasY / viewport.zoom)
+    if (srcX < 0 || srcY < 0 || srcX >= transformedImageData.width || srcY >= transformedImageData.height) return
+    const idx = (srcY * transformedImageData.width + srcX) * 4
+    onSeedPick(rgbToLab(
+      transformedImageData.data[idx],
+      transformedImageData.data[idx + 1],
+      transformedImageData.data[idx + 2],
+    ))
+  }, [seedPickingActive, onSeedPick, transformedImageData, viewport])
 
   // Compute post-transform image dimensions (fast arithmetic, no canvas ops).
   // Needed to position the crop overlay handles correctly.
@@ -150,12 +189,16 @@ export function PreviewCanvas({
       className="preview-area"
       ref={containerRef}
       style={{
-        cursor: source ? 'crosshair' : 'default',
-        outline: dragOver ? '2px dashed var(--accent)' : undefined,
+        cursor: seedPickingActive ? 'cell' : source ? 'crosshair' : 'default',
+        outline: seedPickingActive
+          ? '2px solid var(--accent)'
+          : dragOver ? '2px dashed var(--accent)' : undefined,
       }}
       onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
+      onMouseDown={handleSeedMouseDown}
+      onMouseUp={handleSeedMouseUp}
     >
       <canvas
         ref={canvasRef}

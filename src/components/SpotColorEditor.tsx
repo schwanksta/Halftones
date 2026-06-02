@@ -10,9 +10,17 @@ interface Props {
   sourceImageData: ImageData | null
   defaultLpi: number
   disabled: boolean
+  /** LAB seed colors clicked by the user on the preview canvas. */
+  seedColors: Array<[number, number, number]>
+  onClearSeeds: () => void
+  seedPickingActive: boolean
+  onToggleSeedPicking: () => void
 }
 
-export function SpotColorEditor({ settings, onChange, sourceImageData, defaultLpi, disabled }: Props) {
+export function SpotColorEditor({
+  settings, onChange, sourceImageData, defaultLpi, disabled,
+  seedColors, onClearSeeds, seedPickingActive, onToggleSeedPicking,
+}: Props) {
   const [extracting, setExtracting] = useState(false)
 
   const update = (partial: Partial<SpotSettings>) => onChange({ ...settings, ...partial })
@@ -33,10 +41,10 @@ export function SpotColorEditor({ settings, onChange, sourceImageData, defaultLp
   const handleExtract = () => {
     if (!sourceImageData) return
     setExtracting(true)
-    // Run in next tick so the UI can update the button state first
     setTimeout(() => {
       try {
-        const colors = extractPalette(sourceImageData, settings.numColors, defaultLpi)
+        const seeds = seedColors.length ? seedColors : undefined
+        const colors = extractPalette(sourceImageData, settings.numColors, defaultLpi, seeds)
         update({ colors })
       } finally {
         setExtracting(false)
@@ -100,6 +108,55 @@ export function SpotColorEditor({ settings, onChange, sourceImageData, defaultLp
           onChange={(e) => update({ mergeThreshold: Number(e.target.value) })}
           disabled={disabled}
         />
+      </div>
+
+      {/* Seed color picking */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 2 }}>
+        <button
+          onClick={onToggleSeedPicking}
+          disabled={disabled || !sourceImageData}
+          title="Click colors on the image to anchor palette slots"
+          style={{
+            padding: '3px 7px',
+            fontSize: 11,
+            borderRadius: 4,
+            border: '1px solid var(--border)',
+            background: seedPickingActive ? 'var(--accent)' : 'var(--bg-primary)',
+            color: seedPickingActive ? '#fff' : 'var(--text-primary)',
+            cursor: disabled || !sourceImageData ? 'not-allowed' : 'pointer',
+            fontWeight: seedPickingActive ? 600 : 400,
+            opacity: disabled || !sourceImageData ? 0.5 : 1,
+          }}
+        >
+          {seedPickingActive ? '● Picking…' : '＋ Seed Colors'}
+        </button>
+        {seedColors.map((lab, i) => {
+          const hex = labToHex(lab)
+          return (
+            <div
+              key={i}
+              title={hex}
+              style={{
+                width: 16, height: 16, borderRadius: 3,
+                background: hex,
+                border: '1px solid rgba(255,255,255,0.2)',
+                flexShrink: 0,
+              }}
+            />
+          )
+        })}
+        {seedColors.length > 0 && (
+          <button
+            onClick={onClearSeeds}
+            title="Clear all seed colors"
+            style={{
+              padding: '2px 5px', fontSize: 11, borderRadius: 3,
+              border: '1px solid var(--border)',
+              background: 'none', color: 'var(--text-secondary)',
+              cursor: 'pointer', lineHeight: 1,
+            }}
+          >×</button>
+        )}
       </div>
 
       <div className="control-row" style={{ gap: 6 }}>

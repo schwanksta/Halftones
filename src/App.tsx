@@ -68,6 +68,8 @@ function App() {
   const [outputSettings, setOutputSettings] = useState<OutputSettings>(DEFAULT_OUTPUT_SETTINGS)
   const [transformSettings, setTransformSettings] = useState<ImageTransformSettings>(DEFAULT_TRANSFORM_SETTINGS)
   const [channelView, setChannelView] = useState<ChannelView>('composite')
+  const [seedColors, setSeedColors] = useState<Array<[number, number, number]>>([])
+  const [seedPickingActive, setSeedPickingActive] = useState(false)
 
   const { save, load, remove, projectNames, lastProjectName } = useProjectPersistence()
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -389,6 +391,10 @@ function App() {
           onOutputChange={setOutputSettings}
           onTransformChange={setTransformSettings}
           onChannelViewChange={setChannelView}
+          seedColors={seedColors}
+          onClearSeeds={() => setSeedColors([])}
+          seedPickingActive={seedPickingActive}
+          onToggleSeedPicking={() => setSeedPickingActive(v => !v)}
         />
         <PreviewCanvas
           source={source}
@@ -400,6 +406,9 @@ function App() {
           outputSettings={outputSettings}
           onImageLoad={handleImageLoad}
           onTransformChange={setTransformSettings}
+          seedPickingActive={seedPickingActive}
+          onSeedPick={(lab) => setSeedColors(prev => [...prev, lab])}
+          transformedImageData={transformedImageData}
         />
       </div>
     </div>
