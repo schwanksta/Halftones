@@ -432,7 +432,7 @@ function SpotColorRow({ color, index, disabled, globalTrap, onChange, onRemove }
               <input
                 type="color"
                 value={hexDraft}
-                onChange={(e) => setHexDraft(e.target.value)}
+                onChange={(e) => commitHex(e.target.value)}
                 onBlur={(e) => commitHex(e.target.value)}
                 disabled={disabled}
                 style={{ width: 32, height: 24, padding: 1, cursor: 'pointer', flexShrink: 0 }}
