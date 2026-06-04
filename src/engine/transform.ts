@@ -152,27 +152,69 @@ export function applyLevels(
 // ---------------------------------------------------------------------------
 
 /**
- * Gaussian blur via canvas filter API.
- * Fast and edge-correct; radius is the standard-deviation-like value passed
- * to CSS blur() (same semantics as Photoshop's Gaussian Blur "radius").
+ * Separable box blur — O(width × height) regardless of radius.
+ * Two passes (horizontal then vertical) give a pillar/box impulse response
+ * that's accurate enough for pre-halftone smoothing.
+ * Purely CPU-based; no canvas filter API so it works everywhere.
  */
 function applyBlur(source: ImageData, radius: number): ImageData {
-  const { width, height } = source
-  // Put source onto a temporary canvas
-  const srcCanvas = document.createElement('canvas')
-  srcCanvas.width = width
-  srcCanvas.height = height
-  srcCanvas.getContext('2d')!.putImageData(source, 0, 0)
+  const r = Math.max(1, Math.round(radius))
+  return blurVertical(blurHorizontal(source, r), r)
+}
 
-  // Draw with blur filter applied
-  const dst = document.createElement('canvas')
-  dst.width = width
-  dst.height = height
-  const ctx = dst.getContext('2d')!
-  ctx.filter = `blur(${radius}px)`
-  ctx.drawImage(srcCanvas, 0, 0)
-  ctx.filter = 'none'
-  return ctx.getImageData(0, 0, width, height)
+function blurHorizontal(src: ImageData, r: number): ImageData {
+  const { data, width, height } = src
+  const out = new Uint8ClampedArray(data.length)
+  const ksize = 2 * r + 1
+
+  for (let y = 0; y < height; y++) {
+    const rowBase = y * width * 4
+    // Initialise sum for x = 0
+    let rs = 0, gs = 0, bs = 0, as = 0
+    for (let dx = -r; dx <= r; dx++) {
+      const xi = Math.max(0, Math.min(width - 1, dx)) * 4 + rowBase
+      rs += data[xi]; gs += data[xi + 1]; bs += data[xi + 2]; as += data[xi + 3]
+    }
+    for (let x = 0; x < width; x++) {
+      const oi = rowBase + x * 4
+      out[oi] = rs / ksize; out[oi + 1] = gs / ksize
+      out[oi + 2] = bs / ksize; out[oi + 3] = as / ksize
+      // Slide window: remove pixel leaving the left edge, add pixel entering the right edge
+      const rem = Math.max(0, Math.min(width - 1, x - r)) * 4 + rowBase
+      const add = Math.max(0, Math.min(width - 1, x + r + 1)) * 4 + rowBase
+      rs += data[add] - data[rem]; gs += data[add + 1] - data[rem + 1]
+      bs += data[add + 2] - data[rem + 2]; as += data[add + 3] - data[rem + 3]
+    }
+  }
+  return new ImageData(out, width, height)
+}
+
+function blurVertical(src: ImageData, r: number): ImageData {
+  const { data, width, height } = src
+  const out = new Uint8ClampedArray(data.length)
+  const ksize = 2 * r + 1
+  const stride = width * 4
+
+  for (let x = 0; x < width; x++) {
+    const colBase = x * 4
+    // Initialise sum for y = 0
+    let rs = 0, gs = 0, bs = 0, as = 0
+    for (let dy = -r; dy <= r; dy++) {
+      const yi = Math.max(0, Math.min(height - 1, dy)) * stride + colBase
+      rs += data[yi]; gs += data[yi + 1]; bs += data[yi + 2]; as += data[yi + 3]
+    }
+    for (let y = 0; y < height; y++) {
+      const oi = y * stride + colBase
+      out[oi] = rs / ksize; out[oi + 1] = gs / ksize
+      out[oi + 2] = bs / ksize; out[oi + 3] = as / ksize
+      // Slide window
+      const rem = Math.max(0, Math.min(height - 1, y - r)) * stride + colBase
+      const add = Math.max(0, Math.min(height - 1, y + r + 1)) * stride + colBase
+      rs += data[add] - data[rem]; gs += data[add + 1] - data[rem + 1]
+      bs += data[add + 2] - data[rem + 2]; as += data[add + 3] - data[rem + 3]
+    }
+  }
+  return new ImageData(out, width, height)
 }
 
 /**
