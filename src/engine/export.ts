@@ -137,16 +137,44 @@ function renderSpotChannelCanvases(
     const channelData = channels.get(color.id)
     if (!channelData) continue
 
+    // Bleed: expand the channel source data BEFORE rendering so the halftone
+    // (or flat fill) naturally extends into the bleed area.  Same approach as
+    // the preview — avoids the solid-black border that a post-render expansion
+    // would produce for halftone backgrounds.
+    const bleedPx = color.type === 'background' && (color.bleedInches ?? 0) > 0
+      ? Math.round(color.bleedInches! * outputSettings.dpi)
+      : 0
+
+    let effectiveChannelData = channelData
+    let renderW = targetWidth
+    let renderH = targetHeight
+    if (bleedPx > 0) {
+      const expW = targetWidth  + 2 * bleedPx
+      const expH = targetHeight + 2 * bleedPx
+      // Build expanded channel: border = 0 (full ink), image = original channel
+      const expandSrc = document.createElement('canvas')
+      expandSrc.width = targetWidth; expandSrc.height = targetHeight
+      expandSrc.getContext('2d')!.putImageData(channelData, 0, 0)
+      const expandDst = document.createElement('canvas')
+      expandDst.width = expW; expandDst.height = expH
+      const expandCtx = expandDst.getContext('2d')!
+      expandCtx.fillStyle = '#000000'
+      expandCtx.fillRect(0, 0, expW, expH)
+      expandCtx.drawImage(expandSrc, bleedPx, bleedPx)
+      effectiveChannelData = expandCtx.getImageData(0, 0, expW, expH)
+      renderW = expW; renderH = expH
+    }
+
     const canvas = document.createElement('canvas')
-    canvas.width  = targetWidth
-    canvas.height = targetHeight
+    canvas.width  = renderW
+    canvas.height = renderH
     const ctx = canvas.getContext('2d')!
 
     if (color.renderMode === 'flat') {
-      renderFlat(ctx, channelData, color.threshold)
+      renderFlat(ctx, effectiveChannelData, color.threshold)
     } else {
       renderHalftone(ctx, {
-        source: channelData,
+        source: effectiveChannelData,
         settings: { ...halftoneSettings, angle: color.angle, lpi: color.lpi },
         renderDpi: outputSettings.dpi,
         radialCenter,
@@ -157,26 +185,7 @@ function renderSpotChannelCanvases(
     // Trap: dilate the plate so this layer's ink spreads outward, overlapping
     // neighbouring colors on press and hiding visible paper seams.
     const trap = trapFor(color, spotSettings)
-    const trappedCanvas = trap > 0 ? dilateMask(canvas, trap) : canvas
-
-    // Bleed: for background-type colors, expand the plate outward by bleedPx
-    // on each side, filling the border with solid ink.  The expanded canvas is
-    // recorded with its bleedPx so PDF placement can offset accordingly.
-    const bleedPx = color.type === 'background' && (color.bleedInches ?? 0) > 0
-      ? Math.round(color.bleedInches! * outputSettings.dpi)
-      : 0
-
-    let finalCanvas = trappedCanvas
-    if (bleedPx > 0) {
-      const expW = targetWidth  + 2 * bleedPx
-      const expH = targetHeight + 2 * bleedPx
-      finalCanvas = document.createElement('canvas')
-      finalCanvas.width = expW; finalCanvas.height = expH
-      const expCtx = finalCanvas.getContext('2d')!
-      expCtx.fillStyle = '#000000'          // bleed border = full ink
-      expCtx.fillRect(0, 0, expW, expH)
-      expCtx.drawImage(trappedCanvas, bleedPx, bleedPx)  // image content at offset
-    }
+    const finalCanvas = trap > 0 ? dilateMask(canvas, trap) : canvas
 
     result.set(color.id, { canvas: finalCanvas, label: color.name, bleedPx: bleedPx || undefined })
   }
@@ -415,16 +424,41 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
       const channelData = channels.get(color.id)
       if (!channelData) continue
 
+      // Bleed: expand the channel source data BEFORE rendering so the halftone
+      // or flat fill naturally extends through the bleed area.
+      const bleedPx = color.type === 'background' && (color.bleedInches ?? 0) > 0
+        ? Math.round(color.bleedInches! * dpi) : 0
+
+      let effectiveChannelData = channelData
+      let offW = targetW, offH = targetH
+      let drawOffsetX = 0, drawOffsetY = 0
+      if (bleedPx > 0) {
+        const expW = targetW + 2 * bleedPx
+        const expH = targetH + 2 * bleedPx
+        const expandSrc = document.createElement('canvas')
+        expandSrc.width = targetW; expandSrc.height = targetH
+        expandSrc.getContext('2d')!.putImageData(channelData, 0, 0)
+        const expandDst = document.createElement('canvas')
+        expandDst.width = expW; expandDst.height = expH
+        const expandCtx = expandDst.getContext('2d')!
+        expandCtx.fillStyle = '#000000'
+        expandCtx.fillRect(0, 0, expW, expH)
+        expandCtx.drawImage(expandSrc, bleedPx, bleedPx)
+        effectiveChannelData = expandCtx.getImageData(0, 0, expW, expH)
+        offW = expW; offH = expH
+        drawOffsetX = -bleedPx; drawOffsetY = -bleedPx
+      }
+
       const offCanvas = document.createElement('canvas')
-      offCanvas.width  = targetW
-      offCanvas.height = targetH
+      offCanvas.width  = offW
+      offCanvas.height = offH
       const offCtx = offCanvas.getContext('2d')!
 
       if (color.renderMode === 'flat') {
-        renderFlat(offCtx, channelData, color.threshold)
+        renderFlat(offCtx, effectiveChannelData, color.threshold)
       } else {
         renderHalftone(offCtx, {
-          source: channelData,
+          source: effectiveChannelData,
           settings: { ...bwSettings(halftoneSettings), angle: color.angle, lpi: color.lpi },
           renderDpi: dpi,
           radialCenter,
@@ -433,32 +467,9 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
         })
       }
 
-      // Trap: dilate the BW mask before colorize so this layer bleeds into
-      // its neighbours in the proof — matches the preview and what channel
-      // plates will produce on press.
+      // Trap: dilate the BW mask before colorize.
       const trap = trapFor(color, spotSettings)
-      const trappedCanvas = trap > 0 ? dilateMask(offCanvas, trap) : offCanvas
-
-      // Bleed: expand the background plate outward, filling the border with ink,
-      // then place it offset in the proof so bleed ink enters the margin area.
-      const bleedPx = color.type === 'background' && (color.bleedInches ?? 0) > 0
-        ? Math.round(color.bleedInches! * dpi) : 0
-
-      let maskCanvas = trappedCanvas
-      let drawOffsetX = 0, drawOffsetY = 0
-      if (bleedPx > 0) {
-        const expW = targetW + 2 * bleedPx
-        const expH = targetH + 2 * bleedPx
-        maskCanvas = document.createElement('canvas')
-        maskCanvas.width = expW; maskCanvas.height = expH
-        const expCtx = maskCanvas.getContext('2d')!
-        expCtx.fillStyle = '#000000'
-        expCtx.fillRect(0, 0, expW, expH)
-        expCtx.drawImage(trappedCanvas, bleedPx, bleedPx)
-        drawOffsetX = -bleedPx
-        drawOffsetY = -bleedPx
-      }
-
+      const maskCanvas = trap > 0 ? dilateMask(offCanvas, trap) : offCanvas
       const maskCtx = maskCanvas.getContext('2d')!
       const displayHex = boostSaturation(color.hex, spotSettings.vibrancy ?? 0)
       const colored = colorizeForOverlay(
