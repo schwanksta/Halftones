@@ -203,6 +203,26 @@ export interface ImageTransformSettings {
   whitePoint: number
   /** Midtone gamma: 0.25–4.0 */
   gamma: number
+  /**
+   * Gaussian blur radius in pixels applied before halftoning (0 = off).
+   * Smooths gradients and removes noise so dots render more cleanly.
+   */
+  blur?: number
+  /**
+   * Unsharp-mask strength (0 = off, 0.5 = moderate, 2 = heavy).
+   * Sharpens edges so detail holds through the halftone screen.
+   */
+  sharpen?: number
+  /**
+   * Unsharp-mask radius in pixels (0.5–5).
+   * Controls the width of edges affected by the sharpen pass.
+   */
+  sharpenRadius?: number
+  /**
+   * Random film-grain amount (0 = off, 50 = heavy).
+   * Added after all other processing; breaks up banding in smooth gradients.
+   */
+  noise?: number
 }
 
 export const DEFAULT_TRANSFORM_SETTINGS: ImageTransformSettings = {
@@ -214,6 +234,10 @@ export const DEFAULT_TRANSFORM_SETTINGS: ImageTransformSettings = {
   blackPoint: 0,
   whitePoint: 255,
   gamma: 1.0,
+  blur: 0,
+  sharpen: 0,
+  sharpenRadius: 1.5,
+  noise: 0,
 }
 
 export const DEFAULT_HALFTONE_SETTINGS: HalftoneSettings = {

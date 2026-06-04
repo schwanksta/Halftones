@@ -1,7 +1,7 @@
 import { ImageTransformSettings } from '../types'
 
 /**
- * Apply rotation, crop, and levels adjustments to source ImageData.
+ * Apply rotation, crop, levels, blur, sharpen, and noise to source ImageData.
  * Returns a new ImageData with all transforms applied.
  * This runs before the halftone engine.
  */
@@ -22,6 +22,24 @@ export function applyTransforms(source: ImageData, settings: ImageTransformSetti
   // 3. Levels
   if (settings.blackPoint !== 0 || settings.whitePoint !== 255 || settings.gamma !== 1.0) {
     result = applyLevels(result, settings.blackPoint, settings.whitePoint, settings.gamma)
+  }
+
+  // 4. Blur — smooth gradients / suppress noise before halftoning
+  const blurR = settings.blur ?? 0
+  if (blurR > 0) {
+    result = applyBlur(result, blurR)
+  }
+
+  // 5. Sharpen (unsharp mask) — applied after blur so they can be combined
+  const sharpenStr = settings.sharpen ?? 0
+  if (sharpenStr > 0) {
+    result = applySharpen(result, sharpenStr, settings.sharpenRadius ?? 1.5)
+  }
+
+  // 6. Noise — film grain, added last so it isn't sharpened
+  const noiseAmt = settings.noise ?? 0
+  if (noiseAmt > 0) {
+    result = applyNoise(result, noiseAmt)
   }
 
   return result
@@ -128,6 +146,74 @@ export function applyLevels(
 
   return new ImageData(out, width, height)
 }
+
+// ---------------------------------------------------------------------------
+// Image processing helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Gaussian blur via canvas filter API.
+ * Fast and edge-correct; radius is the standard-deviation-like value passed
+ * to CSS blur() (same semantics as Photoshop's Gaussian Blur "radius").
+ */
+function applyBlur(source: ImageData, radius: number): ImageData {
+  const { width, height } = source
+  // Put source onto a temporary canvas
+  const srcCanvas = document.createElement('canvas')
+  srcCanvas.width = width
+  srcCanvas.height = height
+  srcCanvas.getContext('2d')!.putImageData(source, 0, 0)
+
+  // Draw with blur filter applied
+  const dst = document.createElement('canvas')
+  dst.width = width
+  dst.height = height
+  const ctx = dst.getContext('2d')!
+  ctx.filter = `blur(${radius}px)`
+  ctx.drawImage(srcCanvas, 0, 0)
+  ctx.filter = 'none'
+  return ctx.getImageData(0, 0, width, height)
+}
+
+/**
+ * Unsharp mask: out = original + strength × (original − blurred).
+ * Operates per-channel (RGB), preserves alpha.
+ */
+function applySharpen(source: ImageData, strength: number, radius: number): ImageData {
+  const blurred = applyBlur(source, radius)
+  const { data, width, height } = source
+  const bd = blurred.data
+  const out = new Uint8ClampedArray(data.length)
+  for (let i = 0; i < data.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      out[i + c] = Math.max(0, Math.min(255,
+        Math.round(data[i + c] + strength * (data[i + c] - bd[i + c]))
+      ))
+    }
+    out[i + 3] = data[i + 3]
+  }
+  return new ImageData(out, width, height)
+}
+
+/**
+ * Additive film grain: uniform random ±amount per pixel.
+ * Monochromatic (same delta for R/G/B) to avoid colour fringing.
+ * Applied after sharpen so grain isn't enhanced by the USM pass.
+ */
+function applyNoise(source: ImageData, amount: number): ImageData {
+  const { data, width, height } = source
+  const out = new Uint8ClampedArray(data.length)
+  for (let i = 0; i < data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 2 * amount
+    out[i]     = Math.max(0, Math.min(255, data[i]     + n))
+    out[i + 1] = Math.max(0, Math.min(255, data[i + 1] + n))
+    out[i + 2] = Math.max(0, Math.min(255, data[i + 2] + n))
+    out[i + 3] = data[i + 3]
+  }
+  return new ImageData(out, width, height)
+}
+
+// ---------------------------------------------------------------------------
 
 /**
  * Compute a luminance histogram for an ImageData (256 bins).

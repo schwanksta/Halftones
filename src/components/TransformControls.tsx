@@ -16,12 +16,19 @@ export function TransformControls({ settings, onChange, disabled }: Props) {
       cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0,
       rotation: 0,
       blackPoint: 0, whitePoint: 255, gamma: 1.0,
+      blur: 0, sharpen: 0, sharpenRadius: 1.5, noise: 0,
     })
+
+  const blur         = settings.blur         ?? 0
+  const sharpen      = settings.sharpen      ?? 0
+  const sharpenRadius = settings.sharpenRadius ?? 1.5
+  const noise        = settings.noise        ?? 0
 
   const hasCrop = settings.cropLeft > 0 || settings.cropRight > 0 || settings.cropTop > 0 || settings.cropBottom > 0
   const hasRotation = settings.rotation !== 0
   const hasLevels = settings.blackPoint !== 0 || settings.whitePoint !== 255 || settings.gamma !== 1.0
-  const hasAny = hasCrop || hasRotation || hasLevels
+  const hasProcessing = blur > 0 || sharpen > 0 || noise > 0
+  const hasAny = hasCrop || hasRotation || hasLevels || hasProcessing
 
   return (
     <div className="control-section">
@@ -129,6 +136,74 @@ export function TransformControls({ settings, onChange, disabled }: Props) {
           type="range" min={0.25} max={4.0} step={0.01}
           value={settings.gamma}
           onChange={(e) => update({ gamma: Number(e.target.value) })}
+          disabled={disabled}
+        />
+      </label>
+
+      <div className="subsection-title">Processing</div>
+      <label className="control-row">
+        <span>
+          Blur{' '}
+          <EditableValue
+            value={blur}
+            min={0} max={10} step={0.5} decimals={1}
+            onChange={(v) => update({ blur: v })}
+          />
+        </span>
+        <input
+          type="range" min={0} max={10} step={0.5}
+          value={blur}
+          onChange={(e) => update({ blur: Number(e.target.value) })}
+          disabled={disabled}
+        />
+      </label>
+      <label className="control-row">
+        <span>
+          Sharpen{' '}
+          <EditableValue
+            value={sharpen}
+            min={0} max={2} step={0.05} decimals={2}
+            onChange={(v) => update({ sharpen: v })}
+          />
+        </span>
+        <input
+          type="range" min={0} max={2} step={0.05}
+          value={sharpen}
+          onChange={(e) => update({ sharpen: Number(e.target.value) })}
+          disabled={disabled}
+        />
+      </label>
+      {sharpen > 0 && (
+        <label className="control-row">
+          <span>
+            Sharpen radius{' '}
+            <EditableValue
+              value={sharpenRadius}
+              min={0.5} max={5} step={0.5} decimals={1}
+              onChange={(v) => update({ sharpenRadius: v })}
+            />
+          </span>
+          <input
+            type="range" min={0.5} max={5} step={0.5}
+            value={sharpenRadius}
+            onChange={(e) => update({ sharpenRadius: Number(e.target.value) })}
+            disabled={disabled}
+          />
+        </label>
+      )}
+      <label className="control-row">
+        <span>
+          Noise{' '}
+          <EditableValue
+            value={noise}
+            min={0} max={50} step={1}
+            onChange={(v) => update({ noise: v })}
+          />
+        </span>
+        <input
+          type="range" min={0} max={50} step={1}
+          value={noise}
+          onChange={(e) => update({ noise: Number(e.target.value) })}
           disabled={disabled}
         />
       </label>
