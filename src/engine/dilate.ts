@@ -18,8 +18,9 @@
  * unchanged when `trapPx <= 0`.
  */
 export function dilateMask(srcCanvas: HTMLCanvasElement, trapPx: number): HTMLCanvasElement {
-  const n = Math.round(trapPx)
-  if (n <= 0) return srcCanvas
+  // Cap iterations to prevent runaway if a caller passes Infinity or a huge value.
+  const n = Math.min(Math.round(trapPx), 100)
+  if (n <= 0 || !isFinite(n)) return srcCanvas
 
   const w = srcCanvas.width
   const h = srcCanvas.height

@@ -194,16 +194,16 @@ export function useHalftonePreview(
   const alphaOutlineCanvas = useMemo(() => {
     if (!transformed || halftoneSettings.colorMode !== 'spot') return null
     if (!spotSettings.key?.outlineEnabled) return null
-    const outlineWidth = spotSettings.key.outlineWidth ?? 3
-    const sourcePixelsPerInch = transformed.width / outputSettings.widthInches
-    // Convert output-DPI pixels → source-image pixels
-    const outlineWidthSourcePx = Math.max(1, Math.round(outlineWidth * sourcePixelsPerInch / outputSettings.dpi))
+    // Use outlineWidth directly as source-image pixels — no output-settings
+    // conversion needed, and crucially no dependency on widthInches (which can
+    // briefly be 0 while the user is typing, causing Infinity dilation).
+    const outlineWidthSourcePx = spotSettings.key.outlineWidth ?? 3
     const mask = computeAlphaBoundaryMask(transformed, outlineWidthSourcePx)
     const c = document.createElement('canvas')
     c.width = transformed.width; c.height = transformed.height
     c.getContext('2d')!.putImageData(mask, 0, 0)
     return c
-  }, [transformed, halftoneSettings.colorMode, spotSettings.key, outputSettings.widthInches, outputSettings.dpi])
+  }, [transformed, halftoneSettings.colorMode, spotSettings.key])
 
   // ── Render ─────────────────────────────────────────────────────────────────
 

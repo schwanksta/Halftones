@@ -21,6 +21,9 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
     : null
 
   const updateWidth = (w: number) => {
+    // Ignore 0, NaN, or negative values (e.g. from a cleared input field) —
+    // keep the last valid value to prevent divide-by-zero downstream.
+    if (!w || !isFinite(w) || w <= 0) return
     const next = { ...settings, widthInches: w }
     if (settings.lockAspectRatio && currentAR) {
       next.heightInches = Math.round((w / currentAR) * 100) / 100
@@ -29,6 +32,7 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
   }
 
   const updateHeight = (h: number) => {
+    if (!h || !isFinite(h) || h <= 0) return
     const next = { ...settings, heightInches: h }
     if (settings.lockAspectRatio && currentAR) {
       next.widthInches = Math.round(h * currentAR * 100) / 100
