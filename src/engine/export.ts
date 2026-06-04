@@ -381,6 +381,17 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
   imgCanvas.height = targetH
   const imgCtx = imgCanvas.getContext('2d')!
 
+  // Create proof canvas up front so the spot branch can paint background-bleed
+  // layers directly into the margin area (before imgCanvas is composited).
+  const totalW = targetW + 2 * marginPx
+  const totalH = targetH + 2 * marginPx
+  const proofCanvas = document.createElement('canvas')
+  proofCanvas.width  = totalW
+  proofCanvas.height = totalH
+  const proofCtx = proofCanvas.getContext('2d')!
+  proofCtx.fillStyle = '#ffffff'
+  proofCtx.fillRect(0, 0, totalW, totalH)
+
   if (halftoneSettings.colorMode === 'cmyk') {
     // Process-colour multiply composite
     const CMYK_INK = { c: '#00ffff', m: '#ff00ff', y: '#ffff00', k: '#000000' }
@@ -417,8 +428,10 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
     const channels = separateSpotChannels(scaled, spotSettings.colors)
     const enabledColors = spotSettings.colors.filter((c) => c.enabled)
 
-    imgCtx.fillStyle = '#ffffff'
-    imgCtx.fillRect(0, 0, targetW, targetH)
+    // NOTE: imgCtx is intentionally left transparent (no white fill).
+    // proofCanvas provides the white paper background; background-bleed layers
+    // draw directly onto proofCanvas so their ink extends into the margin area.
+    // Non-bleed layers draw onto imgCanvas which is then composited on top.
 
     for (const color of enabledColors) {
       const channelData = channels.get(color.id)
@@ -431,7 +444,6 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
 
       let effectiveChannelData = channelData
       let offW = targetW, offH = targetH
-      let drawOffsetX = 0, drawOffsetY = 0
       if (bleedPx > 0) {
         const expW = targetW + 2 * bleedPx
         const expH = targetH + 2 * bleedPx
@@ -446,7 +458,6 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
         expandCtx.drawImage(expandSrc, bleedPx, bleedPx)
         effectiveChannelData = expandCtx.getImageData(0, 0, expW, expH)
         offW = expW; offH = expH
-        drawOffsetX = -bleedPx; drawOffsetY = -bleedPx
       }
 
       const offCanvas = document.createElement('canvas')
@@ -478,8 +489,18 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
       overlayCanvas.width = maskCanvas.width
       overlayCanvas.height = maskCanvas.height
       overlayCanvas.getContext('2d')!.putImageData(colored, 0, 0)
-      imgCtx.globalCompositeOperation = 'source-over'
-      imgCtx.drawImage(overlayCanvas, drawOffsetX, drawOffsetY)
+
+      if (color.type === 'background' && bleedPx > 0) {
+        // Draw directly onto proofCanvas so bleed ink extends into the margin.
+        // The expanded overlay is (targetW + 2*bleedPx) × (targetH + 2*bleedPx);
+        // positioning at (marginPx - bleedPx, marginPx - bleedPx) lands the
+        // image-area portion at (marginPx, marginPx) and lets the bleed surround it.
+        proofCtx.globalCompositeOperation = 'source-over'
+        proofCtx.drawImage(overlayCanvas, marginPx - bleedPx, marginPx - bleedPx)
+      } else {
+        imgCtx.globalCompositeOperation = 'source-over'
+        imgCtx.drawImage(overlayCanvas, 0, 0)
+      }
     }
 
     // Key plate: overprint halftone of the full image on top of all colors.
@@ -552,14 +573,10 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
   }
 
   // ── Wrap in margin ───────────────────────────────────────────────────────
-  const totalW = targetW + 2 * marginPx
-  const totalH = targetH + 2 * marginPx
-  const proofCanvas = document.createElement('canvas')
-  proofCanvas.width  = totalW
-  proofCanvas.height = totalH
-  const proofCtx = proofCanvas.getContext('2d')!
-  proofCtx.fillStyle = '#ffffff'
-  proofCtx.fillRect(0, 0, totalW, totalH)
+  // proofCanvas was created above (before the mode branches) and already filled
+  // white. Background-bleed spot layers were painted directly onto it; all other
+  // layers are on imgCanvas and composited here.
+  proofCtx.globalCompositeOperation = 'source-over'
   proofCtx.drawImage(imgCanvas, marginPx, marginPx)
 
   const blob = await new Promise<Blob>((resolve) => {
