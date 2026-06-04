@@ -285,8 +285,38 @@ export function useHalftonePreview(
           const chCanvas = spotChannelCanvases.get(color.id)
           if (!chCanvas) continue
 
-          // Extract the viewport region of this channel's separation
-          const chRegionData = extractRegionFromCanvas(chCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff')
+          // Bleed: for background-type colors, expand the channel canvas outward
+          // by bleedSourcePx on each side (filled with black = full ink) before
+          // extracting the viewport region.  This way flat fill and halftone dots
+          // naturally extend into the bleed area — no seam, and halftone patterns
+          // continue through the bleed just like the rest of the background.
+          const bleedSourcePx = color.type === 'background' && (color.bleedInches ?? 0) > 0
+            ? Math.round(color.bleedInches! * sourcePixelsPerInch)
+            : 0
+
+          let effectiveChCanvas = chCanvas
+          let chSrcX = srcX, chSrcY = srcY
+          if (bleedSourcePx > 0) {
+            const expW = chCanvas.width  + 2 * bleedSourcePx
+            const expH = chCanvas.height + 2 * bleedSourcePx
+            const expCanvas = document.createElement('canvas')
+            expCanvas.width = expW; expCanvas.height = expH
+            const expCtx = expCanvas.getContext('2d')!
+            expCtx.fillStyle = '#000000'             // bleed border = full ink
+            expCtx.fillRect(0, 0, expW, expH)
+            expCtx.drawImage(chCanvas, bleedSourcePx, bleedSourcePx)
+            effectiveChCanvas = expCanvas
+            // Shift extraction coords: source (x,y) is now at expanded (x+bleedSourcePx, y+bleedSourcePx)
+            chSrcX = srcX + bleedSourcePx
+            chSrcY = srcY + bleedSourcePx
+          }
+
+          // Extract the viewport region of this channel's separation.
+          // bgColor '#000000' means anything beyond the expanded canvas = full ink.
+          const chBgColor = bleedSourcePx > 0 ? '#000000' : '#ffffff'
+          const chRegionData = extractRegionFromCanvas(
+            effectiveChCanvas, chSrcX, chSrcY, srcW, srcH, canvasW, canvasH, chBgColor,
+          )
 
           // Render black-on-white at viewport DPI
           const bwCanvas = document.createElement('canvas')
@@ -302,32 +332,6 @@ export function useHalftonePreview(
               radialCenter,
               outputDpi: outputSettings.dpi,
             })
-          }
-
-          // Bleed: for background-type colors, paint a solid ring of ink
-          // outside the image boundary extending into the margin area.
-          // Uses even-odd clip to fill only the ring without touching the
-          // image interior (where the subject mask already controls ink).
-          if (color.type === 'background' && (color.bleedInches ?? 0) > 0) {
-            const bleedVp = Math.round(color.bleedInches! * renderDpi)
-            if (bleedVp > 0) {
-              const imgL = (-srcX) * viewport.zoom
-              const imgT = (-srcY) * viewport.zoom
-              const imgR = (transformed.width  - srcX) * viewport.zoom
-              const imgB = (transformed.height - srcY) * viewport.zoom
-              bwCtx.save()
-              bwCtx.beginPath()
-              // Outer rect (bleed zone)
-              bwCtx.rect(imgL - bleedVp, imgT - bleedVp,
-                (imgR - imgL) + 2 * bleedVp, (imgB - imgT) + 2 * bleedVp)
-              // Inner hole (image area — leave untouched)
-              bwCtx.rect(imgL, imgT, imgR - imgL, imgB - imgT)
-              bwCtx.clip('evenodd')
-              bwCtx.fillStyle = '#000000'
-              bwCtx.fillRect(imgL - bleedVp, imgT - bleedVp,
-                (imgR - imgL) + 2 * bleedVp, (imgB - imgT) + 2 * bleedVp)
-              bwCtx.restore()
-            }
           }
 
           // Trap: dilate the BW mask so this layer's ink spreads outward and
