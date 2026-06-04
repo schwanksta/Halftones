@@ -311,11 +311,11 @@ export function useHalftonePreview(
             chSrcY = srcY + bleedSourcePx
           }
 
-          // Extract the viewport region of this channel's separation.
-          // bgColor '#000000' means anything beyond the expanded canvas = full ink.
-          const chBgColor = bleedSourcePx > 0 ? '#000000' : '#ffffff'
+          // Extract the viewport region. Always use white as bgColor — the
+          // expanded canvas already has the black bleed border built in, so
+          // anything beyond that (further into the margin) should be no-ink.
           const chRegionData = extractRegionFromCanvas(
-            effectiveChCanvas, chSrcX, chSrcY, srcW, srcH, canvasW, canvasH, chBgColor,
+            effectiveChCanvas, chSrcX, chSrcY, srcW, srcH, canvasW, canvasH, '#ffffff',
           )
 
           // Render black-on-white at viewport DPI
