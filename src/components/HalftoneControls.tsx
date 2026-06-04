@@ -103,8 +103,46 @@ export function HalftoneControls({ settings, onChange, disabled }: Props) {
         </>
       )}
 
+      {isRadial && (
+        <>
+          <label className="control-row">
+            <span>
+              Origin X{' '}
+              <EditableValue
+                value={Math.round((settings.radialOriginX ?? 0.5) * 100)}
+                min={0} max={100} step={1} suffix="%"
+                onChange={(v) => update({ radialOriginX: v / 100 })}
+              />
+            </span>
+            <input
+              type="range" min={0} max={1} step={0.01}
+              value={settings.radialOriginX ?? 0.5}
+              onChange={(e) => update({ radialOriginX: Number(e.target.value) })}
+              disabled={disabled}
+            />
+          </label>
+          <label className="control-row">
+            <span>
+              Origin Y{' '}
+              <EditableValue
+                value={Math.round((settings.radialOriginY ?? 0.5) * 100)}
+                min={0} max={100} step={1} suffix="%"
+                onChange={(v) => update({ radialOriginY: v / 100 })}
+              />
+            </span>
+            <input
+              type="range" min={0} max={1} step={0.01}
+              value={settings.radialOriginY ?? 0.5}
+              onChange={(e) => update({ radialOriginY: Number(e.target.value) })}
+              disabled={disabled}
+            />
+          </label>
+        </>
+      )}
+
       {!isStochastic && (
         <>
+          <div className="subsection-title">Tone &amp; Dots</div>
           <label className="control-row">
             <span>
               Min Dot{' '}
@@ -225,6 +263,7 @@ export function HalftoneControls({ settings, onChange, disabled }: Props) {
         </>
       )}
 
+      <div className="subsection-title">Color</div>
       <label className="control-row">
         <span>Color Mode</span>
         <select
@@ -237,43 +276,6 @@ export function HalftoneControls({ settings, onChange, disabled }: Props) {
           <option value="spot">Spot Color</option>
         </select>
       </label>
-
-      {isRadial && (
-        <>
-          <label className="control-row">
-            <span>
-              Origin X{' '}
-              <EditableValue
-                value={Math.round((settings.radialOriginX ?? 0.5) * 100)}
-                min={0} max={100} step={1} suffix="%"
-                onChange={(v) => update({ radialOriginX: v / 100 })}
-              />
-            </span>
-            <input
-              type="range" min={0} max={1} step={0.01}
-              value={settings.radialOriginX ?? 0.5}
-              onChange={(e) => update({ radialOriginX: Number(e.target.value) })}
-              disabled={disabled}
-            />
-          </label>
-          <label className="control-row">
-            <span>
-              Origin Y{' '}
-              <EditableValue
-                value={Math.round((settings.radialOriginY ?? 0.5) * 100)}
-                min={0} max={100} step={1} suffix="%"
-                onChange={(v) => update({ radialOriginY: v / 100 })}
-              />
-            </span>
-            <input
-              type="range" min={0} max={1} step={0.01}
-              value={settings.radialOriginY ?? 0.5}
-              onChange={(e) => update({ radialOriginY: Number(e.target.value) })}
-              disabled={disabled}
-            />
-          </label>
-        </>
-      )}
 
       {settings.colorMode !== 'cmyk' && settings.colorMode !== 'spot' && (
         <div className="control-row control-row--colors">
