@@ -12,7 +12,8 @@ A native macOS app (and browser tool) for halftone image processing and spot col
 ### Color Modes
 - **Grayscale** — single halftone layer with ink/paper color preview
 - **CMYK** — four-channel process separation with per-channel angle/LPI and composite preview
-- **Spot Color** — LAB k-means palette extraction, per-color flat or halftone rendering, and a **key plate** (halftone of the full image overprinted on top of all color layers for tonal depth)
+- **Spot Color** — LAB k-means palette extraction, per-color flat or halftone rendering, and a **key plate** (halftone of the full image overprinted on top of all color layers for tonal depth — with optional edge stroke and silhouette outline)
+- **Background layer** — for transparent/cutout images, add a color plate covering exactly the transparent area, rendered flat or halftoned
 
 ### Dot & Tone Controls
 - Min/max dot, dot gain compensation, dot size multiplier
@@ -35,6 +36,7 @@ Crop, rotation, levels (black/white point + midtone gamma). All applied before h
 - Pan/zoom viewport with Fit and 100% (output-accurate) presets
 - Transparent PNG source: transparent areas produce no ink on any plate
 - Project persistence: named projects with auto-save; `.halftones` file format (zip of JSON + source image)
+- **macOS Share Sheet**: registered as an image opener — share directly from Photos ("Share Subject" etc.) or Finder → Open With → Halftones
 
 ## Download
 
