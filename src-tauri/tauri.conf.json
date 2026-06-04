@@ -39,6 +39,24 @@
         "name": "Halftones Project",
         "role": "Editor",
         "mimeType": "application/x-halftones"
+      },
+      {
+        "ext": ["png"],
+        "name": "PNG Image",
+        "role": "Viewer",
+        "mimeType": "image/png"
+      },
+      {
+        "ext": ["jpg", "jpeg"],
+        "name": "JPEG Image",
+        "role": "Viewer",
+        "mimeType": "image/jpeg"
+      },
+      {
+        "ext": ["webp"],
+        "name": "WebP Image",
+        "role": "Viewer",
+        "mimeType": "image/webp"
       }
     ]
   }
