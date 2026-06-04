@@ -112,7 +112,7 @@ function colorizeForOverlay(imgData: ImageData, hex: string): ImageData {
  */
 function renderSpotChannelCanvases(
   options: ExportOptions
-): Map<string, { canvas: HTMLCanvasElement; label: string }> {
+): Map<string, { canvas: HTMLCanvasElement; label: string; bleedPx?: number }> {
   const { source, transformSettings, halftoneSettings: rawSettings, spotSettings, outputSettings } = options
   const halftoneSettings = bwSettings(rawSettings)
   const targetWidth  = Math.round(outputSettings.widthInches  * outputSettings.dpi)
@@ -131,7 +131,7 @@ function renderSpotChannelCanvases(
     y: scaled.height * (halftoneSettings.radialOriginY ?? 0.5),
   }
 
-  const result = new Map<string, { canvas: HTMLCanvasElement; label: string }>()
+  const result = new Map<string, { canvas: HTMLCanvasElement; label: string; bleedPx?: number }>()
 
   for (const color of enabledColors) {
     const channelData = channels.get(color.id)
@@ -157,9 +157,28 @@ function renderSpotChannelCanvases(
     // Trap: dilate the plate so this layer's ink spreads outward, overlapping
     // neighbouring colors on press and hiding visible paper seams.
     const trap = trapFor(color, spotSettings)
-    const finalCanvas = trap > 0 ? dilateMask(canvas, trap) : canvas
+    const trappedCanvas = trap > 0 ? dilateMask(canvas, trap) : canvas
 
-    result.set(color.id, { canvas: finalCanvas, label: color.name })
+    // Bleed: for background-type colors, expand the plate outward by bleedPx
+    // on each side, filling the border with solid ink.  The expanded canvas is
+    // recorded with its bleedPx so PDF placement can offset accordingly.
+    const bleedPx = color.type === 'background' && (color.bleedInches ?? 0) > 0
+      ? Math.round(color.bleedInches! * outputSettings.dpi)
+      : 0
+
+    let finalCanvas = trappedCanvas
+    if (bleedPx > 0) {
+      const expW = targetWidth  + 2 * bleedPx
+      const expH = targetHeight + 2 * bleedPx
+      finalCanvas = document.createElement('canvas')
+      finalCanvas.width = expW; finalCanvas.height = expH
+      const expCtx = finalCanvas.getContext('2d')!
+      expCtx.fillStyle = '#000000'          // bleed border = full ink
+      expCtx.fillRect(0, 0, expW, expH)
+      expCtx.drawImage(trappedCanvas, bleedPx, bleedPx)  // image content at offset
+    }
+
+    result.set(color.id, { canvas: finalCanvas, label: color.name, bleedPx: bleedPx || undefined })
   }
 
   // Key plate: halftone of the full image (not color-separated).
@@ -418,20 +437,38 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
       // its neighbours in the proof — matches the preview and what channel
       // plates will produce on press.
       const trap = trapFor(color, spotSettings)
-      const maskCanvas = trap > 0 ? dilateMask(offCanvas, trap) : offCanvas
-      const maskCtx = maskCanvas.getContext('2d')!
+      const trappedCanvas = trap > 0 ? dilateMask(offCanvas, trap) : offCanvas
 
-      // Match preview: vibrancy slider boosts saturation of the display hex.
-      // Proof is WYSIWYG of the preview, so apply it here (channel/PDF exports
-      // which go to the press keep the raw hex).
+      // Bleed: expand the background plate outward, filling the border with ink,
+      // then place it offset in the proof so bleed ink enters the margin area.
+      const bleedPx = color.type === 'background' && (color.bleedInches ?? 0) > 0
+        ? Math.round(color.bleedInches! * dpi) : 0
+
+      let maskCanvas = trappedCanvas
+      let drawOffsetX = 0, drawOffsetY = 0
+      if (bleedPx > 0) {
+        const expW = targetW + 2 * bleedPx
+        const expH = targetH + 2 * bleedPx
+        maskCanvas = document.createElement('canvas')
+        maskCanvas.width = expW; maskCanvas.height = expH
+        const expCtx = maskCanvas.getContext('2d')!
+        expCtx.fillStyle = '#000000'
+        expCtx.fillRect(0, 0, expW, expH)
+        expCtx.drawImage(trappedCanvas, bleedPx, bleedPx)
+        drawOffsetX = -bleedPx
+        drawOffsetY = -bleedPx
+      }
+
+      const maskCtx = maskCanvas.getContext('2d')!
       const displayHex = boostSaturation(color.hex, spotSettings.vibrancy ?? 0)
-      const colored = colorizeForOverlay(maskCtx.getImageData(0, 0, targetW, targetH), displayHex)
+      const colored = colorizeForOverlay(
+        maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height), displayHex)
       const overlayCanvas = document.createElement('canvas')
-      overlayCanvas.width = targetW
-      overlayCanvas.height = targetH
+      overlayCanvas.width = maskCanvas.width
+      overlayCanvas.height = maskCanvas.height
       overlayCanvas.getContext('2d')!.putImageData(colored, 0, 0)
       imgCtx.globalCompositeOperation = 'source-over'
-      imgCtx.drawImage(overlayCanvas, 0, 0)
+      imgCtx.drawImage(overlayCanvas, drawOffsetX, drawOffsetY)
     }
 
     // Key plate: overprint halftone of the full image on top of all colors.
@@ -796,12 +833,17 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
     const spotCanvases = renderSpotChannelCanvases(options)
     let first = true
 
-    for (const [id, { canvas, label }] of spotCanvases) {
+    for (const [id, { canvas, label, bleedPx }] of spotCanvases) {
       if (!first) pdf.addPage([pageW, pageH])
       first = false
 
       const imgData = canvas.toDataURL('image/png')
-      pdf.addImage(imgData, 'PNG', imgOffX, imgOffY, imageWPts, imageHPts)
+      // Background bleed: plate is larger than the image; offset placement so
+      // bleed ink extends into the margin area on all sides.
+      const bleedPts = bleedPx ? (bleedPx / outputSettings.dpi * 72) : 0
+      pdf.addImage(imgData, 'PNG',
+        imgOffX - bleedPts, imgOffY - bleedPts,
+        imageWPts + 2 * bleedPts, imageHPts + 2 * bleedPts)
 
       pdf.setFontSize(8)
       pdf.setTextColor(0)

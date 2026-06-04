@@ -304,6 +304,32 @@ export function useHalftonePreview(
             })
           }
 
+          // Bleed: for background-type colors, paint a solid ring of ink
+          // outside the image boundary extending into the margin area.
+          // Uses even-odd clip to fill only the ring without touching the
+          // image interior (where the subject mask already controls ink).
+          if (color.type === 'background' && (color.bleedInches ?? 0) > 0) {
+            const bleedVp = Math.round(color.bleedInches! * renderDpi)
+            if (bleedVp > 0) {
+              const imgL = (-srcX) * viewport.zoom
+              const imgT = (-srcY) * viewport.zoom
+              const imgR = (transformed.width  - srcX) * viewport.zoom
+              const imgB = (transformed.height - srcY) * viewport.zoom
+              bwCtx.save()
+              bwCtx.beginPath()
+              // Outer rect (bleed zone)
+              bwCtx.rect(imgL - bleedVp, imgT - bleedVp,
+                (imgR - imgL) + 2 * bleedVp, (imgB - imgT) + 2 * bleedVp)
+              // Inner hole (image area — leave untouched)
+              bwCtx.rect(imgL, imgT, imgR - imgL, imgB - imgT)
+              bwCtx.clip('evenodd')
+              bwCtx.fillStyle = '#000000'
+              bwCtx.fillRect(imgL - bleedVp, imgT - bleedVp,
+                (imgR - imgL) + 2 * bleedVp, (imgB - imgT) + 2 * bleedVp)
+              bwCtx.restore()
+            }
+          }
+
           // Trap: dilate the BW mask so this layer's ink spreads outward and
           // bleeds under adjacent layers, hiding seams between halftone/flat.
           // Per-color override (including 0) wins over the global value.

@@ -30,6 +30,12 @@ export interface SpotColor {
    */
   trap?: number | null
   /**
+   * Bleed: extends a background-type color plate outward from the image edge
+   * into the margin, in inches. 0 = no bleed (plate stops at image boundary).
+   * Only meaningful when `type === 'background'`.
+   */
+  bleedInches?: number
+  /**
    * 'background': mask is derived from the source image's alpha channel
    * (transparent pixels = full ink, opaque = no ink) rather than LAB distance.
    * Used to add a background color plate behind cutout/transparent images.

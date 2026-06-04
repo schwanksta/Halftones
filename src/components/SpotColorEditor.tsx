@@ -700,6 +700,27 @@ function SpotColorRow({ color, index, disabled, globalTrap, onChange, onRemove }
             </>
           )}
 
+          {/* Bleed — background layers only */}
+          {color.type === 'background' && (
+            <div className="control-row">
+              <span title="Extend this color plate outward from the image edge into the margin (inches). 0 = stops at image boundary.">
+                Bleed{' '}
+                <EditableValue
+                  value={Math.round((color.bleedInches ?? 0) * 100) / 100}
+                  min={0} max={4} step={0.05}
+                  suffix='"'
+                  onChange={(v) => onChange({ bleedInches: v })}
+                />
+              </span>
+              <input
+                type="range" min={0} max={1} step={0.05}
+                value={color.bleedInches ?? 0}
+                onChange={(e) => onChange({ bleedInches: Number(e.target.value) })}
+                disabled={disabled}
+              />
+            </div>
+          )}
+
           {/* Per-color trap override.  color.trap == null → inherit global. */}
           <div className="control-row" title="Per-color trap override (px). Drag to override the global trap value for this color only.">
             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
