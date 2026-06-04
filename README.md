@@ -1,6 +1,6 @@
 # Halftones
 
-A native macOS app (and browser tool) for halftone image processing aimed at screen printing. Drop in a photo, choose a pattern, adjust settings, and export print-ready files. Built with Claude for my own purposes, but perhaps it's useful to you as well.
+A native macOS app (and browser tool) for halftone image processing and spot color separation aimed at screen printing. Drop in a photo, choose a pattern, adjust settings, and export print-ready files. Built with Claude for my own purposes, but perhaps it's useful to you as well.
 
 ![Halftones screenshot](docs/screenshot.png)
 
