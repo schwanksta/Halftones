@@ -35,6 +35,14 @@ function toStem(projectName: string, suffix: string): string {
   return `${slug}-${suffix}`
 }
 
+/** Suffix for export filenames — reflects the color mode rather than the
+ *  pattern when that's more meaningful (spot, cmyk). */
+function exportSuffix(halftoneSettings: HalftoneSettings): string {
+  if (halftoneSettings.colorMode === 'spot') return 'spot'
+  if (halftoneSettings.colorMode === 'cmyk') return 'cmyk'
+  return halftoneSettings.pattern
+}
+
 function scaleImageData(source: ImageData, targetWidth: number, targetHeight: number): ImageData {
   const srcCanvas = document.createElement('canvas')
   srcCanvas.width = source.width
@@ -515,7 +523,7 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
 
 export async function exportPNG(options: ExportOptions): Promise<void> {
   const canvas = renderFullRes(options)
-  const stem = toStem(options.projectName, options.halftoneSettings.pattern)
+  const stem = toStem(options.projectName, exportSuffix(options.halftoneSettings))
 
   const blob = await new Promise<Blob>((resolve) => {
     canvas.toBlob((b) => resolve(b!), 'image/png')
@@ -526,7 +534,7 @@ export async function exportPNG(options: ExportOptions): Promise<void> {
 }
 
 export async function exportChannelPNGs(options: ExportOptions): Promise<void> {
-  const stem = toStem(options.projectName, options.halftoneSettings.pattern)
+  const stem = toStem(options.projectName, exportSuffix(options.halftoneSettings))
   const entries: { name: string; blob: Blob }[] = []
 
   if (options.halftoneSettings.colorMode === 'spot') {
@@ -860,7 +868,7 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
     if (showCropMarks) drawCropMarks(pdf, pieceX0, pieceY0, pieceX1, pieceY1, cropMarkPts)
   }
 
-  const stem = toStem(options.projectName, options.halftoneSettings.pattern)
+  const stem = toStem(options.projectName, exportSuffix(options.halftoneSettings))
   const filename = `${stem}.pdf`
   const pdfBlob = pdf.output('blob')
   await platform.exportWithDialog(pdfBlob, filename, [{ name: 'PDF', extensions: ['pdf'] }])
