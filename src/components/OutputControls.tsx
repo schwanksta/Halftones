@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { OutputSettings } from '../types'
 
 interface Props {
@@ -13,6 +14,15 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
   const pixelWidth = Math.round(settings.widthInches * settings.dpi)
   const pixelHeight = Math.round(settings.heightInches * settings.dpi)
 
+  // Local draft strings so the user can backspace freely while typing.
+  // onChange is only called when the typed value is a valid positive number.
+  const [widthDraft, setWidthDraft] = useState(String(settings.widthInches))
+  const [heightDraft, setHeightDraft] = useState(String(settings.heightInches))
+
+  // Keep drafts in sync when settings change externally (project load, aspect lock, etc.)
+  useEffect(() => { setWidthDraft(String(settings.widthInches)) }, [settings.widthInches])
+  useEffect(() => { setHeightDraft(String(settings.heightInches)) }, [settings.heightInches])
+
   // Aspect-ratio lock maintains the *current output ratio*, not the image's
   // natural ratio.  Using the image AR caused wild jumps whenever the saved
   // project dimensions didn't exactly match the image's native proportions.
@@ -20,10 +30,9 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
     ? settings.widthInches / settings.heightInches
     : null
 
-  const updateWidth = (w: number) => {
-    // Ignore 0, NaN, or negative values (e.g. from a cleared input field) —
-    // keep the last valid value to prevent divide-by-zero downstream.
-    if (!w || !isFinite(w) || w <= 0) return
+  const commitWidth = (raw: string) => {
+    const w = parseFloat(raw)
+    if (!w || !isFinite(w) || w <= 0) { setWidthDraft(String(settings.widthInches)); return }
     const next = { ...settings, widthInches: w }
     if (settings.lockAspectRatio && currentAR) {
       next.heightInches = Math.round((w / currentAR) * 100) / 100
@@ -31,8 +40,9 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
     onChange(next)
   }
 
-  const updateHeight = (h: number) => {
-    if (!h || !isFinite(h) || h <= 0) return
+  const commitHeight = (raw: string) => {
+    const h = parseFloat(raw)
+    if (!h || !isFinite(h) || h <= 0) { setHeightDraft(String(settings.heightInches)); return }
     const next = { ...settings, heightInches: h }
     if (settings.lockAspectRatio && currentAR) {
       next.widthInches = Math.round(h * currentAR * 100) / 100
@@ -51,8 +61,13 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
           min={1}
           max={60}
           step={0.5}
-          value={settings.widthInches}
-          onChange={(e) => updateWidth(Number(e.target.value))}
+          value={widthDraft}
+          onChange={(e) => {
+            setWidthDraft(e.target.value)
+            const w = parseFloat(e.target.value)
+            if (w > 0 && isFinite(w)) commitWidth(e.target.value)
+          }}
+          onBlur={(e) => commitWidth(e.target.value)}
           disabled={disabled}
         />
       </label>
@@ -64,8 +79,13 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
           min={1}
           max={60}
           step={0.5}
-          value={settings.heightInches}
-          onChange={(e) => updateHeight(Number(e.target.value))}
+          value={heightDraft}
+          onChange={(e) => {
+            setHeightDraft(e.target.value)
+            const h = parseFloat(e.target.value)
+            if (h > 0 && isFinite(h)) commitHeight(e.target.value)
+          }}
+          onBlur={(e) => commitHeight(e.target.value)}
           disabled={disabled}
         />
       </label>
