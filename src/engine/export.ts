@@ -609,29 +609,136 @@ export async function exportPNG(options: ExportOptions): Promise<void> {
   await platform.exportWithDialog(withDpi, `${stem}.png`, [{ name: 'PNG', extensions: ['png'] }])
 }
 
+/**
+ * Wrap a rendered channel image (black-on-white, at output resolution) into a
+ * full print page: white margin on all sides plus the 0.5" crop-mark waste
+ * strip, with crop marks, optional alignment marks, and a staggered plate
+ * label — the raster equivalent of an exportPDF page.  Geometry mirrors
+ * exportPDF exactly, scaled to pixels via dpi instead of points.
+ */
+function composeChannelPage(
+  channelCanvas: HTMLCanvasElement,
+  bleedPx: number,
+  outputSettings: OutputSettings,
+  label: string,
+  labelXFrac: number,
+): HTMLCanvasElement {
+  const dpi = outputSettings.dpi
+  const pxPerPt = dpi / 72
+  const margin = (outputSettings.marginInches != null && isFinite(outputSettings.marginInches))
+    ? outputSettings.marginInches : 1
+  const showCropMarks = outputSettings.cropMarks !== false
+  const showMargin = outputSettings.showMargin !== false
+  const showAlign = !!outputSettings.alignmentMarks
+
+  const cropPx = showCropMarks ? Math.round(0.5 * dpi) : 0
+  const marginPx = showMargin ? Math.round(margin * dpi) : 0
+  const imageW = Math.round(outputSettings.widthInches * dpi)
+  const imageH = Math.round(outputSettings.heightInches * dpi)
+
+  const pageW = imageW + 2 * marginPx + 2 * cropPx
+  const pageH = imageH + 2 * marginPx + 2 * cropPx
+  const offX = cropPx + marginPx
+  const offY = cropPx + marginPx
+
+  const page = document.createElement('canvas')
+  page.width = pageW
+  page.height = pageH
+  const ctx = page.getContext('2d')!
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, pageW, pageH)
+
+  // Channel image. Bleed plates are larger than the image and shifted outward
+  // so their ink runs into the margin on all sides.
+  ctx.drawImage(channelCanvas, offX - bleedPx, offY - bleedPx)
+
+  ctx.strokeStyle = '#000000'
+  ctx.fillStyle = '#000000'
+  ctx.lineWidth = Math.max(1, 0.5 * pxPerPt)
+
+  if (showCropMarks) {
+    const pieceX0 = cropPx, pieceY0 = cropPx
+    const pieceX1 = cropPx + 2 * marginPx + imageW
+    const pieceY1 = cropPx + 2 * marginPx + imageH
+    const gap = Math.max(3 * pxPerPt, cropPx * 0.12)
+    const markLen = Math.min(cropPx - gap - 2 * pxPerPt, cropPx * 0.75)
+    const corners: [number, number, number, number][] = [
+      [pieceX0, pieceY0, -1, -1],
+      [pieceX1, pieceY0, +1, -1],
+      [pieceX0, pieceY1, -1, +1],
+      [pieceX1, pieceY1, +1, +1],
+    ]
+    for (const [x, y, dx, dy] of corners) {
+      ctx.beginPath(); ctx.moveTo(x + dx * gap, y); ctx.lineTo(x + dx * (gap + markLen), y); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(x, y + dy * gap); ctx.lineTo(x, y + dy * (gap + markLen)); ctx.stroke()
+    }
+  }
+
+  if (showAlign && cropPx >= 6 * pxPerPt) {
+    const half = cropPx / 2
+    const radius = Math.min(10 * pxPerPt, cropPx * 0.36)
+    const armLen = radius * 1.7
+    const cx = offX + imageW / 2
+    const cy = offY + imageH / 2
+    const positions = [
+      { x: cx, y: half },
+      { x: cx, y: offY + imageH + marginPx + half },
+      { x: half, y: cy },
+      { x: offX + imageW + marginPx + half, y: cy },
+    ]
+    for (const { x, y } of positions) {
+      ctx.beginPath(); ctx.arc(x, y, radius, 0, 2 * Math.PI); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(x - armLen, y); ctx.lineTo(x + armLen, y); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(x, y - armLen); ctx.lineTo(x, y + armLen); ctx.stroke()
+    }
+  }
+
+  // Plate label, staggered across the width so stacked plates don't overlap.
+  if (label) {
+    const fontPx = Math.max(8, Math.round(8 * pxPerPt))
+    ctx.font = `${fontPx}px sans-serif`
+    ctx.textBaseline = 'alphabetic'
+    ctx.fillStyle = '#000000'
+    const lx = offX + imageW * labelXFrac
+    const ly = Math.max(fontPx + 2 * pxPerPt, cropPx - 6 * pxPerPt)
+    ctx.fillText(label, lx, ly)
+  }
+
+  return page
+}
+
 export async function exportChannelPNGs(options: ExportOptions): Promise<void> {
   const stem = toStem(options.projectName, exportSuffix(options.halftoneSettings))
+  const dpi = options.outputSettings.dpi
   const entries: { name: string; blob: Blob }[] = []
 
+  const pushCanvas = async (canvas: HTMLCanvasElement, name: string) => {
+    const blob = await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b!), 'image/png'))
+    const withDpi = await setPngDpi(blob, dpi)
+    entries.push({ name, blob: withDpi })
+  }
+
   if (options.halftoneSettings.colorMode === 'spot') {
-    const spotCanvases = renderSpotChannelCanvases(options)
-    for (const [, { canvas, label }] of spotCanvases) {
-      const safeName = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-      const blob = await new Promise<Blob>((resolve) => {
-        canvas.toBlob((b) => resolve(b!), 'image/png')
-      })
-      const withDpi = await setPngDpi(blob, options.outputSettings.dpi)
-      entries.push({ name: `${stem}-${safeName}.png`, blob: withDpi })
+    const spotEntries = [...renderSpotChannelCanvases(options).entries()]
+    const layerCount = spotEntries.length
+    for (let i = 0; i < spotEntries.length; i++) {
+      const [id, { canvas, bleedPx }] = spotEntries[i]
+      const isKey = id === '__key__'
+      // Layer numbers (one/two/three…) avoid filename collisions when two
+      // colors share a name; the key plate keeps its own label.
+      const label = isKey ? 'Key' : layerWord(i + 1)
+      const slug = isKey ? 'key' : label.toLowerCase()
+      const page = composeChannelPage(canvas, bleedPx ?? 0, options.outputSettings, label, i / layerCount)
+      await pushCanvas(page, `${stem}-${slug}.png`)
     }
   } else {
-    const channelCanvases = renderChannelCanvases(options)
+    const channelCanvases = [...renderChannelCanvases(options).entries()]
     const channelNames: Record<string, string> = { c: 'cyan', m: 'magenta', y: 'yellow', k: 'black' }
-    for (const [ch, canvas] of channelCanvases) {
-      const blob = await new Promise<Blob>((resolve) => {
-        canvas.toBlob((b) => resolve(b!), 'image/png')
-      })
-      const withDpi = await setPngDpi(blob, options.outputSettings.dpi)
-      entries.push({ name: `${stem}-${channelNames[ch]}.png`, blob: withDpi })
+    const channelLabels: Record<string, string> = { c: 'Cyan', m: 'Magenta', y: 'Yellow', k: 'Black' }
+    for (let i = 0; i < channelCanvases.length; i++) {
+      const [ch, canvas] = channelCanvases[i]
+      const page = composeChannelPage(canvas, 0, options.outputSettings, channelLabels[ch], i / channelCanvases.length)
+      await pushCanvas(page, `${stem}-${channelNames[ch]}.png`)
     }
   }
 
