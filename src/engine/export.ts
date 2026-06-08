@@ -688,8 +688,8 @@ function composeChannelPage(
 
   if (showAlign && cropPx >= 6 * pxPerPt) {
     const half = cropPx / 2
-    const radius = Math.min(10 * pxPerPt, cropPx * 0.36)
-    const armLen = radius * 1.7
+    const radius = Math.min(8 * pxPerPt, cropPx * 0.36)
+    const armLen = radius * 1.4
     const cx = offX + imageW / 2
     const cy = offY + imageH / 2
     const positions = [
@@ -717,8 +717,8 @@ function composeChannelPage(
       let tx = lx
       // Keep clear of the top-centre alignment mark (same waste strip).
       if (showAlign && cropPx >= 6 * pxPerPt) {
-        const radius = Math.min(10 * pxPerPt, cropPx * 0.36)
-        const armLen = radius * 1.7
+        const radius = Math.min(8 * pxPerPt, cropPx * 0.36)
+        const armLen = radius * 1.4
         const w = ctx.measureText(label).width
         tx = clearCenterMark(lx, w, offX + imageW / 2, armLen + 4 * pxPerPt)
       }
@@ -1035,8 +1035,8 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
         let tx = labelX
         // Keep clear of the top-centre alignment mark (same waste strip).
         if (showAlignMarks && cropMarkPts >= 6) {
-          const radius = Math.min(10, cropMarkPts * 0.36)
-          const armLen = radius * 1.7
+          const radius = Math.min(8, cropMarkPts * 0.36)
+          const armLen = radius * 1.4
           const w = pdf.getTextWidth(plateLabel)
           tx = clearCenterMark(labelX, w, imgOffX + imageWPts / 2, armLen + 4)
         }
@@ -1126,8 +1126,8 @@ function drawAlignmentMarks(
   //   left waste centre  = cropMarkPts / 2
   //   right waste centre = imgOffX + imageWPts + marginPts + cropMarkPts / 2
   const half = cropMarkPts / 2
-  const radius = Math.min(10, cropMarkPts * 0.36)
-  const armLen = radius * 1.7
+  const radius = Math.min(8, cropMarkPts * 0.36)
+  const armLen = radius * 1.4
 
   const cx = imgOffX + imageWPts / 2
   const cy = imgOffY + imageHPts / 2
