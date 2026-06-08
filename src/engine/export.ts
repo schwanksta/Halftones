@@ -695,13 +695,20 @@ function composeChannelPage(
 
   // Plate label, staggered across the width so stacked plates don't overlap.
   if (label) {
-    const fontPx = Math.max(8, Math.round(8 * pxPerPt))
-    ctx.font = `${fontPx}px sans-serif`
-    ctx.textBaseline = 'alphabetic'
-    ctx.fillStyle = '#000000'
     const lx = offX + imageW * labelXFrac
-    const ly = Math.max(fontPx + 2 * pxPerPt, cropPx - 6 * pxPerPt)
-    ctx.fillText(label, lx, ly)
+    ctx.fillStyle = '#000000'
+    ctx.textBaseline = 'middle'
+    if (cropPx > 0) {
+      // Fill ~55% of the waste strip's height and centre it vertically.
+      const fontPx = Math.round(cropPx * 0.55)
+      ctx.font = `${fontPx}px sans-serif`
+      ctx.fillText(label, lx, cropPx / 2)
+    } else {
+      // No waste strip — small label centred in the top margin instead.
+      const fontPx = Math.max(8, Math.round(8 * pxPerPt))
+      ctx.font = `${fontPx}px sans-serif`
+      ctx.fillText(label, lx, Math.max(fontPx, marginPx / 2))
+    }
   }
 
   return page
@@ -998,11 +1005,18 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
         imgOffX - bleedPts, imgOffY - bleedPts,
         imageWPts + 2 * bleedPts, imageHPts + 2 * bleedPts)
 
-      pdf.setFontSize(8)
       pdf.setTextColor(0)
       // Layer number (the key plate is always last and keeps its own label).
       const plateLabel = id === '__key__' ? 'Key' : layerWord(layerIdx + 1)
-      pdf.text(plateLabel, imgOffX + labelStep * layerIdx, pieceY0 - 6)
+      const labelX = imgOffX + labelStep * layerIdx
+      if (cropMarkPts > 0) {
+        // Fill ~55% of the crop-mark waste strip and centre it vertically.
+        pdf.setFontSize(Math.round(cropMarkPts * 0.55))
+        pdf.text(plateLabel, labelX, cropMarkPts / 2, { baseline: 'middle' })
+      } else {
+        pdf.setFontSize(8)
+        pdf.text(plateLabel, labelX, Math.max(8, marginPts / 2), { baseline: 'middle' })
+      }
       if (showCropMarks) drawCropMarks(pdf, pieceX0, pieceY0, pieceX1, pieceY1, cropMarkPts)
       if (showAlignMarks) drawAlignmentMarks(pdf, imgOffX, imgOffY, imageWPts, imageHPts, marginPts, cropMarkPts)
     }
