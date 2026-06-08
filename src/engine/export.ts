@@ -610,6 +610,18 @@ export async function exportPNG(options: ExportOptions): Promise<void> {
 }
 
 /**
+ * Shift a left-aligned label's x so its horizontal span clears a centred
+ * alignment-mark zone [centerX ± clearance]. Returns the original x when there
+ * is no overlap; otherwise pushes the label fully to the nearer clear side.
+ */
+function clearCenterMark(x: number, textW: number, centerX: number, clearance: number): number {
+  if (x + textW < centerX - clearance || x > centerX + clearance) return x
+  return x + textW / 2 <= centerX
+    ? centerX - clearance - textW
+    : centerX + clearance
+}
+
+/**
  * Wrap a rendered channel image (black-on-white, at output resolution) into a
  * full print page: white margin on all sides plus the 0.5" crop-mark waste
  * strip, with crop marks, optional alignment marks, and a staggered plate
@@ -702,7 +714,15 @@ function composeChannelPage(
       // Fill ~55% of the waste strip's height and centre it vertically.
       const fontPx = Math.round(cropPx * 0.55)
       ctx.font = `${fontPx}px sans-serif`
-      ctx.fillText(label, lx, cropPx / 2)
+      let tx = lx
+      // Keep clear of the top-centre alignment mark (same waste strip).
+      if (showAlign && cropPx >= 6 * pxPerPt) {
+        const radius = Math.min(10 * pxPerPt, cropPx * 0.36)
+        const armLen = radius * 1.7
+        const w = ctx.measureText(label).width
+        tx = clearCenterMark(lx, w, offX + imageW / 2, armLen + 4 * pxPerPt)
+      }
+      ctx.fillText(label, tx, cropPx / 2)
     } else {
       // No waste strip — small label centred in the top margin instead.
       const fontPx = Math.max(8, Math.round(8 * pxPerPt))
@@ -1012,7 +1032,15 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
       if (cropMarkPts > 0) {
         // Fill ~55% of the crop-mark waste strip and centre it vertically.
         pdf.setFontSize(Math.round(cropMarkPts * 0.55))
-        pdf.text(plateLabel, labelX, cropMarkPts / 2, { baseline: 'middle' })
+        let tx = labelX
+        // Keep clear of the top-centre alignment mark (same waste strip).
+        if (showAlignMarks && cropMarkPts >= 6) {
+          const radius = Math.min(10, cropMarkPts * 0.36)
+          const armLen = radius * 1.7
+          const w = pdf.getTextWidth(plateLabel)
+          tx = clearCenterMark(labelX, w, imgOffX + imageWPts / 2, armLen + 4)
+        }
+        pdf.text(plateLabel, tx, cropMarkPts / 2, { baseline: 'middle' })
       } else {
         pdf.setFontSize(8)
         pdf.text(plateLabel, labelX, Math.max(8, marginPts / 2), { baseline: 'middle' })
