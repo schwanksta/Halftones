@@ -1,6 +1,6 @@
 [package]
 name = "halftones"
-version = "0.3.2"
+version = "0.4.0"
 description = "Halftones desktop app"
 authors = []
 edition = "2021"
