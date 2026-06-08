@@ -43,6 +43,17 @@ function exportSuffix(halftoneSettings: HalftoneSettings): string {
   return halftoneSettings.pattern
 }
 
+/** Spelled-out layer numbers for PDF plate labels (1-based). Falls back to
+ *  the numeral past the table. */
+const NUMBER_WORDS = [
+  '', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+  'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
+  'Seventeen', 'Eighteen', 'Nineteen', 'Twenty',
+]
+function layerWord(n: number): string {
+  return NUMBER_WORDS[n] ?? String(n)
+}
+
 function scaleImageData(source: ImageData, targetWidth: number, targetHeight: number): ImageData {
   const srcCanvas = document.createElement('canvas')
   srcCanvas.width = source.width
@@ -826,7 +837,7 @@ function renderVectorLayer(
 
 export async function exportPDF(options: ExportOptions): Promise<void> {
   const { default: jsPDF } = await import('jspdf')
-  const { halftoneSettings, cmykSettings, spotSettings, outputSettings } = options
+  const { halftoneSettings, cmykSettings, outputSettings } = options
   const { widthInches, heightInches } = outputSettings
 
   const margin = (outputSettings.marginInches != null && isFinite(outputSettings.marginInches))
@@ -859,9 +870,16 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
 
   if (halftoneSettings.colorMode === 'spot') {
     const spotCanvases = renderSpotChannelCanvases(options)
+    const spotEntries = [...spotCanvases.entries()]
+    // Stagger each plate's label across the image width so that when the
+    // printed plates are physically stacked for registration, the labels sit
+    // side-by-side rather than overlapping into an unreadable blob.
+    const layerCount = spotEntries.length
+    const labelStep = imageWPts / Math.max(1, layerCount)
     let first = true
 
-    for (const [id, { canvas, label, bleedPx }] of spotCanvases) {
+    for (let layerIdx = 0; layerIdx < spotEntries.length; layerIdx++) {
+      const [id, { canvas, bleedPx }] = spotEntries[layerIdx]
       if (!first) pdf.addPage([pageW, pageH])
       first = false
 
@@ -875,19 +893,9 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
 
       pdf.setFontSize(8)
       pdf.setTextColor(0)
-
-      let modeLabel: string
-      if (id === '__key__') {
-        const k = spotSettings.key!
-        modeLabel = `Halftone — ${k.angle}° @ ${k.lpi} LPI`
-      } else {
-        const color = spotSettings.colors.find((c) => c.id === id)
-        modeLabel = color?.renderMode === 'flat'
-          ? `Flat — threshold ${Math.round((color.threshold) * 100)}%`
-          : `Halftone — ${color?.angle ?? 45}° @ ${color?.lpi ?? 55} LPI`
-      }
-
-      pdf.text(`${label} — ${modeLabel}`, imgOffX, pieceY0 - 6)
+      // Layer number (the key plate is always last and keeps its own label).
+      const plateLabel = id === '__key__' ? 'Key' : layerWord(layerIdx + 1)
+      pdf.text(plateLabel, imgOffX + labelStep * layerIdx, pieceY0 - 6)
       if (showCropMarks) drawCropMarks(pdf, pieceX0, pieceY0, pieceX1, pieceY1, cropMarkPts)
       if (showAlignMarks) drawAlignmentMarks(pdf, imgOffX, imgOffY, imageWPts, imageHPts, marginPts, cropMarkPts)
     }
