@@ -11,8 +11,8 @@ interface Props {
 const DPI_PRESETS = [150, 300, 600]
 
 export function OutputControls({ settings, onChange, disabled }: Props) {
-  const pixelWidth = Math.round(settings.widthInches * settings.dpi)
-  const pixelHeight = Math.round(settings.heightInches * settings.dpi)
+  // Round to 2 decimals, dropping trailing zeros (e.g. 13, 18.5, 12.34).
+  const fmtIn = (n: number) => String(Math.round(n * 100) / 100)
 
   // Local draft strings so the user can backspace freely while typing.
   // onChange is only called when the typed value is a valid positive number.
@@ -154,7 +154,7 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
       </label>
 
       <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 4 }}>
-        Output: {pixelWidth} x {pixelHeight} px
+        Output: {fmtIn(settings.widthInches)} x {fmtIn(settings.heightInches)} in
       </div>
 
       <div className="subsection-title">PDF Export</div>
