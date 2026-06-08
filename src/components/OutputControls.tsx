@@ -14,6 +14,14 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
   // Round to 2 decimals, dropping trailing zeros (e.g. 13, 18.5, 12.34).
   const fmtIn = (n: number) => String(Math.round(n * 100) / 100)
 
+  // Full printed page size, matching exportPDF's geometry: the image plus the
+  // margin on all sides (when enabled) plus the 0.5" crop-mark waste strip
+  // (when enabled). This is the actual sheet that comes out of the printer.
+  const marginIn = settings.showMargin !== false ? (settings.marginInches ?? 1) : 0
+  const cropIn = settings.cropMarks !== false ? 0.5 : 0
+  const totalW = settings.widthInches + 2 * marginIn + 2 * cropIn
+  const totalH = settings.heightInches + 2 * marginIn + 2 * cropIn
+
   // Local draft strings so the user can backspace freely while typing.
   // onChange is only called when the typed value is a valid positive number.
   const [widthDraft, setWidthDraft] = useState(String(settings.widthInches))
@@ -153,8 +161,12 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
         />
       </label>
 
-      <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 4 }}>
-        Output: {fmtIn(settings.widthInches)} x {fmtIn(settings.heightInches)} in
+      <div
+        style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 4 }}
+        title="Full printed page: image + margin + 0.5&quot; crop-mark waste strip (when enabled)"
+      >
+        Output: {fmtIn(totalW)} x {fmtIn(totalH)} in
+        <span style={{ opacity: 0.7 }}> (image {fmtIn(settings.widthInches)} x {fmtIn(settings.heightInches)})</span>
       </div>
 
       <div className="subsection-title">PDF Export</div>
