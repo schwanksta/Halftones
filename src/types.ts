@@ -30,6 +30,12 @@ export interface SpotColor {
    */
   trap?: number | null
   /**
+   * Per-color smoothing override (median-filter radius in mask pixels). `null`
+   * (or undefined for older files) = use the global SpotSettings.smoothing
+   * value. A number here — including 0 — takes precedence for this color only.
+   */
+  smoothing?: number | null
+  /**
    * Bleed: extends a background-type color plate outward from the image edge
    * into the margin, in inches. 0 = no bleed (plate stops at image boundary).
    * Only meaningful when `type === 'background'`.
@@ -114,6 +120,13 @@ export interface SpotSettings {
    * preview, output pixels at export DPI. 0 = no trap.
    */
   trap: number
+  /**
+   * Global smoothing amount: median-filter radius (in separation-mask pixels)
+   * applied to each color's coverage channel before rendering. Removes
+   * separation speckle and softens jagged boundaries while keeping edges
+   * crisp. 0 = off. Per-color `smoothing` overrides this.
+   */
+  smoothing: number
   colors: SpotColor[]
   /**
    * Optional key plate: a halftone of the full image rendered on top of all
@@ -127,6 +140,7 @@ export const DEFAULT_SPOT_SETTINGS: SpotSettings = {
   mergeThreshold: 15,
   vibrancy: 0,
   trap: 0,
+  smoothing: 0,
   colors: [],
 }
 

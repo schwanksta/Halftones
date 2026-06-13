@@ -135,6 +135,16 @@ export function SpotColorEditor({
         />
       </div>
 
+      <div className="control-row" title="Despeckle each color separation with a median filter — removes stray pixels and smooths jagged boundaries while keeping edges crisp. Per-color overrides this global value.">
+        <span>Smoothing <EditableValue value={settings.smoothing ?? 0} min={0} max={3} step={1} suffix="px" onChange={(v) => update({ smoothing: v })} /></span>
+        <input
+          type="range" min={0} max={3} step={1}
+          value={settings.smoothing ?? 0}
+          onChange={(e) => update({ smoothing: Number(e.target.value) })}
+          disabled={disabled}
+        />
+      </div>
+
       <div className="control-row">
         <span>Merge ΔE <EditableValue value={settings.mergeThreshold} min={0} max={50} step={1} onChange={(v) => update({ mergeThreshold: v })} /></span>
         <input
@@ -294,6 +304,7 @@ export function SpotColorEditor({
           index={idx}
           disabled={disabled}
           globalTrap={settings.trap ?? 0}
+          globalSmoothing={settings.smoothing ?? 0}
           onChange={(partial) => updateColor(color.id, partial)}
           onRemove={() => removeColor(color.id)}
         />
@@ -483,11 +494,12 @@ interface RowProps {
   index: number
   disabled: boolean
   globalTrap: number
+  globalSmoothing: number
   onChange: (partial: Partial<SpotColor>) => void
   onRemove: () => void
 }
 
-function SpotColorRow({ color, index, disabled, globalTrap, onChange, onRemove }: RowProps) {
+function SpotColorRow({ color, index, disabled, globalTrap, globalSmoothing, onChange, onRemove }: RowProps) {
   const [expanded, setExpanded] = useState(false)
   const [hexDraft, setHexDraft] = useState(color.hex)
 
@@ -763,6 +775,51 @@ function SpotColorRow({ color, index, disabled, globalTrap, onChange, onRemove }
               disabled={disabled}
             />
           </div>
+
+          {/* Per-color smoothing override.  Background plates stay crisp. */}
+          {color.type !== 'background' && (
+            <div className="control-row" title="Per-color smoothing override (median radius, px). Drag to override the global smoothing value for this color only.">
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                Smoothing
+                {color.smoothing == null ? (
+                  <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>(global: {globalSmoothing})</span>
+                ) : (
+                  <>
+                    <EditableValue
+                      value={color.smoothing}
+                      min={0}
+                      max={3}
+                      step={1}
+                      suffix="px"
+                      onChange={(v) => onChange({ smoothing: v })}
+                    />
+                    {!disabled && (
+                      <button
+                        onClick={() => onChange({ smoothing: null })}
+                        title="Use global smoothing value"
+                        style={{
+                          padding: '1px 4px',
+                          fontSize: 11,
+                          lineHeight: 1,
+                          borderRadius: 3,
+                          border: '1px solid var(--border)',
+                          cursor: 'pointer',
+                          background: 'none',
+                          color: 'var(--text-secondary)',
+                        }}
+                      >↺</button>
+                    )}
+                  </>
+                )}
+              </span>
+              <input
+                type="range" min={0} max={3} step={1}
+                value={color.smoothing ?? globalSmoothing}
+                onChange={(e) => onChange({ smoothing: Number(e.target.value) })}
+                disabled={disabled}
+              />
+            </div>
+          )}
 
           {/* Remove button */}
           <button

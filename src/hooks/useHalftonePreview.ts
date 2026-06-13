@@ -9,6 +9,7 @@ import { renderFlat, separateSpotChannels, boostSaturation } from '../engine/spo
 import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from '../engine/edge'
 import { separateChannels, compositeChannels } from '../engine/cmyk'
 import { applyTransforms } from '../engine/transform'
+import { medianFilterMask } from '../engine/smooth'
 import { dilateMask } from '../engine/dilate'
 import type { ChannelView } from '../types'
 import type { Viewport } from './useCanvasTransform'
@@ -172,17 +173,33 @@ export function useHalftonePreview(
   // dots correctly rescale with zoom instead of being drawImage-scaled from a
   // fixed source-resolution pre-render.
 
+  // Smoothing key — changing a smoothing value re-runs the (cheap) median pass
+  // in spotChannelCanvases without re-triggering the expensive LAB separation.
+  const spotSmoothingKey = useMemo(
+    () => `g${spotSettings.smoothing ?? 0}|` +
+      spotSettings.colors.map(c => `${c.id}:${c.smoothing ?? ''}:${c.type ?? ''}`).join('|'),
+    [spotSettings.smoothing, spotSettings.colors],
+  )
+
   const spotChannelCanvases = useMemo(() => {
     if (!spotChannels) return null
+    const colorById = new Map(spotSettings.colors.map(c => [c.id, c]))
+    const globalSmoothing = spotSettings.smoothing ?? 0
     const result = new Map<string, HTMLCanvasElement>()
     for (const [id, data] of spotChannels) {
+      // Background plates stay crisp; others use per-color override or global.
+      const color = colorById.get(id)
+      const s = color?.type === 'background' ? 0 : (color?.smoothing ?? globalSmoothing)
+      const smoothed = s > 0 ? medianFilterMask(data, s) : data
       const c = document.createElement('canvas')
-      c.width = data.width; c.height = data.height
-      c.getContext('2d')!.putImageData(data, 0, 0)
+      c.width = smoothed.width; c.height = smoothed.height
+      c.getContext('2d')!.putImageData(smoothed, 0, 0)
       result.set(id, c)
     }
     return result
-  }, [spotChannels])
+  // spotSmoothingKey stands in for the smoothing-related parts of spotSettings.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spotChannels, spotSmoothingKey])
 
   // ── Alpha boundary outline canvas ─────────────────────────────────────────
   //

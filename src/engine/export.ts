@@ -6,6 +6,7 @@ import { separateSpotChannels, renderFlat, boostSaturation } from './spot-separa
 import { setPngDpi } from './png-metadata'
 import { applyTransforms } from './transform'
 import { dilateMask } from './dilate'
+import { medianFilterMask } from './smooth'
 import { platform } from '../platform'
 import { precomputeGrayscale, sampleGray } from './sampling'
 import { applyDotSettings } from './dot-settings'
@@ -13,6 +14,21 @@ import { applyDotSettings } from './dot-settings'
 /** Effective trap (px at export DPI) for a color — per-color override wins. */
 function trapFor(color: SpotColor, spotSettings: SpotSettings): number {
   return color.trap ?? spotSettings.trap ?? 0
+}
+
+/**
+ * Effective smoothing (median radius in mask px) for a color — per-color
+ * override wins. Background-type plates are left crisp (alpha mask, no speckle).
+ */
+function smoothingFor(color: SpotColor, spotSettings: SpotSettings): number {
+  if (color.type === 'background') return 0
+  return color.smoothing ?? spotSettings.smoothing ?? 0
+}
+
+/** Median-smooth a channel's coverage mask when smoothing is enabled. */
+function smoothChannel(channel: ImageData, color: SpotColor, spotSettings: SpotSettings): ImageData {
+  const s = smoothingFor(color, spotSettings)
+  return s > 0 ? medianFilterMask(channel, s) : channel
 }
 
 interface ExportOptions {
@@ -145,8 +161,10 @@ function renderSpotChannelCanvases(
   const result = new Map<string, { canvas: HTMLCanvasElement; label: string; bleedPx?: number }>()
 
   for (const color of enabledColors) {
-    const channelData = channels.get(color.id)
-    if (!channelData) continue
+    const rawChannel = channels.get(color.id)
+    if (!rawChannel) continue
+    // Smooth the coverage mask (median despeckle) before bleed/render.
+    const channelData = smoothChannel(rawChannel, color, spotSettings)
 
     // Bleed: expand the channel source data BEFORE rendering so the halftone
     // (or flat fill) naturally extends into the bleed area.  Same approach as
@@ -445,8 +463,10 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
     // Non-bleed layers draw onto imgCanvas which is then composited on top.
 
     for (const color of enabledColors) {
-      const channelData = channels.get(color.id)
-      if (!channelData) continue
+      const rawChannel = channels.get(color.id)
+      if (!rawChannel) continue
+      // Smooth the coverage mask (median despeckle) before bleed/render.
+      const channelData = smoothChannel(rawChannel, color, spotSettings)
 
       // Bleed: expand the channel source data BEFORE rendering so the halftone
       // or flat fill naturally extends through the bleed area.
