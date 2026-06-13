@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { platform } from '../platform'
 import { AllSettings, ProjectFile } from '../platform/types'
-import { SourceImage, DEFAULT_TRANSFORM_SETTINGS, DEFAULT_OUTPUT_SETTINGS } from '../types'
+import { SourceImage, DEFAULT_TRANSFORM_SETTINGS, DEFAULT_OUTPUT_SETTINGS, MaskImage } from '../types'
+import { loadMaskFromBytes } from '../engine/mask'
 
 interface AppShellDeps {
   projectName: string
@@ -16,6 +17,10 @@ interface AppShellDeps {
   markDirty: () => void
   isTauri: boolean
   showToast: (msg: string) => void
+  /** Current mask image — included when packing a .halftones file. */
+  mask: MaskImage | null
+  /** Called after loading a .halftones file that contains a mask image. */
+  setMask: (m: MaskImage | null) => void
 }
 
 export function useAppShell(deps: AppShellDeps) {
@@ -32,12 +37,16 @@ export function useAppShell(deps: AppShellDeps) {
 
   const gatherProjectFile = useCallback((): ProjectFile | null => {
     if (!deps.source) return null
-    return {
+    const pf: ProjectFile = {
       name: deps.projectName,
       settings: deps.gatherSettings(),
       image: { bytes: deps.source.rawBytes, fileName: deps.source.fileName },
     }
-  }, [deps.source, deps.projectName, deps.gatherSettings])
+    if (deps.mask?.rawBytes?.length) {
+      pf.mask = { bytes: deps.mask.rawBytes, fileName: deps.mask.fileName }
+    }
+    return pf
+  }, [deps.source, deps.projectName, deps.gatherSettings, deps.mask])
 
   const saveAs = useCallback(async () => {
     const pf = gatherProjectFile()
@@ -98,6 +107,20 @@ export function useAppShell(deps: AppShellDeps) {
       deps.setSource(null)
       alert('The project loaded, but its source image was missing. Please re-import the image.')
     }
+
+    // Restore mask image if present in the project file.
+    if (pf.mask?.bytes?.length) {
+      try {
+        const maskImage = await loadMaskFromBytes(pf.mask.bytes, pf.mask.fileName)
+        deps.setMask(maskImage)
+      } catch (e) {
+        console.warn('Failed to decode mask image from project file:', e)
+        deps.setMask(null)
+      }
+    } else {
+      deps.setMask(null)
+    }
+
     setCurrentPath(path)
     await platform.addRecent(path, pf.name)
     await platform.setLastProjectPath(path)

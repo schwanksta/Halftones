@@ -1,4 +1,4 @@
-import { HalftoneSettings, CMYKSettings, SpotSettings, OutputSettings, ImageTransformSettings } from '../types'
+import { HalftoneSettings, CMYKSettings, SpotSettings, OutputSettings, ImageTransformSettings, MaskSettings } from '../types'
 
 export interface AllSettings {
   halftone: HalftoneSettings
@@ -6,6 +6,8 @@ export interface AllSettings {
   spot: SpotSettings
   output: OutputSettings
   transform: ImageTransformSettings
+  /** Optional — absent in old projects; default applied in applySettings. */
+  mask?: MaskSettings
 }
 
 // src/platform/types.ts
@@ -66,6 +68,11 @@ export interface ProjectFile {
   name: string
   settings: AllSettings
   image: { bytes: Uint8Array; fileName: string }
+  /**
+   * Optional mask image.  Present when the project was saved with a mask loaded.
+   * Callers are responsible for re-decoding the bytes into a MaskImage after unpack.
+   */
+  mask?: { bytes: Uint8Array; fileName: string }
 }
 
 export interface LoadedImage {

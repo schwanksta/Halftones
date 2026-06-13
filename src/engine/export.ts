@@ -1,4 +1,4 @@
-import { HalftoneSettings, CMYKSettings, OutputSettings, ImageTransformSettings, SpotSettings, SpotColor } from '../types'
+import { HalftoneSettings, CMYKSettings, OutputSettings, ImageTransformSettings, SpotSettings, SpotColor, MaskSettings, MaskImage } from '../types'
 import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from './edge'
 import { renderHalftone } from './halftone'
 import { separateChannels } from './cmyk'
@@ -6,6 +6,7 @@ import { separateSpotChannels, renderFlat, boostSaturation } from './spot-separa
 import { setPngDpi } from './png-metadata'
 import { applyTransforms } from './transform'
 import { dilateMask } from './dilate'
+import { buildMaskOverlay, applyCutOverlayToCanvas } from './mask'
 import { platform } from '../platform'
 import { precomputeGrayscale, sampleGray } from './sampling'
 import { applyDotSettings } from './dot-settings'
@@ -23,6 +24,9 @@ interface ExportOptions {
   spotSettings: SpotSettings
   outputSettings: OutputSettings
   projectName: string
+  /** Optional global layer mask. When enabled, cut areas become paper (white) on all plates. */
+  mask?: MaskImage | null
+  maskSettings?: MaskSettings
 }
 
 /** Convert a project name to a safe filename stem. */
@@ -121,9 +125,9 @@ function colorizeForOverlay(imgData: ImageData, hex: string): ImageData {
  * Flat channels use renderFlat (no halftoning); halftone channels use renderHalftone.
  * Returns a map of color id → { canvas, label }.
  */
-function renderSpotChannelCanvases(
+async function renderSpotChannelCanvases(
   options: ExportOptions
-): Map<string, { canvas: HTMLCanvasElement; label: string; bleedPx?: number }> {
+): Promise<Map<string, { canvas: HTMLCanvasElement; label: string; bleedPx?: number }>> {
   const { source, transformSettings, halftoneSettings: rawSettings, spotSettings, outputSettings } = options
   const halftoneSettings = bwSettings(rawSettings)
   const targetWidth  = Math.round(outputSettings.widthInches  * outputSettings.dpi)
@@ -141,6 +145,16 @@ function renderSpotChannelCanvases(
     x: scaled.width  * (halftoneSettings.radialOriginX ?? 0.5),
     y: scaled.height * (halftoneSettings.radialOriginY ?? 0.5),
   }
+
+  // Build the mask overlay once at target resolution — applied to every plate.
+  // The overlay covers the image rect only (no bleed extension); bleed areas
+  // are outside the mask region and are left as-is (full ink for background plates).
+  const maskOverlay = await buildMaskOverlay(
+    options.mask ?? null,
+    options.maskSettings ?? { enabled: false, invert: false, source: 'auto' },
+    targetWidth,
+    targetHeight,
+  )
 
   const result = new Map<string, { canvas: HTMLCanvasElement; label: string; bleedPx?: number }>()
 
@@ -191,6 +205,13 @@ function renderSpotChannelCanvases(
         radialCenter,
         isExport: true,
       })
+    }
+
+    // Apply mask overlay to the image-rect portion of the plate.
+    // Bleed extends OUTSIDE the mask region — leave those pixels as-is
+    // (they're in the margin and won't appear in the final trimmed piece).
+    if (maskOverlay) {
+      ctx.drawImage(maskOverlay, bleedPx, bleedPx)
     }
 
     // Trap: dilate the plate so this layer's ink spreads outward, overlapping
@@ -251,6 +272,9 @@ function renderSpotChannelCanvases(
       applyEdgeMaskToCanvas(keyCanvas, outlineMask)
     }
 
+    // Apply mask to key plate.
+    if (maskOverlay) applyCutOverlayToCanvas(keyCanvas, maskOverlay)
+
     result.set('__key__', { canvas: keyCanvas, label: 'Key' })
   }
 
@@ -259,7 +283,7 @@ function renderSpotChannelCanvases(
 
 // ─── CMYK channel rendering ───────────────────────────────────────────────────
 
-function renderChannelCanvases(options: ExportOptions): Map<string, HTMLCanvasElement> {
+async function renderChannelCanvases(options: ExportOptions): Promise<Map<string, HTMLCanvasElement>> {
   const { source, transformSettings, halftoneSettings: rawSettings, cmykSettings, outputSettings } = options
   const halftoneSettings = bwSettings(rawSettings)
   const targetWidth  = Math.round(outputSettings.widthInches  * outputSettings.dpi)
@@ -273,6 +297,14 @@ function renderChannelCanvases(options: ExportOptions): Map<string, HTMLCanvasEl
     x: scaled.width  * (halftoneSettings.radialOriginX ?? 0.5),
     y: scaled.height * (halftoneSettings.radialOriginY ?? 0.5),
   }
+
+  // Build mask overlay once for the target size, shared across all channels.
+  const maskOverlay = await buildMaskOverlay(
+    options.mask ?? null,
+    options.maskSettings ?? { enabled: false, invert: false, source: 'auto' },
+    targetWidth,
+    targetHeight,
+  )
 
   for (const ch of ['c', 'm', 'y', 'k'] as const) {
     if (!cmykSettings[ch].enabled) continue
@@ -289,6 +321,8 @@ function renderChannelCanvases(options: ExportOptions): Map<string, HTMLCanvasEl
       isExport: true,
     })
 
+    if (maskOverlay) applyCutOverlayToCanvas(canvas, maskOverlay)
+
     result.set(ch, canvas)
   }
 
@@ -297,7 +331,7 @@ function renderChannelCanvases(options: ExportOptions): Map<string, HTMLCanvasEl
 
 // ─── Composite (single-image) render ─────────────────────────────────────────
 
-function renderFullRes(options: ExportOptions): HTMLCanvasElement {
+async function renderFullRes(options: ExportOptions): Promise<HTMLCanvasElement> {
   const { source, transformSettings, halftoneSettings: rawSettings, cmykSettings, outputSettings } = options
   const halftoneSettings = bwSettings(rawSettings)
   const targetWidth  = Math.round(outputSettings.widthInches  * outputSettings.dpi)
@@ -351,6 +385,16 @@ function renderFullRes(options: ExportOptions): HTMLCanvasElement {
       isExport: true,
     })
   }
+
+  // Apply global mask overlay — converts cut pixels to white (no ink) on the
+  // composite output.  Applied last so it overrides all CMYK/grayscale layers.
+  const maskOverlay = await buildMaskOverlay(
+    options.mask ?? null,
+    options.maskSettings ?? { enabled: false, invert: false, source: 'auto' },
+    targetWidth,
+    targetHeight,
+  )
+  if (maskOverlay) applyCutOverlayToCanvas(canvas, maskOverlay)
 
   return canvas
 }
@@ -583,6 +627,19 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
     })
   }
 
+  // ── Apply global layer mask ──────────────────────────────────────────────
+  // The mask cuts through all rendered layers — applied to imgCanvas before
+  // it is composited onto the proof.  Background-bleed layers on proofCanvas
+  // are outside the image rect and are intentionally NOT masked (they sit in
+  // the margin and bleed area, not the image area proper).
+  const maskOverlay = await buildMaskOverlay(
+    options.mask ?? null,
+    options.maskSettings ?? { enabled: false, invert: false, source: 'auto' },
+    targetW,
+    targetH,
+  )
+  if (maskOverlay) applyCutOverlayToCanvas(imgCanvas, maskOverlay)
+
   // ── Wrap in margin ───────────────────────────────────────────────────────
   // proofCanvas was created above (before the mode branches) and already filled
   // white. Background-bleed spot layers were painted directly onto it; all other
@@ -598,7 +655,7 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
 }
 
 export async function exportPNG(options: ExportOptions): Promise<void> {
-  const canvas = renderFullRes(options)
+  const canvas = await renderFullRes(options)
   const stem = toStem(options.projectName, exportSuffix(options.halftoneSettings))
 
   const blob = await new Promise<Blob>((resolve) => {
@@ -746,7 +803,7 @@ export async function exportChannelPNGs(options: ExportOptions): Promise<void> {
   }
 
   if (options.halftoneSettings.colorMode === 'spot') {
-    const spotEntries = [...renderSpotChannelCanvases(options).entries()]
+    const spotEntries = [...(await renderSpotChannelCanvases(options)).entries()]
     const layerCount = spotEntries.length
     for (let i = 0; i < spotEntries.length; i++) {
       const [id, { canvas, bleedPx }] = spotEntries[i]
@@ -759,7 +816,7 @@ export async function exportChannelPNGs(options: ExportOptions): Promise<void> {
       await pushCanvas(page, `${stem}-${slug}.png`)
     }
   } else {
-    const channelCanvases = [...renderChannelCanvases(options).entries()]
+    const channelCanvases = [...(await renderChannelCanvases(options)).entries()]
     const channelNames: Record<string, string> = { c: 'cyan', m: 'magenta', y: 'yellow', k: 'black' }
     const channelLabels: Record<string, string> = { c: 'Cyan', m: 'Magenta', y: 'Yellow', k: 'Black' }
     for (let i = 0; i < channelCanvases.length; i++) {
@@ -1003,7 +1060,7 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
   })
 
   if (halftoneSettings.colorMode === 'spot') {
-    const spotCanvases = renderSpotChannelCanvases(options)
+    const spotCanvases = await renderSpotChannelCanvases(options)
     const spotEntries = [...spotCanvases.entries()]
     // Stagger each plate's label across the image width so that when the
     // printed plates are physically stacked for registration, the labels sit
@@ -1049,7 +1106,7 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
       if (showAlignMarks) drawAlignmentMarks(pdf, imgOffX, imgOffY, imageWPts, imageHPts, marginPts, cropMarkPts)
     }
   } else if (halftoneSettings.colorMode === 'cmyk') {
-    const channelCanvases = renderChannelCanvases(options)
+    const channelCanvases = await renderChannelCanvases(options)
     const channelNames: Record<string, string> = { c: 'Cyan', m: 'Magenta', y: 'Yellow', k: 'Black' }
     let first = true
 
@@ -1073,7 +1130,11 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
       if (showAlignMarks) drawAlignmentMarks(pdf, imgOffX, imgOffY, imageWPts, imageHPts, marginPts, cropMarkPts)
     }
   } else {
-    const useVector = outputSettings.vectorPDF !== false
+    // Use vector paths only when no mask is active — the mask overlay is a
+    // raster operation and cannot be applied to PDF vector primitives.
+    const hasMask = !!(options.maskSettings?.enabled && options.mask)
+    const useVector = !hasMask
+      && outputSettings.vectorPDF !== false
       && VECTOR_PATTERNS.has(halftoneSettings.pattern)
 
     if (useVector) {
@@ -1088,7 +1149,7 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
 
       renderVectorLayer(scaled, pdf, bwSettings(halftoneSettings), outputSettings, imgOffX, imgOffY, imageWPts, imageHPts)
     } else {
-      const canvas = renderFullRes(options)
+      const canvas = await renderFullRes(options)
       const imgData = canvas.toDataURL('image/png')
       pdf.addImage(imgData, 'PNG', imgOffX, imgOffY, imageWPts, imageHPts)
     }

@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { HalftoneSettings, ImageTransformSettings, OutputSettings, CMYKSettings, SpotSettings } from '../types'
+import { HalftoneSettings, ImageTransformSettings, OutputSettings, CMYKSettings, SpotSettings, MaskSettings } from '../types'
 
 const STORAGE_KEY = 'halftones_projects'
 const LAST_PROJECT_KEY = 'halftones_last_project'
@@ -11,6 +11,8 @@ export interface ProjectSnapshot {
   outputSettings: OutputSettings
   cmykSettings: CMYKSettings
   spotSettings?: SpotSettings
+  /** Optional — absent in snapshots saved before the layer mask feature. */
+  maskSettings?: MaskSettings
 }
 
 type ProjectStore = Record<string, ProjectSnapshot>

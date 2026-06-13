@@ -1,7 +1,8 @@
-import { useEffect, useRef, useCallback, useMemo } from 'react'
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import {
   HalftoneSettings, CMYKSettings, SourceImage,
   ImageTransformSettings, OutputSettings, SpotSettings,
+  MaskSettings, MaskImage,
 } from '../types'
 import { renderHalftone } from '../engine/halftone'
 import { renderStipple } from '../engine/stipple'
@@ -10,6 +11,7 @@ import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from
 import { separateChannels, compositeChannels } from '../engine/cmyk'
 import { applyTransforms } from '../engine/transform'
 import { dilateMask } from '../engine/dilate'
+import { buildMaskOverlay, extractOverlayRegion } from '../engine/mask'
 import type { ChannelView } from '../types'
 import type { Viewport } from './useCanvasTransform'
 
@@ -24,6 +26,8 @@ interface PreviewOptions {
   channelView: ChannelView
   outputSettings: OutputSettings
   viewport: Viewport
+  mask: MaskImage | null
+  maskSettings?: MaskSettings
 }
 
 function invertImageData(img: ImageData) {
@@ -93,6 +97,7 @@ export function useHalftonePreview(
   const {
     source, transformSettings, halftoneSettings,
     cmykSettings, spotSettings, channelView, outputSettings, viewport,
+    mask, maskSettings,
   } = options
   const rafRef = useRef(0)
 
@@ -205,12 +210,36 @@ export function useHalftonePreview(
     // conversion needed, and crucially no dependency on widthInches (which can
     // briefly be 0 while the user is typing, causing Infinity dilation).
     const outlineWidthSourcePx = spotSettings.key.outlineWidth ?? 3
-    const mask = computeAlphaBoundaryMask(transformed, outlineWidthSourcePx)
+    const alphaMask = computeAlphaBoundaryMask(transformed, outlineWidthSourcePx)
     const c = document.createElement('canvas')
     c.width = transformed.width; c.height = transformed.height
-    c.getContext('2d')!.putImageData(mask, 0, 0)
+    c.getContext('2d')!.putImageData(alphaMask, 0, 0)
     return c
   }, [transformed, halftoneSettings.colorMode, spotSettings.key])
+
+  // ── Mask overlay canvas ────────────────────────────────────────────────────
+  //
+  // Built asynchronously at source resolution (same dimensions as transformed),
+  // then a viewport region is extracted per frame in the render callback.
+  // The overlay has opaque-white in cut areas and transparent in keep areas.
+  // Drawn with drawImage over each rendered plate to white out cut regions.
+
+  const [maskOverlayCanvas, setMaskOverlayCanvas] = useState<HTMLCanvasElement | null>(null)
+
+  useEffect(() => {
+    // Key: stable string over everything that affects the overlay pixels
+    const enabled = maskSettings?.enabled && !!mask
+    if (!enabled || !transformed) {
+      setMaskOverlayCanvas(null)
+      return
+    }
+    let cancelled = false
+    buildMaskOverlay(mask!, maskSettings!, transformed.width, transformed.height)
+      .then((overlay) => { if (!cancelled) setMaskOverlayCanvas(overlay) })
+      .catch((err) => { console.error('Mask overlay build failed:', err); if (!cancelled) setMaskOverlayCanvas(null) })
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mask, maskSettings?.enabled, maskSettings?.invert, maskSettings?.source, transformed])
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -442,6 +471,20 @@ export function useHalftonePreview(
       })
     }
 
+    // ── Apply global layer mask ────────────────────────────────────────────
+    // The mask overlay is built at source resolution (same as transformed).
+    // Here we extract the viewport region — matching the srcX/srcY/srcW/srcH
+    // region used for all other per-frame channel extractions — and draw it
+    // over the offscreen canvas.  Cut areas (opaque white in the overlay)
+    // overwrite whatever ink was there with paper color.  Keep areas are
+    // transparent, leaving the rendered content untouched.
+    if (maskOverlayCanvas) {
+      const overlayRegion = extractOverlayRegion(
+        maskOverlayCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH,
+      )
+      offCtx.drawImage(overlayRegion, 0, 0)
+    }
+
     // ── Composite onto main canvas ─────────────────────────────────────────
     ctx.fillStyle = GUTTER_COLOR
     ctx.fillRect(0, 0, canvasW, canvasH)
@@ -463,6 +506,13 @@ export function useHalftonePreview(
       const dw =  transformed.width  * viewport.zoom
       const dh =  transformed.height * viewport.zoom
       ctx.drawImage(stippleCanvas, dx, dy, dw, dh)
+      // Apply mask overlay on top of the stipple render
+      if (maskOverlayCanvas) {
+        const overlayRegion = extractOverlayRegion(
+          maskOverlayCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH,
+        )
+        ctx.drawImage(overlayRegion, 0, 0)
+      }
     } else {
       ctx.drawImage(offscreen, 0, 0)
     }
@@ -472,6 +522,7 @@ export function useHalftonePreview(
     canvasRef, transformed, transformedCanvas, stippleCanvas,
     spotSettings.colors, spotSettings.vibrancy, spotSettings.trap, spotSettings.key,
     spotChannelCanvases, alphaOutlineCanvas,
+    maskOverlayCanvas,
     halftoneSettings, cmykSettings, channelView, outputSettings, viewport,
   ])
 

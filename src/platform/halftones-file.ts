@@ -1,15 +1,27 @@
 import JSZip from 'jszip'
 import { ProjectFile, AllSettings } from './types'
+import { MaskSettings, DEFAULT_MASK_SETTINGS } from '../types'
 
-const CURRENT_SCHEMA_VERSION = 1
+const CURRENT_SCHEMA_VERSION = 2
 
-interface ProjectJsonV1 {
-  schemaVersion: 1
+interface ProjectJsonV2 {
+  schemaVersion: 2
   createdAt: string
   updatedAt: string
   name: string
   sourceFileName: string
   settings: AllSettings
+  /**
+   * Optional global layer mask settings.  The mask image itself is stored as
+   * `mask.<ext>` in the zip root.  Absent = no mask (default off).
+   */
+  maskSettings?: MaskSettings
+  /**
+   * Original filename of the mask image (e.g. "mask.svg", "logo.png").
+   * Used to recover the file extension and display name on unpack.
+   * Absent = no mask stored.
+   */
+  maskFileName?: string
 }
 
 const RECOGNIZED_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp'])
@@ -22,12 +34,19 @@ function getImageExtension(fileName: string): string {
   return RECOGNIZED_EXTENSIONS.has(ext) ? ext : 'png'
 }
 
+function getMaskExtension(fileName: string): string {
+  const lower = fileName.toLowerCase()
+  const dotIdx = lower.lastIndexOf('.')
+  if (dotIdx === -1) return 'png'
+  return lower.slice(dotIdx + 1)
+}
+
 /**
  * Migrates a raw parsed project.json object up to the current schema version.
  * Structure: a switch on schemaVersion that increments until reaching CURRENT_SCHEMA_VERSION.
  * To add a migration, insert a new case before the default and chain it forward.
  */
-export function migrateProjectJson(raw: unknown): ProjectJsonV1 {
+export function migrateProjectJson(raw: unknown): ProjectJsonV2 {
   if (typeof raw !== 'object' || raw === null) {
     throw new Error("This doesn't look like a Halftones project file.")
   }
@@ -46,8 +65,17 @@ export function migrateProjectJson(raw: unknown): ProjectJsonV1 {
   let data: any = raw
   switch (data.schemaVersion as number) {
     case 1:
+      // v1 → v2: add maskSettings (default off) and maskFileName (absent).
+      data = {
+        ...data,
+        schemaVersion: 2,
+        maskSettings: DEFAULT_MASK_SETTINGS,
+        // maskFileName intentionally omitted — no mask in v1 files
+      }
+      return data as ProjectJsonV2
+    case 2:
       // Already at current version — cast and return.
-      return data as ProjectJsonV1
+      return data as ProjectJsonV2
     default:
       throw new Error(`Unknown schema version: ${data.schemaVersion}`)
   }
@@ -56,8 +84,9 @@ export function migrateProjectJson(raw: unknown): ProjectJsonV1 {
 /**
  * Packs a ProjectFile into a .halftones zip archive (Uint8Array).
  * Contents:
- *   project.json  — ProjectJsonV1 serialized with 2-space indent
- *   source.<ext>  — raw image bytes
+ *   project.json  — ProjectJsonV2 serialized with 2-space indent
+ *   source.<ext>  — raw source image bytes
+ *   mask.<ext>    — raw mask image bytes (optional, only when mask is loaded)
  */
 export async function packHalftonesFile(
   project: ProjectFile,
@@ -70,18 +99,26 @@ export async function packHalftonesFile(
   const ext = getImageExtension(project.image.fileName)
   const sourceEntry = `source.${ext}`
 
-  const projectJson: ProjectJsonV1 = {
-    schemaVersion: 1,
+  const projectJson: ProjectJsonV2 = {
+    schemaVersion: 2,
     createdAt,
     updatedAt,
     name: project.name,
     sourceFileName: project.image.fileName,
     settings: project.settings,
+    maskSettings: project.settings.mask,
+    maskFileName: project.mask?.fileName,
   }
 
   const zip = new JSZip()
   zip.file('project.json', JSON.stringify(projectJson, null, 2))
   zip.file(sourceEntry, project.image.bytes)
+
+  // Store the mask image if present
+  if (project.mask?.bytes?.length) {
+    const maskExt = getMaskExtension(project.mask.fileName)
+    zip.file(`mask.${maskExt}`, project.mask.bytes)
+  }
 
   return zip.generateAsync({
     type: 'uint8array',
@@ -135,9 +172,28 @@ export async function unpackHalftonesFile(bytes: Uint8Array): Promise<ProjectFil
     imageFileName = migrated.sourceFileName
   }
 
+  // 4. Find mask.<ext> entry in the zip root (optional — absent in v1 files)
+  const maskEntry = Object.keys(zip.files).find(
+    (name) => /^mask\.[^/]+$/.test(name) && !zip.files[name].dir,
+  )
+
+  let maskData: { bytes: Uint8Array; fileName: string } | undefined
+  if (maskEntry && migrated.maskFileName) {
+    const maskBytes = await zip.files[maskEntry].async('uint8array')
+    maskData = { bytes: maskBytes, fileName: migrated.maskFileName }
+  }
+
+  // Merge maskSettings back into the AllSettings object so callers get a
+  // unified AllSettings that includes the mask toggle state.
+  const settings: AllSettings = {
+    ...migrated.settings,
+    mask: migrated.maskSettings ?? DEFAULT_MASK_SETTINGS,
+  }
+
   return {
     name: migrated.name,
-    settings: migrated.settings,
+    settings,
     image: { bytes: imageBytes, fileName: imageFileName },
+    mask: maskData,
   }
 }

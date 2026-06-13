@@ -287,3 +287,51 @@ export const DEFAULT_OUTPUT_SETTINGS: OutputSettings = {
 
 export type CMYKChannel = 'c' | 'm' | 'y' | 'k'
 export type ChannelView = 'composite' | CMYKChannel | `spot-${string}`
+
+/**
+ * Source mode for the layer mask.
+ *
+ * 'auto'      — use alpha channel if the image has any transparency;
+ *               otherwise fall back to luminance.
+ * 'alpha'     — always derive keep/cut from alpha (opaque = keep).
+ * 'luminance' — always derive keep/cut from luminance (white = keep).
+ */
+export type MaskSourceMode = 'auto' | 'alpha' | 'luminance'
+
+/**
+ * Settings for the global layer mask.  Stored in the project snapshot / zip.
+ * The mask image itself (too large for localStorage) is held separately in
+ * app state, mirroring how the source image is handled.
+ */
+export interface MaskSettings {
+  /** Whether the mask is active. False = pass-through (no clipping). */
+  enabled: boolean
+  /** Invert the keep/cut map after building it. */
+  invert: boolean
+  /** Which channel of the loaded mask image to derive keep/cut from. */
+  source: MaskSourceMode
+}
+
+export const DEFAULT_MASK_SETTINGS: MaskSettings = {
+  enabled: false,
+  invert: false,
+  source: 'auto',
+}
+
+/**
+ * A loaded mask image — raster (from an HTMLImageElement bitmap) or SVG
+ * (stored as raw markup text so it can be re-rasterized at any target size).
+ * The mask is stretched to fit the image rectangle; the SVG path scales
+ * with the target resolution, so SVG masks stay crisp at any output DPI.
+ */
+export interface MaskImage {
+  isSvg: boolean
+  /** SVG text (isSvg = true) or undefined. */
+  svgText?: string
+  /** Raster HTMLImageElement (isSvg = false) or undefined. */
+  element?: HTMLImageElement
+  /** Original file bytes for .halftones zip persistence. */
+  rawBytes: Uint8Array
+  /** Original filename (e.g. "mask.svg", "logo.png"). */
+  fileName: string
+}

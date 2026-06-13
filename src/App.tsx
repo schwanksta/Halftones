@@ -20,11 +20,14 @@ import {
   ImageTransformSettings,
   SpotSettings,
   ChannelView,
+  MaskSettings,
+  MaskImage,
   DEFAULT_HALFTONE_SETTINGS,
   DEFAULT_CMYK_SETTINGS,
   DEFAULT_SPOT_SETTINGS,
   DEFAULT_OUTPUT_SETTINGS,
   DEFAULT_TRANSFORM_SETTINGS,
+  DEFAULT_MASK_SETTINGS,
 } from './types'
 import { AllSettings } from './platform/types'
 
@@ -71,6 +74,22 @@ function App() {
   const [seedColors, setSeedColors] = useState<Array<[number, number, number]>>([])
   const [seedPickingActive, setSeedPickingActive] = useState(false)
 
+  // ── Mask state ───────────────────────────────────────────────────────────────
+  // The mask IMAGE (bytes/element) lives here, not in localStorage snapshots —
+  // same pattern as the source image.  maskSettings (enabled/invert/source) DO
+  // go into project snapshots and the .halftones zip.
+  const [maskSettings, setMaskSettings] = useState<MaskSettings>(DEFAULT_MASK_SETTINGS)
+  const [mask, setMask] = useState<MaskImage | null>(null)
+
+  const handleMaskLoad = useCallback((m: MaskImage) => {
+    setMask(m)
+  }, [])
+
+  const handleMaskClear = useCallback(() => {
+    setMask(null)
+    setMaskSettings(DEFAULT_MASK_SETTINGS)
+  }, [])
+
   const { save, load, remove, projectNames, lastProjectName } = useProjectPersistence()
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // When applySettings is called (project load), suppress the dimension-recalc
@@ -113,20 +132,20 @@ function App() {
     if (isTauri) return
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
     autoSaveTimer.current = setTimeout(() => {
-      save(projectName, { halftoneSettings, cmykSettings, spotSettings, outputSettings, transformSettings })
+      save(projectName, { halftoneSettings, cmykSettings, spotSettings, outputSettings, transformSettings, maskSettings })
     }, AUTO_SAVE_DELAY)
     return () => {
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
     }
-  }, [projectName, halftoneSettings, cmykSettings, spotSettings, outputSettings, transformSettings, save])
+  }, [projectName, halftoneSettings, cmykSettings, spotSettings, outputSettings, transformSettings, maskSettings, save])
 
   // ── Dirty tracking ─────────────────────────────────────────────────────────
   const watchedKey = useMemo(
     () => JSON.stringify({
       projectName, halftoneSettings, cmykSettings, spotSettings, outputSettings,
-      transformSettings, sourceName: source?.fileName ?? null,
+      transformSettings, maskSettings, sourceName: source?.fileName ?? null,
     }),
-    [projectName, halftoneSettings, cmykSettings, spotSettings, outputSettings, transformSettings, source?.fileName],
+    [projectName, halftoneSettings, cmykSettings, spotSettings, outputSettings, transformSettings, maskSettings, source?.fileName],
   )
   const { dirty, markClean, markDirty } = useDirtyTracking(watchedKey)
 
@@ -137,7 +156,8 @@ function App() {
     spot: spotSettings,
     output: outputSettings,
     transform: transformSettings,
-  }), [halftoneSettings, cmykSettings, spotSettings, outputSettings, transformSettings])
+    mask: maskSettings,
+  }), [halftoneSettings, cmykSettings, spotSettings, outputSettings, transformSettings, maskSettings])
 
   const applySettings = useCallback((s: AllSettings) => {
     skipDimensionRecalcRef.current = true
@@ -146,6 +166,7 @@ function App() {
     setSpotSettings(s.spot)
     setOutputSettings(s.output)
     setTransformSettings(s.transform)
+    setMaskSettings(s.mask ?? DEFAULT_MASK_SETTINGS)
   }, [])
 
   const resetToDefaults = useCallback(() => applySettings({
@@ -154,6 +175,7 @@ function App() {
     spot: DEFAULT_SPOT_SETTINGS,
     output: DEFAULT_OUTPUT_SETTINGS,
     transform: DEFAULT_TRANSFORM_SETTINGS,
+    mask: DEFAULT_MASK_SETTINGS,
   }), [applySettings])
 
   // ── Undo / Redo ───────────────────────────────────────────────────────────
@@ -219,6 +241,8 @@ function App() {
     dirty, markClean, markDirty,
     isTauri,
     showToast,
+    mask,
+    setMask,
   })
 
   // ── Window title sync ────────────────────────────────────────────────────
@@ -236,6 +260,7 @@ function App() {
     setCmykSettings(snapshot.cmykSettings)
     setSpotSettings(snapshot.spotSettings ?? DEFAULT_SPOT_SETTINGS)
     setOutputSettings(snapshot.outputSettings)
+    setMaskSettings(snapshot.maskSettings ?? DEFAULT_MASK_SETTINGS)
     // Suppress crop/rotation useEffect so saved widthInches/heightInches aren't
     // overwritten; sync the baseline transform so the next user crop delta is
     // computed from the correct starting point.
@@ -372,6 +397,8 @@ function App() {
           spotSettings={spotSettings}
           outputSettings={outputSettings}
           projectName={projectName}
+          mask={mask}
+          maskSettings={maskSettings}
         />
       </TopBar>
       <div className="main-area">
@@ -385,12 +412,17 @@ function App() {
           hasImage={source !== null}
           sourceAspect={sourceAspect}
           sourceImageData={transformedImageData}
+          maskSettings={maskSettings}
+          mask={mask}
           onHalftoneChange={setHalftoneSettings}
           onCMYKChange={setCmykSettings}
           onSpotChange={setSpotSettings}
           onOutputChange={setOutputSettings}
           onTransformChange={setTransformSettings}
           onChannelViewChange={setChannelView}
+          onMaskSettingsChange={setMaskSettings}
+          onMaskLoad={handleMaskLoad}
+          onMaskClear={handleMaskClear}
           seedColors={seedColors}
           onClearSeeds={() => setSeedColors([])}
           seedPickingActive={seedPickingActive}
@@ -409,6 +441,8 @@ function App() {
           seedPickingActive={seedPickingActive}
           onSeedPick={(lab) => setSeedColors(prev => [...prev, lab])}
           transformedImageData={transformedImageData}
+          mask={mask}
+          maskSettings={maskSettings}
         />
       </div>
     </div>

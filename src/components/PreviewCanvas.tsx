@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import {
   HalftoneSettings, CMYKSettings, SourceImage,
   ChannelView, ImageTransformSettings, OutputSettings, SpotSettings,
+  MaskSettings, MaskImage,
 } from '../types'
 import { useHalftonePreview } from '../hooks/useHalftonePreview'
 import { useCanvasTransform } from '../hooks/useCanvasTransform'
@@ -24,6 +25,8 @@ interface Props {
   onSeedPick?: (lab: [number, number, number]) => void
   /** Source image data for seed color sampling (pre-halftone, post-transform). */
   transformedImageData?: ImageData | null
+  mask?: MaskImage | null
+  maskSettings?: MaskSettings
 }
 
 export function PreviewCanvas({
@@ -31,6 +34,7 @@ export function PreviewCanvas({
   cmykSettings, spotSettings, channelView, outputSettings,
   onImageLoad, onTransformChange,
   seedPickingActive, onSeedPick, transformedImageData,
+  mask, maskSettings,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -149,6 +153,8 @@ export function PreviewCanvas({
     channelView,
     outputSettings,
     viewport,
+    mask: mask ?? null,
+    maskSettings,
   })
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {

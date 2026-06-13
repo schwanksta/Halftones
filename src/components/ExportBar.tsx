@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   SourceImage, HalftoneSettings, CMYKSettings,
   OutputSettings, ImageTransformSettings, SpotSettings,
+  MaskSettings, MaskImage,
 } from '../types'
 import { exportPNG, exportChannelPNGs, exportPDF, exportColorProof } from '../engine/export'
 
@@ -13,11 +14,14 @@ interface Props {
   spotSettings: SpotSettings
   outputSettings: OutputSettings
   projectName: string
+  mask?: MaskImage | null
+  maskSettings?: MaskSettings
 }
 
 export function ExportBar({
   source, transformSettings, halftoneSettings,
   cmykSettings, spotSettings, outputSettings, projectName,
+  mask, maskSettings,
 }: Props) {
   const [exporting, setExporting] = useState<string | null>(null)
 
@@ -31,6 +35,8 @@ export function ExportBar({
     spotSettings,
     outputSettings,
     projectName,
+    mask: mask ?? null,
+    maskSettings,
   }
 
   const handleExport = async (format: string, fn: () => Promise<void>) => {

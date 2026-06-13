@@ -1,9 +1,10 @@
-import { HalftoneSettings, CMYKSettings, OutputSettings, ImageTransformSettings, ChannelView, SpotSettings } from '../types'
+import { HalftoneSettings, CMYKSettings, OutputSettings, ImageTransformSettings, ChannelView, SpotSettings, MaskSettings, MaskImage } from '../types'
 import { HalftoneControls } from './HalftoneControls'
 import { CMYKControls } from './CMYKControls'
 import { OutputControls } from './OutputControls'
 import { TransformControls } from './TransformControls'
 import { SpotColorEditor } from './SpotColorEditor'
+import { MaskControls } from './MaskControls'
 
 interface Props {
   halftoneSettings: HalftoneSettings
@@ -15,12 +16,17 @@ interface Props {
   hasImage: boolean
   sourceAspect: number | null
   sourceImageData: ImageData | null
+  maskSettings: MaskSettings
+  mask: MaskImage | null
   onHalftoneChange: (settings: HalftoneSettings) => void
   onCMYKChange: (settings: CMYKSettings) => void
   onSpotChange: (settings: SpotSettings) => void
   onOutputChange: (settings: OutputSettings) => void
   onTransformChange: (settings: ImageTransformSettings) => void
   onChannelViewChange: (view: ChannelView) => void
+  onMaskSettingsChange: (s: MaskSettings) => void
+  onMaskLoad: (m: MaskImage) => void
+  onMaskClear: () => void
   seedColors: Array<[number, number, number]>
   onClearSeeds: () => void
   seedPickingActive: boolean
@@ -37,12 +43,17 @@ export function ControlPanel({
   hasImage,
   sourceAspect,
   sourceImageData,
+  maskSettings,
+  mask,
   onHalftoneChange,
   onCMYKChange,
   onSpotChange,
   onOutputChange,
   onTransformChange,
   onChannelViewChange,
+  onMaskSettingsChange,
+  onMaskLoad,
+  onMaskClear,
   seedColors,
   onClearSeeds,
   seedPickingActive,
@@ -86,6 +97,15 @@ export function ControlPanel({
         settings={outputSettings}
         sourceAspect={sourceAspect}
         onChange={onOutputChange}
+        disabled={!hasImage}
+      />
+      <MaskControls
+        maskSettings={maskSettings}
+        mask={mask}
+        outputSettings={outputSettings}
+        onMaskSettingsChange={onMaskSettingsChange}
+        onMaskLoad={onMaskLoad}
+        onMaskClear={onMaskClear}
         disabled={!hasImage}
       />
     </div>
