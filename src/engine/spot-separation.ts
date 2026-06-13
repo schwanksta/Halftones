@@ -583,76 +583,169 @@ function generateBackgroundChannel(source: ImageData): ImageData {
 }
 
 /**
- * Separate an RGB ImageData into one grayscale ImageData per spot color.
- *
- * Each pixel is assigned to its nearest palette color (by ΔE in LAB).
- * The channel value encodes ink coverage:
- *   black (0)   = full ink (dark source pixel)
- *   white (255) = no ink (light source pixel or not assigned to this channel)
+ * Result of the expensive LAB classification pass — a single shared partition
+ * of the image into per-pixel color ownership, kept separate from the (cheap,
+ * frequently-retuned) smoothing step so smoothing can re-run without redoing
+ * the LAB distance computation.
  */
-export function separateSpotChannels(
-  source: ImageData,
-  colors: SpotColor[],
-): Map<string, ImageData> {
+export interface SpotLabelData {
+  width: number
+  height: number
+  /** Owning LAB-color index per pixel, or -1 for transparent/unowned. */
+  labels: Int32Array
+  /** Lightness-based ink coverage per pixel (0 = full ink, 255 = no ink). */
+  values: Uint8ClampedArray
+  /** Color id for each label index. */
+  labColorIds: string[]
+  /** Alpha-derived channels for background-type colors (not part of the partition). */
+  backgroundChannels: Map<string, ImageData>
+}
+
+/**
+ * Expensive pass: assign every pixel to its nearest palette color (ΔE in LAB)
+ * and record that ownership as a single label field plus a coverage value.
+ * Background-type colors are handled separately via their alpha mask.
+ */
+export function computeSpotLabels(source: ImageData, colors: SpotColor[]): SpotLabelData {
   const { data, width, height } = source
   const n = width * height
 
-  // Background-type colors use alpha-based separation, not LAB distance.
-  // Separate them out so they don't participate in the LAB clustering loop.
   const labColors = colors.filter(c => c.type !== 'background')
-
-  // Pre-allocate channel buffers filled with 255 (no ink) for LAB colors only
-  const bufs = new Map<string, Uint8ClampedArray>()
-  for (const color of labColors) {
-    const buf = new Uint8ClampedArray(n * 4).fill(255)
-    for (let i = 3; i < n * 4; i += 4) buf[i] = 255  // alpha
-    bufs.set(color.id, buf)
-  }
-
   const labs = labColors.map(c => c.lab)
-  const ids = labColors.map(c => c.id)
+  const labColorIds = labColors.map(c => c.id)
+
+  const labels = new Int32Array(n).fill(-1)
+  const values = new Uint8ClampedArray(n)
 
   if (labColors.length > 0) {
     for (let i = 0; i < n; i++) {
       const p = i * 4
-      // Transparent pixels → no ink on any plate; leave all buffers at 255.
-      if (data[p + 3] < 128) continue
-      const r = data[p], g = data[p + 1], b = data[p + 2]
-      const pixLab = rgbToLab(r, g, b)
-
-      // Nearest spot color
-      let nearestIdx = 0, minDE = Infinity
+      if (data[p + 3] < 128) continue   // transparent → unowned
+      const pixLab = rgbToLab(data[p], data[p + 1], data[p + 2])
+      let nearest = 0, minDE = Infinity
       for (let c = 0; c < labs.length; c++) {
         const de = deltaE(pixLab, labs[c])
-        if (de < minDE) { minDE = de; nearestIdx = c }
+        if (de < minDE) { minDE = de; nearest = c }
       }
-
-      // Channel value: lightness-based ink coverage.
-      // L*=0 (black) → channel value 0 (full ink)
-      // L*=100 (white) → channel value 255 (no ink)
-      const channelValue = Math.round(pixLab[0] / 100 * 255)
-      const buf = bufs.get(ids[nearestIdx])!
-      buf[p] = channelValue
-      buf[p + 1] = channelValue
-      buf[p + 2] = channelValue
-      // alpha stays 255
+      labels[i] = nearest
+      values[i] = Math.round(pixLab[0] / 100 * 255)
     }
+  }
+
+  const backgroundChannels = new Map<string, ImageData>()
+  for (const color of colors) {
+    if (color.type === 'background') {
+      backgroundChannels.set(color.id, generateBackgroundChannel(source))
+    }
+  }
+
+  return { width, height, labels, values, labColorIds, backgroundChannels }
+}
+
+/**
+ * Joint smoothing of the ownership partition.  A pixel is reassigned to the
+ * dominant *neighbouring* color only when that color's count among the 8
+ * neighbours meets a threshold — operating on the shared label field rather
+ * than per-layer masks, so layers never erode apart and open paper seams.
+ *
+ * `amount` (0–1): low = remove only near-isolated specks (gentle); high =
+ * smooth boundaries aggressively (more passes, simple-majority threshold).
+ */
+function smoothLabelField(
+  labels: Int32Array, width: number, height: number, numLabels: number, amount: number,
+): Int32Array {
+  if (amount <= 0 || numLabels < 2) return labels
+  const a = Math.min(1, amount)
+  const threshold = Math.max(4, Math.round(8 - 4 * a))   // 8 (gentle) → 4 (majority)
+  const passes = Math.max(1, Math.round(1 + 3 * a))       // 1 → 4
+  const counts = new Int32Array(numLabels)
+
+  let src = labels
+  for (let pass = 0; pass < passes; pass++) {
+    const dst = new Int32Array(src)   // unchanged pixels carry over
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x
+        const cur = src[i]
+        if (cur < 0) continue
+
+        // Tally neighbour labels (8-neighbourhood, in-bounds only).
+        let bestLabel = -1, bestCount = 0
+        for (let dy = -1; dy <= 1; dy++) {
+          const yy = y + dy
+          if (yy < 0 || yy >= height) continue
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue
+            const xx = x + dx
+            if (xx < 0 || xx >= width) continue
+            const nl = src[yy * width + xx]
+            if (nl < 0) continue
+            const c = ++counts[nl]
+            if (c > bestCount) { bestCount = c; bestLabel = nl }
+          }
+        }
+        // Reset touched counters (re-walk the same neighbours, no allocation).
+        for (let dy = -1; dy <= 1; dy++) {
+          const yy = y + dy
+          if (yy < 0 || yy >= height) continue
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue
+            const xx = x + dx
+            if (xx < 0 || xx >= width) continue
+            const nl = src[yy * width + xx]
+            if (nl >= 0) counts[nl] = 0
+          }
+        }
+
+        if (bestLabel >= 0 && bestLabel !== cur && bestCount >= threshold) {
+          dst[i] = bestLabel
+        }
+      }
+    }
+    src = dst
+  }
+  return src
+}
+
+/**
+ * Build the per-color grayscale channels from a label partition, applying the
+ * joint smoothing first.  Channel value encodes ink coverage:
+ *   black (0) = full ink   white (255) = no ink (light pixel or owned by another color)
+ */
+export function buildSpotChannels(ld: SpotLabelData, smoothing: number): Map<string, ImageData> {
+  const { width, height, values, labColorIds, backgroundChannels } = ld
+  const n = width * height
+  const labels = smoothLabelField(ld.labels, width, height, labColorIds.length, smoothing)
+
+  const bufs = labColorIds.map(() => new Uint8ClampedArray(n * 4).fill(255))
+  for (let i = 0; i < n; i++) {
+    const lab = labels[i]
+    if (lab < 0) continue
+    const v = values[i]
+    const p = i * 4
+    const b = bufs[lab]
+    b[p] = v; b[p + 1] = v; b[p + 2] = v   // alpha already 255 from fill
   }
 
   const result = new Map<string, ImageData>()
-  for (const [id, buf] of bufs) {
-    result.set(id, new ImageData(buf, width, height))
+  for (let k = 0; k < labColorIds.length; k++) {
+    result.set(labColorIds[k], new ImageData(bufs[k], width, height))
   }
-
-  // Generate alpha-based channels for background-type colors.
-  // transparent pixels → 0 (ink), opaque → 255 (paper).
-  for (const color of colors) {
-    if (color.type === 'background') {
-      result.set(color.id, generateBackgroundChannel(source))
-    }
-  }
-
+  for (const [id, img] of backgroundChannels) result.set(id, img)
   return result
+}
+
+/**
+ * Separate an RGB ImageData into one grayscale ImageData per spot color, with
+ * optional joint smoothing of the ownership partition.  Convenience wrapper
+ * around computeSpotLabels + buildSpotChannels for one-shot callers (export).
+ */
+export function separateSpotChannels(
+  source: ImageData,
+  colors: SpotColor[],
+  smoothing = 0,
+): Map<string, ImageData> {
+  return buildSpotChannels(computeSpotLabels(source, colors), smoothing)
 }
 
 // ─── Flat rendering ───────────────────────────────────────────────────────────

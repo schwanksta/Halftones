@@ -5,11 +5,10 @@ import {
 } from '../types'
 import { renderHalftone } from '../engine/halftone'
 import { renderStipple } from '../engine/stipple'
-import { renderFlat, separateSpotChannels, boostSaturation } from '../engine/spot-separation'
+import { renderFlat, computeSpotLabels, buildSpotChannels, boostSaturation } from '../engine/spot-separation'
 import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from '../engine/edge'
 import { separateChannels, compositeChannels } from '../engine/cmyk'
 import { applyTransforms } from '../engine/transform'
-import { medianFilterMask } from '../engine/smooth'
 import { dilateMask } from '../engine/dilate'
 import type { ChannelView } from '../types'
 import type { Viewport } from './useCanvasTransform'
@@ -152,18 +151,25 @@ export function useHalftonePreview(
     [spotSettings.colors],
   )
 
-  const spotChannels = useMemo(() => {
+  // Expensive LAB classification — gated only by color IDs + LAB values.
+  const spotLabels = useMemo(() => {
     if (!transformed || halftoneSettings.colorMode !== 'spot' || !spotSettings.colors.length) {
       return null
     }
-    // Separate ALL colors (including disabled) so each pixel is claimed by its
-    // true nearest color.  Disabled colors are simply not rendered, leaving
-    // their pixels as paper/white — matching the intended export behavior.
-    return separateSpotChannels(transformed, spotSettings.colors)
+    // Classify ALL colors (including disabled) so each pixel is claimed by its
+    // true nearest color.  Disabled colors are simply not rendered later.
+    return computeSpotLabels(transformed, spotSettings.colors)
     // spotSeparationKey intentionally stands in for spotSettings.colors —
-    // only LAB values + IDs gate re-separation.
+    // only LAB values + IDs gate re-classification.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transformed, halftoneSettings.colorMode, spotSeparationKey])
+
+  // Build per-color channels from the partition, applying joint smoothing.
+  // Cheap relative to classification, so retuning smoothing doesn't re-run LAB.
+  const spotChannels = useMemo(() => {
+    if (!spotLabels) return null
+    return buildSpotChannels(spotLabels, (spotSettings.smoothing ?? 0) / 100)
+  }, [spotLabels, spotSettings.smoothing])
 
   // ── Spot channel canvases ──────────────────────────────────────────────────
   //
@@ -173,33 +179,17 @@ export function useHalftonePreview(
   // dots correctly rescale with zoom instead of being drawImage-scaled from a
   // fixed source-resolution pre-render.
 
-  // Smoothing key — changing a smoothing value re-runs the (cheap) median pass
-  // in spotChannelCanvases without re-triggering the expensive LAB separation.
-  const spotSmoothingKey = useMemo(
-    () => `g${spotSettings.smoothing ?? 0}|` +
-      spotSettings.colors.map(c => `${c.id}:${c.smoothing ?? ''}:${c.type ?? ''}`).join('|'),
-    [spotSettings.smoothing, spotSettings.colors],
-  )
-
   const spotChannelCanvases = useMemo(() => {
     if (!spotChannels) return null
-    const colorById = new Map(spotSettings.colors.map(c => [c.id, c]))
-    const globalSmoothing = spotSettings.smoothing ?? 0
     const result = new Map<string, HTMLCanvasElement>()
     for (const [id, data] of spotChannels) {
-      // Background plates stay crisp; others use per-color override or global.
-      const color = colorById.get(id)
-      const s = color?.type === 'background' ? 0 : (color?.smoothing ?? globalSmoothing)
-      const smoothed = s > 0 ? medianFilterMask(data, s) : data
       const c = document.createElement('canvas')
-      c.width = smoothed.width; c.height = smoothed.height
-      c.getContext('2d')!.putImageData(smoothed, 0, 0)
+      c.width = data.width; c.height = data.height
+      c.getContext('2d')!.putImageData(data, 0, 0)
       result.set(id, c)
     }
     return result
-  // spotSmoothingKey stands in for the smoothing-related parts of spotSettings.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spotChannels, spotSmoothingKey])
+  }, [spotChannels])
 
   // ── Alpha boundary outline canvas ─────────────────────────────────────────
   //
