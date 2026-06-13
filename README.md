@@ -12,8 +12,9 @@ A native macOS app (and browser tool) for halftone image processing and spot col
 ### Color Modes
 - **Grayscale** — single halftone layer with ink/paper color preview
 - **CMYK** — four-channel process separation with per-channel angle/LPI and composite preview
-- **Spot Color** — LAB k-means palette extraction, per-color flat or halftone rendering, and a **key plate** (halftone of the full image overprinted on top of all color layers for tonal depth — with optional edge stroke and silhouette outline)
-- **Background layer** — for transparent/cutout images, add a color plate covering exactly the transparent area, rendered flat or halftoned
+- **Spot Color** — LAB k-means palette extraction, per-color flat or halftone rendering, click-to-seed palette colors from the image, per-color and global trap, and a **key plate** (halftone of the full image overprinted on top of all color layers for tonal depth — with optional edge stroke, silhouette outline, and a toggle to use the strokes without the halftone dots)
+- **Smoothing** — jointly cleans up the color separation so adjacent layers never erode apart and leave paper showing through; low values remove stray specks, higher values smooth jagged boundaries
+- **Background layer** — for transparent/cutout images, add a color plate covering exactly the transparent area, rendered flat or halftoned, with an adjustable **bleed** that extends it into the margin
 
 ### Dot & Tone Controls
 - Min/max dot, dot gain compensation, dot size multiplier
@@ -22,12 +23,12 @@ A native macOS app (and browser tool) for halftone image processing and spot col
 - Invert (swap ink/paper)
 
 ### Image Transforms
-Crop, rotation, levels (black/white point + midtone gamma). All applied before halftoning.
+Crop, rotation, levels (black/white point + midtone gamma), plus pre-processing — **blur** (smooth gradients / suppress source noise), **sharpen** (unsharp mask with adjustable radius, so detail holds through the screen), and **noise** (film grain to break up banding). All applied before halftoning.
 
-### Export
 - **PNG** — full-resolution with embedded DPI metadata
-- **Channel PNGs** — one black-on-white plate per channel (CMYK or spot), including key plate
+- **Channel PNGs** — one black-on-white plate per channel (CMYK or spot), including key plate, laid out on the full print page (margin, crop marks, alignment marks) just like the PDF
 - **PDF** — multi-page with crop marks, optional margin, optional alignment marks (crosshair + circle at each side midpoint for multi-layer registration)
+- Spot plates are labelled by **layer number** (One, Two, Three…), staggered across the page so the labels don't overlap when plates are stacked for registration, and clear of the alignment marks
 - **Color Proof** — WYSIWYG composite of all layers in their actual ink colors
 - Vector PDF paths for dot, hex, ellipse, diamond, line, euclidean, and radial-line patterns
 
