@@ -137,6 +137,57 @@ export function MaskControls({
         </select>
       </label>
 
+      {/* Feather */}
+      <label className="control-row">
+        <span>
+          Feather
+          <span style={{ color: 'var(--text-secondary)' }}>{(maskSettings.featherInches ?? 0).toFixed(2)}"</span>
+        </span>
+        <input
+          type="range" min={0} max={0.5} step={0.01}
+          value={maskSettings.featherInches ?? 0}
+          onChange={(e) => onMaskSettingsChange({ ...maskSettings, featherInches: Number(e.target.value) })}
+          disabled={disabled || !mask || !maskSettings.enabled}
+        />
+      </label>
+
+      {/* Stroke (keyline) */}
+      <label className="control-row" style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 4 }}>
+        <input
+          type="checkbox"
+          checked={maskSettings.strokeEnabled ?? false}
+          onChange={(e) => onMaskSettingsChange({ ...maskSettings, strokeEnabled: e.target.checked })}
+          disabled={disabled || !mask || !maskSettings.enabled}
+        />
+        <span>Stroke (keyline)</span>
+      </label>
+
+      {maskSettings.strokeEnabled && (
+        <>
+          <label className="control-row">
+            <span>
+              Stroke width
+              <span style={{ color: 'var(--text-secondary)' }}>{(maskSettings.strokeWidthInches ?? 0).toFixed(2)}"</span>
+            </span>
+            <input
+              type="range" min={0.01} max={0.25} step={0.01}
+              value={maskSettings.strokeWidthInches ?? 0.05}
+              onChange={(e) => onMaskSettingsChange({ ...maskSettings, strokeWidthInches: Number(e.target.value) })}
+              disabled={disabled || !mask || !maskSettings.enabled}
+            />
+          </label>
+          <label className="control-row" style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            <span style={{ flex: 1 }}>Stroke color</span>
+            <input
+              type="color"
+              value={maskSettings.strokeColor ?? '#000000'}
+              onChange={(e) => onMaskSettingsChange({ ...maskSettings, strokeColor: e.target.value })}
+              disabled={disabled || !mask || !maskSettings.enabled}
+            />
+          </label>
+        </>
+      )}
+
       {/* Recommended size hint */}
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.4 }}>
         Recommended raster size: {recW} × {recH} px

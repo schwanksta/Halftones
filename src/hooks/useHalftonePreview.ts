@@ -11,7 +11,7 @@ import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from
 import { separateChannels, compositeChannels } from '../engine/cmyk'
 import { applyTransforms } from '../engine/transform'
 import { dilateMask } from '../engine/dilate'
-import { buildMaskOverlay, extractOverlayRegion } from '../engine/mask'
+import { buildMaskOverlay, buildMaskStroke, extractOverlayRegion } from '../engine/mask'
 import type { ChannelView } from '../types'
 import type { Viewport } from './useCanvasTransform'
 
@@ -225,21 +225,41 @@ export function useHalftonePreview(
   // Drawn with drawImage over each rendered plate to white out cut regions.
 
   const [maskOverlayCanvas, setMaskOverlayCanvas] = useState<HTMLCanvasElement | null>(null)
+  const [maskStrokeCanvas, setMaskStrokeCanvas] = useState<HTMLCanvasElement | null>(null)
 
   useEffect(() => {
-    // Key: stable string over everything that affects the overlay pixels
     const enabled = maskSettings?.enabled && !!mask
     if (!enabled || !transformed) {
       setMaskOverlayCanvas(null)
       return
     }
     let cancelled = false
-    buildMaskOverlay(mask!, maskSettings!, transformed.width, transformed.height)
+    // Feather radius in source pixels (so preview matches export physically).
+    const pxPerInch = transformed.width / Math.max(0.01, outputSettings.widthInches)
+    const featherPx = (maskSettings!.featherInches ?? 0) * pxPerInch
+    buildMaskOverlay(mask!, maskSettings!, transformed.width, transformed.height, featherPx)
       .then((overlay) => { if (!cancelled) setMaskOverlayCanvas(overlay) })
       .catch((err) => { console.error('Mask overlay build failed:', err); if (!cancelled) setMaskOverlayCanvas(null) })
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mask, maskSettings?.enabled, maskSettings?.invert, maskSettings?.source, transformed])
+  }, [mask, maskSettings?.enabled, maskSettings?.invert, maskSettings?.source, maskSettings?.featherInches, outputSettings.widthInches, transformed])
+
+  useEffect(() => {
+    const enabled = maskSettings?.enabled && maskSettings?.strokeEnabled && !!mask
+    if (!enabled || !transformed) {
+      setMaskStrokeCanvas(null)
+      return
+    }
+    let cancelled = false
+    const pxPerInch = transformed.width / Math.max(0.01, outputSettings.widthInches)
+    const strokePx = (maskSettings!.strokeWidthInches ?? 0) * pxPerInch
+    buildMaskStroke(mask!, maskSettings!, transformed.width, transformed.height, strokePx)
+      .then((s) => { if (!cancelled) setMaskStrokeCanvas(s ? s.colored : null) })
+      .catch((err) => { console.error('Mask stroke build failed:', err); if (!cancelled) setMaskStrokeCanvas(null) })
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mask, maskSettings?.enabled, maskSettings?.strokeEnabled, maskSettings?.invert, maskSettings?.source,
+      maskSettings?.strokeWidthInches, maskSettings?.strokeColor, outputSettings.widthInches, transformed])
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -484,6 +504,13 @@ export function useHalftonePreview(
       )
       offCtx.drawImage(overlayRegion, 0, 0)
     }
+    // Boundary stroke (keyline) drawn on top of the masked content.
+    if (maskStrokeCanvas) {
+      const strokeRegion = extractOverlayRegion(
+        maskStrokeCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH,
+      )
+      offCtx.drawImage(strokeRegion, 0, 0)
+    }
 
     // ── Composite onto main canvas ─────────────────────────────────────────
     ctx.fillStyle = GUTTER_COLOR
@@ -513,6 +540,12 @@ export function useHalftonePreview(
         )
         ctx.drawImage(overlayRegion, 0, 0)
       }
+      if (maskStrokeCanvas) {
+        const strokeRegion = extractOverlayRegion(
+          maskStrokeCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH,
+        )
+        ctx.drawImage(strokeRegion, 0, 0)
+      }
     } else {
       ctx.drawImage(offscreen, 0, 0)
     }
@@ -522,7 +555,7 @@ export function useHalftonePreview(
     canvasRef, transformed, transformedCanvas, stippleCanvas,
     spotSettings.colors, spotSettings.vibrancy, spotSettings.trap, spotSettings.key,
     spotChannelCanvases, alphaOutlineCanvas,
-    maskOverlayCanvas,
+    maskOverlayCanvas, maskStrokeCanvas,
     halftoneSettings, cmykSettings, channelView, outputSettings, viewport,
   ])
 

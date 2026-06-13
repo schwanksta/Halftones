@@ -67,65 +67,134 @@ function resolveSourceMode(mode: MaskSourceMode, maskHasAlpha: boolean): 'alpha'
 }
 
 /**
- * Build a "cut overlay" canvas from a rasterized mask at the given target size.
+ * Rasterize the mask and reduce it to a binary CUT field at target resolution:
+ *   255 = cut (no ink)   0 = keep (render normally)
  *
- * The overlay has:
- *   - opaque white (rgba 255,255,255,255)  where the mask says CUT (no ink)
- *   - transparent (rgba 0,0,0,0)            where the mask says KEEP
+ * Applies the source mode (alpha vs luminance), the white=keep convention,
+ * the invert toggle, and a hard 0.5 threshold.  This binary field is the basis
+ * for both the (optionally feathered) cut overlay and the boundary stroke.
+ */
+async function computeCutField(
+  mask: MaskImage,
+  targetW: number,
+  targetH: number,
+  settings: MaskSettings,
+): Promise<Uint8Array> {
+  const rasterized = await rasterizeMask(mask, targetW, targetH)
+  const { data }   = rasterized.getContext('2d')!.getImageData(0, 0, targetW, targetH)
+
+  const maskHasAlpha  = hasTransparency(rasterized)
+  const effectiveMode = resolveSourceMode(settings.source, maskHasAlpha)
+
+  const n = targetW * targetH
+  const cut = new Uint8Array(n)
+  for (let i = 0; i < n; i++) {
+    const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2], a = data[i * 4 + 3]
+    let keep: number
+    if (effectiveMode === 'alpha') {
+      keep = a / 255
+    } else {
+      const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+      // Transparent pixels count as white (keep) when reading luminance.
+      keep = a < 255 ? (lum * (a / 255) + (1 - a / 255)) : lum
+    }
+    if (settings.invert) keep = 1 - keep
+    cut[i] = keep < 0.5 ? 255 : 0
+  }
+  return cut
+}
+
+// ─── Separable filters (single channel) ───────────────────────────────────────
+
+/** Separable box blur (mean) — O(1) per pixel via a sliding window sum. */
+function boxBlur(src: Float32Array, w: number, h: number, r: number): Float32Array {
+  if (r < 1) return src
+  const tmp = new Float32Array(w * h)
+  const out = new Float32Array(w * h)
+  const win = 2 * r + 1
+  // Horizontal
+  for (let y = 0; y < h; y++) {
+    const row = y * w
+    let sum = 0
+    for (let dx = -r; dx <= r; dx++) sum += src[row + Math.max(0, Math.min(w - 1, dx))]
+    for (let x = 0; x < w; x++) {
+      tmp[row + x] = sum / win
+      const add = row + Math.min(w - 1, x + r + 1)
+      const rem = row + Math.max(0, x - r)
+      sum += src[add] - src[rem]
+    }
+  }
+  // Vertical
+  for (let x = 0; x < w; x++) {
+    let sum = 0
+    for (let dy = -r; dy <= r; dy++) sum += tmp[Math.max(0, Math.min(h - 1, dy)) * w + x]
+    for (let y = 0; y < h; y++) {
+      out[y * w + x] = sum / win
+      const add = Math.min(h - 1, y + r + 1) * w + x
+      const rem = Math.max(0, y - r) * w + x
+      sum += tmp[add] - tmp[rem]
+    }
+  }
+  return out
+}
+
+/** Separable morphology on a binary field (0/255). op = Math.max → dilate, Math.min → erode. */
+function morph(src: Uint8Array, w: number, h: number, r: number, op: (a: number, b: number) => number): Uint8Array {
+  if (r < 1) return src
+  const tmp = new Uint8Array(w * h)
+  const out = new Uint8Array(w * h)
+  for (let y = 0; y < h; y++) {
+    const row = y * w
+    for (let x = 0; x < w; x++) {
+      let v = src[row + x]
+      for (let dx = -r; dx <= r; dx++) v = op(v, src[row + Math.max(0, Math.min(w - 1, x + dx))])
+      tmp[row + x] = v
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    for (let y = 0; y < h; y++) {
+      let v = tmp[y * w + x]
+      for (let dy = -r; dy <= r; dy++) v = op(v, tmp[Math.max(0, Math.min(h - 1, y + dy)) * w + x])
+      out[y * w + x] = v
+    }
+  }
+  return out
+}
+
+// ─── Cut overlay (clip) ───────────────────────────────────────────────────────
+
+/**
+ * Build a "cut overlay" canvas: opaque white where the mask says CUT, transparent
+ * where KEEP.  Drawing it onto a black-on-white plate turns cut areas to white
+ * (paper / no ink) and leaves kept areas untouched.
  *
- * Drawing this overlay onto a black-on-white halftone plate with
- * ctx.drawImage(overlay, ...) turns cut areas to white (paper/no ink) while
- * leaving kept areas untouched.  This works because white is the "no ink"
- * convention used throughout this codebase.
- *
- * The mask is thresholded hard at 0.5 — v1 is a binary clip only.
+ * When `featherPx > 0`, the binary cut field is box-blurred so the overlay's
+ * alpha ramps smoothly across the boundary, giving a soft edge.
  */
 async function buildCutOverlay(
   mask: MaskImage,
   targetW: number,
   targetH: number,
   settings: MaskSettings,
+  featherPx: number,
 ): Promise<HTMLCanvasElement> {
-  const rasterized = await rasterizeMask(mask, targetW, targetH)
-  const srcData    = rasterized.getContext('2d')!.getImageData(0, 0, targetW, targetH)
-  const { data }   = srcData
-
-  // Resolve auto mode before the pixel loop.
-  const maskHasAlpha  = hasTransparency(rasterized)
-  const effectiveMode = resolveSourceMode(settings.source, maskHasAlpha)
-
-  // Build the keep map [0,1] per pixel, then apply invert.
-  // alpha mode:     keep = alpha / 255   (opaque = keep = 1)
-  // luminance mode: keep = (0.299R + 0.587G + 0.114B) / 255  (white = keep = 1)
+  const cut = await computeCutField(mask, targetW, targetH, settings)
   const n = targetW * targetH
   const overlay = new Uint8ClampedArray(n * 4)
 
-  for (let i = 0; i < n; i++) {
-    const r = data[i * 4]
-    const g = data[i * 4 + 1]
-    const b = data[i * 4 + 2]
-    const a = data[i * 4 + 3]
-
-    let keep: number
-    if (effectiveMode === 'alpha') {
-      keep = a / 255
-    } else {
-      // Luminance (Rec.601 coefficients)
-      const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-      // Blend with alpha: fully transparent pixels count as white (keep=1)
-      keep = a < 255 ? (lum * (a / 255) + 1.0 * (1 - a / 255)) : lum
+  if (featherPx >= 1) {
+    const f = new Float32Array(n)
+    for (let i = 0; i < n; i++) f[i] = cut[i]
+    const blurred = boxBlur(f, targetW, targetH, Math.round(featherPx))
+    for (let i = 0; i < n; i++) {
+      overlay[i * 4] = 255; overlay[i * 4 + 1] = 255; overlay[i * 4 + 2] = 255
+      overlay[i * 4 + 3] = blurred[i]
     }
-
-    if (settings.invert) keep = 1 - keep
-
-    // Hard threshold at 0.5
-    const isCut = keep < 0.5
-
-    // Cut areas → opaque white; keep areas → transparent
-    overlay[i * 4]     = 255
-    overlay[i * 4 + 1] = 255
-    overlay[i * 4 + 2] = 255
-    overlay[i * 4 + 3] = isCut ? 255 : 0
+  } else {
+    for (let i = 0; i < n; i++) {
+      overlay[i * 4] = 255; overlay[i * 4 + 1] = 255; overlay[i * 4 + 2] = 255
+      overlay[i * 4 + 3] = cut[i]
+    }
   }
 
   const outCanvas = document.createElement('canvas')
@@ -138,35 +207,83 @@ async function buildCutOverlay(
 /**
  * Apply a cut overlay onto a black-on-white plate canvas (in-place).
  * Cut areas become white (no ink); keep areas are untouched.
- *
  * The overlay must already be at the same pixel dimensions as the plate.
  */
 export function applyCutOverlayToCanvas(plate: HTMLCanvasElement, overlay: HTMLCanvasElement): void {
-  const ctx = plate.getContext('2d')!
-  ctx.drawImage(overlay, 0, 0)
+  plate.getContext('2d')!.drawImage(overlay, 0, 0)
 }
 
 /**
- * Build a cut overlay canvas at the given target size from a MaskImage + settings.
- * Returns null if the mask is disabled or undefined.
- *
- * This is the main public API for export paths — call once per export resolution,
- * then pass the result to applyCutOverlayToCanvas for each plate.
+ * Build a cut overlay at the given target size from a MaskImage + settings.
+ * Returns null if the mask is disabled or undefined.  `featherPx` is the feather
+ * radius in target pixels (caller converts from inches at the relevant resolution).
  */
 export async function buildMaskOverlay(
   mask: MaskImage | null,
   maskSettings: MaskSettings,
   targetW: number,
   targetH: number,
+  featherPx = 0,
 ): Promise<HTMLCanvasElement | null> {
   if (!mask || !maskSettings.enabled) return null
-  return buildCutOverlay(mask, targetW, targetH, maskSettings)
+  return buildCutOverlay(mask, targetW, targetH, maskSettings, featherPx)
+}
+
+// ─── Boundary stroke ──────────────────────────────────────────────────────────
+
+/**
+ * Build a keyline stroke tracing the mask boundary, `strokePx` wide and centred
+ * on the edge.  Returns two canvases at target resolution:
+ *   - `colored`: the stroke in its ink color on transparent — for preview/proof
+ *     compositing (drawImage on top).
+ *   - `plate`:   black stroke on white — a standalone black-on-white plate for
+ *     channel/PDF export.
+ * Returns null when the stroke is disabled or there's no mask.
+ */
+export async function buildMaskStroke(
+  mask: MaskImage | null,
+  maskSettings: MaskSettings,
+  targetW: number,
+  targetH: number,
+  strokePx: number,
+): Promise<{ colored: HTMLCanvasElement; plate: HTMLCanvasElement } | null> {
+  if (!mask || !maskSettings.enabled || !maskSettings.strokeEnabled || strokePx < 1) return null
+
+  const cut = await computeCutField(mask, targetW, targetH, maskSettings)
+  const n = targetW * targetH
+
+  // Ring centred on the boundary: dilate ∧ ¬erode of the cut field by half-width.
+  const r = Math.max(1, Math.round(strokePx / 2))
+  const dil = morph(cut, targetW, targetH, r, Math.max)
+  const ero = morph(cut, targetW, targetH, r, Math.min)
+
+  const hex = maskSettings.strokeColor ?? '#000000'
+  const sr = parseInt(hex.slice(1, 3), 16)
+  const sg = parseInt(hex.slice(3, 5), 16)
+  const sb = parseInt(hex.slice(5, 7), 16)
+
+  const colored = new Uint8ClampedArray(n * 4)
+  const plate   = new Uint8ClampedArray(n * 4)
+  for (let i = 0; i < n; i++) {
+    const onRing = dil[i] > 127 && ero[i] < 128   // boundary band
+    colored[i * 4] = sr; colored[i * 4 + 1] = sg; colored[i * 4 + 2] = sb
+    colored[i * 4 + 3] = onRing ? 255 : 0
+    const v = onRing ? 0 : 255   // black ink on white paper
+    plate[i * 4] = v; plate[i * 4 + 1] = v; plate[i * 4 + 2] = v; plate[i * 4 + 3] = 255
+  }
+
+  const mk = (buf: Uint8ClampedArray) => {
+    const c = document.createElement('canvas')
+    c.width = targetW; c.height = targetH
+    c.getContext('2d')!.putImageData(new ImageData(buf, targetW, targetH), 0, 0)
+    return c
+  }
+  return { colored: mk(colored), plate: mk(plate) }
 }
 
 /**
  * Load a mask image from raw bytes + filename.
  * For SVG: store the text; for raster: decode into an HTMLImageElement.
- * Returns a MaskImage ready to store in app state.
  */
 export async function loadMaskFromBytes(bytes: Uint8Array, fileName: string): Promise<MaskImage> {
   const isSvg = fileName.toLowerCase().endsWith('.svg')
@@ -176,7 +293,6 @@ export async function loadMaskFromBytes(bytes: Uint8Array, fileName: string): Pr
     return { isSvg: true, svgText, rawBytes: bytes, fileName }
   }
 
-  // Raster: decode into an HTMLImageElement via a Blob URL
   const ext = fileName.toLowerCase().split('.').pop() ?? 'png'
   const mimeTypes: Record<string, string> = {
     png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
@@ -196,12 +312,9 @@ export async function loadMaskFromBytes(bytes: Uint8Array, fileName: string): Pr
 }
 
 /**
- * Extract the viewport region of a cut-overlay canvas — the same pattern used
- * by extractRegionFromCanvas in the preview hook for spot channels.
- *
- * Returns a new canvas at (targetW × targetH) showing the overlay region
- * covering (srcX, srcY, srcW × srcH) of the source overlay.
- * Areas outside the overlay bounds are transparent (KEEP, so no clipping).
+ * Extract the viewport region of an overlay canvas (cut overlay or colored
+ * stroke) — same pattern as extractRegionFromCanvas for spot channels.  Areas
+ * outside the overlay are transparent (no clip / no stroke).
  */
 export function extractOverlayRegion(
   overlayCanvas: HTMLCanvasElement,
@@ -212,7 +325,6 @@ export function extractOverlayRegion(
   dst.width  = targetW
   dst.height = targetH
   const ctx = dst.getContext('2d')!
-  // Default is transparent (keep = no clip) — don't fill with opaque color.
 
   const clampedSrcX  = Math.max(0, srcX)
   const clampedSrcY  = Math.max(0, srcY)

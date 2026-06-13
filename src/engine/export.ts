@@ -6,7 +6,7 @@ import { separateSpotChannels, renderFlat, boostSaturation } from './spot-separa
 import { setPngDpi } from './png-metadata'
 import { applyTransforms } from './transform'
 import { dilateMask } from './dilate'
-import { buildMaskOverlay, applyCutOverlayToCanvas } from './mask'
+import { buildMaskOverlay, buildMaskStroke, applyCutOverlayToCanvas } from './mask'
 import { platform } from '../platform'
 import { precomputeGrayscale, sampleGray } from './sampling'
 import { applyDotSettings } from './dot-settings'
@@ -149,11 +149,10 @@ async function renderSpotChannelCanvases(
   // Build the mask overlay once at target resolution — applied to every plate.
   // The overlay covers the image rect only (no bleed extension); bleed areas
   // are outside the mask region and are left as-is (full ink for background plates).
+  const ms = options.maskSettings ?? { enabled: false, invert: false, source: 'auto' as const }
   const maskOverlay = await buildMaskOverlay(
-    options.mask ?? null,
-    options.maskSettings ?? { enabled: false, invert: false, source: 'auto' },
-    targetWidth,
-    targetHeight,
+    options.mask ?? null, ms, targetWidth, targetHeight,
+    Math.round((ms.featherInches ?? 0) * outputSettings.dpi),
   )
 
   const result = new Map<string, { canvas: HTMLCanvasElement; label: string; bleedPx?: number }>()
@@ -278,6 +277,13 @@ async function renderSpotChannelCanvases(
     result.set('__key__', { canvas: keyCanvas, label: 'Key' })
   }
 
+  // Mask boundary stroke: its own dedicated keyline plate (black on white).
+  const stroke = await buildMaskStroke(
+    options.mask ?? null, ms, targetWidth, targetHeight,
+    Math.round((ms.strokeWidthInches ?? 0) * outputSettings.dpi),
+  )
+  if (stroke) result.set('__maskstroke__', { canvas: stroke.plate, label: 'Mask Stroke' })
+
   return result
 }
 
@@ -299,11 +305,10 @@ async function renderChannelCanvases(options: ExportOptions): Promise<Map<string
   }
 
   // Build mask overlay once for the target size, shared across all channels.
+  const ms = options.maskSettings ?? { enabled: false, invert: false, source: 'auto' as const }
   const maskOverlay = await buildMaskOverlay(
-    options.mask ?? null,
-    options.maskSettings ?? { enabled: false, invert: false, source: 'auto' },
-    targetWidth,
-    targetHeight,
+    options.mask ?? null, ms, targetWidth, targetHeight,
+    Math.round((ms.featherInches ?? 0) * outputSettings.dpi),
   )
 
   for (const ch of ['c', 'm', 'y', 'k'] as const) {
@@ -388,13 +393,19 @@ async function renderFullRes(options: ExportOptions): Promise<HTMLCanvasElement>
 
   // Apply global mask overlay — converts cut pixels to white (no ink) on the
   // composite output.  Applied last so it overrides all CMYK/grayscale layers.
+  const ms = options.maskSettings ?? { enabled: false, invert: false, source: 'auto' as const }
   const maskOverlay = await buildMaskOverlay(
-    options.mask ?? null,
-    options.maskSettings ?? { enabled: false, invert: false, source: 'auto' },
-    targetWidth,
-    targetHeight,
+    options.mask ?? null, ms, targetWidth, targetHeight,
+    Math.round((ms.featherInches ?? 0) * outputSettings.dpi),
   )
   if (maskOverlay) applyCutOverlayToCanvas(canvas, maskOverlay)
+
+  // Boundary stroke composited on top (keyline) for the single-image export.
+  const stroke = await buildMaskStroke(
+    options.mask ?? null, ms, targetWidth, targetHeight,
+    Math.round((ms.strokeWidthInches ?? 0) * outputSettings.dpi),
+  )
+  if (stroke) ctx.drawImage(stroke.colored, 0, 0)
 
   return canvas
 }
@@ -632,13 +643,19 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
   // it is composited onto the proof.  Background-bleed layers on proofCanvas
   // are outside the image rect and are intentionally NOT masked (they sit in
   // the margin and bleed area, not the image area proper).
+  const ms = options.maskSettings ?? { enabled: false, invert: false, source: 'auto' as const }
   const maskOverlay = await buildMaskOverlay(
-    options.mask ?? null,
-    options.maskSettings ?? { enabled: false, invert: false, source: 'auto' },
-    targetW,
-    targetH,
+    options.mask ?? null, ms, targetW, targetH,
+    Math.round((ms.featherInches ?? 0) * dpi),
   )
   if (maskOverlay) applyCutOverlayToCanvas(imgCanvas, maskOverlay)
+
+  // Boundary stroke (keyline) composited on top of the masked artwork.
+  const stroke = await buildMaskStroke(
+    options.mask ?? null, ms, targetW, targetH,
+    Math.round((ms.strokeWidthInches ?? 0) * dpi),
+  )
+  if (stroke) imgCanvas.getContext('2d')!.drawImage(stroke.colored, 0, 0)
 
   // ── Wrap in margin ───────────────────────────────────────────────────────
   // proofCanvas was created above (before the mode branches) and already filled
@@ -808,10 +825,11 @@ export async function exportChannelPNGs(options: ExportOptions): Promise<void> {
     for (let i = 0; i < spotEntries.length; i++) {
       const [id, { canvas, bleedPx }] = spotEntries[i]
       const isKey = id === '__key__'
+      const isStroke = id === '__maskstroke__'
       // Layer numbers (one/two/three…) avoid filename collisions when two
-      // colors share a name; the key plate keeps its own label.
-      const label = isKey ? 'Key' : layerWord(i + 1)
-      const slug = isKey ? 'key' : label.toLowerCase()
+      // colors share a name; the key and mask-stroke plates keep their own labels.
+      const label = isKey ? 'Key' : isStroke ? 'Mask Stroke' : layerWord(i + 1)
+      const slug = isKey ? 'key' : isStroke ? 'mask-stroke' : label.toLowerCase()
       const page = composeChannelPage(canvas, bleedPx ?? 0, options.outputSettings, label, i / layerCount)
       await pushCanvas(page, `${stem}-${slug}.png`)
     }
@@ -1083,8 +1101,10 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
         imageWPts + 2 * bleedPts, imageHPts + 2 * bleedPts)
 
       pdf.setTextColor(0)
-      // Layer number (the key plate is always last and keeps its own label).
-      const plateLabel = id === '__key__' ? 'Key' : layerWord(layerIdx + 1)
+      // Layer number; the key and mask-stroke plates keep their own labels.
+      const plateLabel = id === '__key__' ? 'Key'
+        : id === '__maskstroke__' ? 'Mask Stroke'
+        : layerWord(layerIdx + 1)
       const labelX = imgOffX + labelStep * layerIdx
       if (cropMarkPts > 0) {
         // Fill ~55% of the crop-mark waste strip and centre it vertically.

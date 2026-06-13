@@ -310,12 +310,28 @@ export interface MaskSettings {
   invert: boolean
   /** Which channel of the loaded mask image to derive keep/cut from. */
   source: MaskSourceMode
+  /**
+   * Feather the mask edge by this many inches (0 = hard edge). Softens the
+   * keep→cut transition. NOTE: on 1-bit plates this becomes an anti-aliased
+   * gray edge; it reads as a true soft fade in preview / proof / composite PNG.
+   */
+  featherInches?: number
+  /** Draw a keyline stroke tracing the mask boundary. */
+  strokeEnabled?: boolean
+  /** Stroke line width in inches (centered on the mask boundary). */
+  strokeWidthInches?: number
+  /** Stroke ink color (hex). Shown in preview/proof; exported as its own plate. */
+  strokeColor?: string
 }
 
 export const DEFAULT_MASK_SETTINGS: MaskSettings = {
   enabled: false,
   invert: false,
   source: 'auto',
+  featherInches: 0,
+  strokeEnabled: false,
+  strokeWidthInches: 0.05,
+  strokeColor: '#000000',
 }
 
 /**
