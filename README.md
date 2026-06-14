@@ -25,6 +25,15 @@ A native macOS app (and browser tool) for halftone image processing and spot col
 ### Image Transforms
 Crop, rotation, levels (black/white point + midtone gamma), plus pre-processing — **blur** (smooth gradients / suppress source noise), **sharpen** (unsharp mask with adjustable radius, so detail holds through the screen), and **noise** (film grain to break up banding). All applied before halftoning.
 
+### Layer Mask
+Load a mask that clips every plate at once — confine the artwork to a shape, knock out a region, etc.
+- **SVG** (preferred — resolution-independent, stays crisp at any output DPI) or raster (PNG/JPG/WebP); always stretched to the image rect
+- **white = keep, black = cut**, with automatic use of the image's alpha when present, an **Invert** toggle, and Auto/Alpha/Luminance source modes
+- **Feather** the edge (in inches) for a soft transition
+- **Stroke** — a keyline tracing the mask boundary in your choice of width/color, exported as its own dedicated plate in spot mode
+- Applies in the live preview and every export, and is non-destructive — the full source image is kept for palette extraction
+
+### Export
 - **PNG** — full-resolution with embedded DPI metadata
 - **Channel PNGs** — one black-on-white plate per channel (CMYK or spot), including key plate, laid out on the full print page (margin, crop marks, alignment marks) just like the PDF
 - **PDF** — multi-page with crop marks, optional margin, optional alignment marks (crosshair + circle at each side midpoint for multi-layer registration)
