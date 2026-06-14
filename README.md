@@ -29,7 +29,6 @@ Crop, rotation, levels (black/white point + midtone gamma), plus pre-processing 
 Load a mask that clips every plate at once — confine the artwork to a shape, knock out a region, etc.
 - **SVG** (preferred — resolution-independent, stays crisp at any output DPI) or raster (PNG/JPG/WebP); always stretched to the image rect
 - **white = keep, black = cut**, with automatic use of the image's alpha when present, an **Invert** toggle, and Auto/Alpha/Luminance source modes
-- **Feather** the edge (in inches) for a soft transition
 - **Stroke** — a keyline tracing the mask boundary in your choice of width/color, exported as its own dedicated plate in spot mode
 - Applies in the live preview and every export, and is non-destructive — the full source image is kept for palette extraction
 

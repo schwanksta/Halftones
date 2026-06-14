@@ -137,20 +137,6 @@ export function MaskControls({
         </select>
       </label>
 
-      {/* Feather */}
-      <label className="control-row">
-        <span>
-          Feather
-          <span style={{ color: 'var(--text-secondary)' }}>{(maskSettings.featherInches ?? 0).toFixed(2)}"</span>
-        </span>
-        <input
-          type="range" min={0} max={0.5} step={0.01}
-          value={maskSettings.featherInches ?? 0}
-          onChange={(e) => onMaskSettingsChange({ ...maskSettings, featherInches: Number(e.target.value) })}
-          disabled={disabled || !mask || !maskSettings.enabled}
-        />
-      </label>
-
       {/* Stroke (keyline) */}
       <label className="control-row" style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 4 }}>
         <input

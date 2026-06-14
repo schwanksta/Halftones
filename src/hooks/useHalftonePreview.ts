@@ -234,15 +234,12 @@ export function useHalftonePreview(
       return
     }
     let cancelled = false
-    // Feather radius in source pixels (so preview matches export physically).
-    const pxPerInch = transformed.width / Math.max(0.01, outputSettings.widthInches)
-    const featherPx = (maskSettings!.featherInches ?? 0) * pxPerInch
-    buildMaskOverlay(mask!, maskSettings!, transformed.width, transformed.height, featherPx)
+    buildMaskOverlay(mask!, maskSettings!, transformed.width, transformed.height)
       .then((overlay) => { if (!cancelled) setMaskOverlayCanvas(overlay) })
       .catch((err) => { console.error('Mask overlay build failed:', err); if (!cancelled) setMaskOverlayCanvas(null) })
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mask, maskSettings?.enabled, maskSettings?.invert, maskSettings?.source, maskSettings?.featherInches, outputSettings.widthInches, transformed])
+  }, [mask, maskSettings?.enabled, maskSettings?.invert, maskSettings?.source, transformed])
 
   useEffect(() => {
     const enabled = maskSettings?.enabled && maskSettings?.strokeEnabled && !!mask

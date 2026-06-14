@@ -150,10 +150,7 @@ async function renderSpotChannelCanvases(
   // The overlay covers the image rect only (no bleed extension); bleed areas
   // are outside the mask region and are left as-is (full ink for background plates).
   const ms = options.maskSettings ?? { enabled: false, invert: false, source: 'auto' as const }
-  const maskOverlay = await buildMaskOverlay(
-    options.mask ?? null, ms, targetWidth, targetHeight,
-    Math.round((ms.featherInches ?? 0) * outputSettings.dpi), true,
-  )
+  const maskOverlay = await buildMaskOverlay(options.mask ?? null, ms, targetWidth, targetHeight)
 
   const result = new Map<string, { canvas: HTMLCanvasElement; label: string; bleedPx?: number }>()
 
@@ -306,10 +303,7 @@ async function renderChannelCanvases(options: ExportOptions): Promise<Map<string
 
   // Build mask overlay once for the target size, shared across all channels.
   const ms = options.maskSettings ?? { enabled: false, invert: false, source: 'auto' as const }
-  const maskOverlay = await buildMaskOverlay(
-    options.mask ?? null, ms, targetWidth, targetHeight,
-    Math.round((ms.featherInches ?? 0) * outputSettings.dpi), true,
-  )
+  const maskOverlay = await buildMaskOverlay(options.mask ?? null, ms, targetWidth, targetHeight)
 
   for (const ch of ['c', 'm', 'y', 'k'] as const) {
     if (!cmykSettings[ch].enabled) continue
@@ -394,10 +388,7 @@ async function renderFullRes(options: ExportOptions): Promise<HTMLCanvasElement>
   // Apply global mask overlay — converts cut pixels to white (no ink) on the
   // composite output.  Applied last so it overrides all CMYK/grayscale layers.
   const ms = options.maskSettings ?? { enabled: false, invert: false, source: 'auto' as const }
-  const maskOverlay = await buildMaskOverlay(
-    options.mask ?? null, ms, targetWidth, targetHeight,
-    Math.round((ms.featherInches ?? 0) * outputSettings.dpi), true,
-  )
+  const maskOverlay = await buildMaskOverlay(options.mask ?? null, ms, targetWidth, targetHeight)
   if (maskOverlay) applyCutOverlayToCanvas(canvas, maskOverlay)
 
   // Boundary stroke composited on top (keyline) for the single-image export.
@@ -644,10 +635,7 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
   // are outside the image rect and are intentionally NOT masked (they sit in
   // the margin and bleed area, not the image area proper).
   const ms = options.maskSettings ?? { enabled: false, invert: false, source: 'auto' as const }
-  const maskOverlay = await buildMaskOverlay(
-    options.mask ?? null, ms, targetW, targetH,
-    Math.round((ms.featherInches ?? 0) * dpi),
-  )
+  const maskOverlay = await buildMaskOverlay(options.mask ?? null, ms, targetW, targetH)
   if (maskOverlay) applyCutOverlayToCanvas(imgCanvas, maskOverlay)
 
   // Boundary stroke (keyline) composited on top of the masked artwork.
