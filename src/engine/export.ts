@@ -152,7 +152,7 @@ async function renderSpotChannelCanvases(
   const ms = options.maskSettings ?? { enabled: false, invert: false, source: 'auto' as const }
   const maskOverlay = await buildMaskOverlay(
     options.mask ?? null, ms, targetWidth, targetHeight,
-    Math.round((ms.featherInches ?? 0) * outputSettings.dpi),
+    Math.round((ms.featherInches ?? 0) * outputSettings.dpi), true,
   )
 
   const result = new Map<string, { canvas: HTMLCanvasElement; label: string; bleedPx?: number }>()
@@ -308,7 +308,7 @@ async function renderChannelCanvases(options: ExportOptions): Promise<Map<string
   const ms = options.maskSettings ?? { enabled: false, invert: false, source: 'auto' as const }
   const maskOverlay = await buildMaskOverlay(
     options.mask ?? null, ms, targetWidth, targetHeight,
-    Math.round((ms.featherInches ?? 0) * outputSettings.dpi),
+    Math.round((ms.featherInches ?? 0) * outputSettings.dpi), true,
   )
 
   for (const ch of ['c', 'm', 'y', 'k'] as const) {
@@ -396,7 +396,7 @@ async function renderFullRes(options: ExportOptions): Promise<HTMLCanvasElement>
   const ms = options.maskSettings ?? { enabled: false, invert: false, source: 'auto' as const }
   const maskOverlay = await buildMaskOverlay(
     options.mask ?? null, ms, targetWidth, targetHeight,
-    Math.round((ms.featherInches ?? 0) * outputSettings.dpi),
+    Math.round((ms.featherInches ?? 0) * outputSettings.dpi), true,
   )
   if (maskOverlay) applyCutOverlayToCanvas(canvas, maskOverlay)
 

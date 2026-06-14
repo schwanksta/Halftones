@@ -163,13 +163,31 @@ function morph(src: Uint8Array, w: number, h: number, r: number, op: (a: number,
 
 // ─── Cut overlay (clip) ───────────────────────────────────────────────────────
 
+/** Normalized 8×8 ordered-dither (Bayer) matrix, values in [0,1). */
+const BAYER8 = (() => {
+  const m = [
+     0, 48, 12, 60,  3, 51, 15, 63,
+    32, 16, 44, 28, 35, 19, 47, 31,
+     8, 56,  4, 52, 11, 59,  7, 55,
+    40, 24, 36, 20, 43, 27, 39, 23,
+     2, 50, 14, 62,  1, 49, 13, 61,
+    34, 18, 46, 30, 33, 17, 45, 29,
+    10, 58,  6, 54,  9, 57,  5, 53,
+    42, 26, 38, 22, 41, 25, 37, 21,
+  ]
+  return m.map((v) => (v + 0.5) / 64)
+})()
+
 /**
  * Build a "cut overlay" canvas: opaque white where the mask says CUT, transparent
  * where KEEP.  Drawing it onto a black-on-white plate turns cut areas to white
  * (paper / no ink) and leaves kept areas untouched.
  *
  * When `featherPx > 0`, the binary cut field is box-blurred so the overlay's
- * alpha ramps smoothly across the boundary, giving a soft edge.
+ * alpha ramps across the boundary.  With `dither = true` that soft ramp is
+ * ordered-dithered into a 1-bit cut/keep pattern — so on a 1-bit plate the
+ * feather prints as thinning dots instead of an un-printable gray edge.  With
+ * `dither = false` the ramp stays as smooth gray alpha (for preview / proof).
  */
 async function buildCutOverlay(
   mask: MaskImage,
@@ -177,6 +195,7 @@ async function buildCutOverlay(
   targetH: number,
   settings: MaskSettings,
   featherPx: number,
+  dither: boolean,
 ): Promise<HTMLCanvasElement> {
   const cut = await computeCutField(mask, targetW, targetH, settings)
   const n = targetW * targetH
@@ -186,9 +205,18 @@ async function buildCutOverlay(
     const f = new Float32Array(n)
     for (let i = 0; i < n; i++) f[i] = cut[i]
     const blurred = boxBlur(f, targetW, targetH, Math.round(featherPx))
-    for (let i = 0; i < n; i++) {
-      overlay[i * 4] = 255; overlay[i * 4 + 1] = 255; overlay[i * 4 + 2] = 255
-      overlay[i * 4 + 3] = blurred[i]
+    for (let y = 0; y < targetH; y++) {
+      for (let x = 0; x < targetW; x++) {
+        const i = y * targetW + x
+        overlay[i * 4] = 255; overlay[i * 4 + 1] = 255; overlay[i * 4 + 2] = 255
+        if (dither) {
+          // cutFrac (0..1) thresholded against the Bayer cell → solid cut or keep.
+          const cutFrac = blurred[i] / 255
+          overlay[i * 4 + 3] = cutFrac > BAYER8[(y & 7) * 8 + (x & 7)] ? 255 : 0
+        } else {
+          overlay[i * 4 + 3] = blurred[i]
+        }
+      }
     }
   } else {
     for (let i = 0; i < n; i++) {
@@ -224,9 +252,10 @@ export async function buildMaskOverlay(
   targetW: number,
   targetH: number,
   featherPx = 0,
+  dither = false,
 ): Promise<HTMLCanvasElement | null> {
   if (!mask || !maskSettings.enabled) return null
-  return buildCutOverlay(mask, targetW, targetH, maskSettings, featherPx)
+  return buildCutOverlay(mask, targetW, targetH, maskSettings, featherPx, dither)
 }
 
 // ─── Boundary stroke ──────────────────────────────────────────────────────────
