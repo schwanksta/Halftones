@@ -14,6 +14,7 @@ A native macOS app (and browser tool) for halftone image processing and spot col
 - **CMYK** — four-channel process separation with per-channel angle/LPI and composite preview
 - **Spot Color** — LAB k-means palette extraction, per-color flat or halftone rendering, click-to-seed palette colors from the image, per-color and global trap, and a **key plate** (halftone of the full image overprinted on top of all color layers for tonal depth — with optional edge stroke, silhouette outline, and a toggle to use the strokes without the halftone dots)
 - **Smoothing** — jointly cleans up the color separation so adjacent layers never erode apart and leave paper showing through; low values remove stray specks, higher values smooth jagged boundaries
+- **Treat white as paper** — reserve near-white as bare paper so every extracted color is a real ink (no wasted white plate) and white areas knock out to paper; turn off for white ink on colored stock
 - **Background layer** — for transparent/cutout images, add a color plate covering exactly the transparent area, rendered flat or halftoned, with an adjustable **bleed** that extends it into the margin
 
 ### Dot & Tone Controls
