@@ -150,10 +150,11 @@ export function useHalftonePreview(
   const spotSeparationKey = useMemo(
     // Background colors use alpha separation — their LAB is irrelevant, so we
     // use ':bg' to avoid spurious re-separations when only the display hex changes.
+    // Paper-white settings affect which pixels are labelled, so they're in the key.
     () => spotSettings.colors.map(c =>
       c.type === 'background' ? `${c.id}:bg` : `${c.id}:${c.lab.join(',')}`
-    ).join('|'),
-    [spotSettings.colors],
+    ).join('|') + `|paper:${spotSettings.paperWhite ?? false}:${spotSettings.paperWhiteThreshold ?? 92}`,
+    [spotSettings.colors, spotSettings.paperWhite, spotSettings.paperWhiteThreshold],
   )
 
   // Expensive LAB classification — gated only by color IDs + LAB values.
@@ -163,9 +164,10 @@ export function useHalftonePreview(
     }
     // Classify ALL colors (including disabled) so each pixel is claimed by its
     // true nearest color.  Disabled colors are simply not rendered later.
-    return computeSpotLabels(transformed, spotSettings.colors)
+    return computeSpotLabels(transformed, spotSettings.colors,
+      spotSettings.paperWhite ? { enabled: true, threshold: spotSettings.paperWhiteThreshold ?? 92 } : undefined)
     // spotSeparationKey intentionally stands in for spotSettings.colors —
-    // only LAB values + IDs gate re-classification.
+    // only LAB values + IDs + paper settings gate re-classification.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transformed, halftoneSettings.colorMode, spotSeparationKey])
 

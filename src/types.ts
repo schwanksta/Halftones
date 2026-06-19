@@ -120,6 +120,15 @@ export interface SpotSettings {
    * remove near-isolated specks, high values smooth boundaries more. 0 = off.
    */
   smoothing: number
+  /**
+   * Treat near-white (high lightness, low chroma) pixels as bare paper:
+   * excludes them from palette extraction (so every requested color is a real
+   * ink, not a wasted white plate) and renders them with no ink on any plate.
+   * Turn OFF when printing white ink on colored stock.
+   */
+  paperWhite?: boolean
+  /** Lightness threshold (L*, 0–100) at/above which a low-chroma pixel is paper. Default 92. */
+  paperWhiteThreshold?: number
   colors: SpotColor[]
   /**
    * Optional key plate: a halftone of the full image rendered on top of all
@@ -134,6 +143,8 @@ export const DEFAULT_SPOT_SETTINGS: SpotSettings = {
   vibrancy: 0,
   trap: 0,
   smoothing: 0,
+  paperWhite: true,
+  paperWhiteThreshold: 92,
   colors: [],
 }
 

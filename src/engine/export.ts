@@ -138,7 +138,8 @@ async function renderSpotChannelCanvases(
 
   // Separate ALL colors so disabled ones claim their own pixels — preventing
   // redistribution to enabled neighbors.  Only enabled colors get rendered/exported.
-  const channels = separateSpotChannels(scaled, spotSettings.colors, (spotSettings.smoothing ?? 0) / 100)
+  const channels = separateSpotChannels(scaled, spotSettings.colors, (spotSettings.smoothing ?? 0) / 100,
+      spotSettings.paperWhite ? { enabled: true, threshold: spotSettings.paperWhiteThreshold ?? 92 } : undefined)
   const enabledColors = spotSettings.colors.filter((c) => c.enabled)
 
   const radialCenter = {
@@ -482,7 +483,8 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
 
   } else if (halftoneSettings.colorMode === 'spot') {
     // Separate ALL colors so disabled ones retain their pixels (paper/white).
-    const channels = separateSpotChannels(scaled, spotSettings.colors, (spotSettings.smoothing ?? 0) / 100)
+    const channels = separateSpotChannels(scaled, spotSettings.colors, (spotSettings.smoothing ?? 0) / 100,
+      spotSettings.paperWhite ? { enabled: true, threshold: spotSettings.paperWhiteThreshold ?? 92 } : undefined)
     const enabledColors = spotSettings.colors.filter((c) => c.enabled)
 
     // NOTE: imgCtx is intentionally left transparent (no white fill).

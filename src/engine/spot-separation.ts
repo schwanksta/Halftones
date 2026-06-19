@@ -127,11 +127,26 @@ export function boostSaturation(hex: string, amount: number): string {
 
 // ─── K-means++ palette extraction ────────────────────────────────────────────
 
+/** Near-white-as-paper options shared by extraction and separation. */
+export interface PaperWhiteOptions {
+  enabled: boolean
+  /** Lightness threshold (L*, 0–100); pixels at/above this AND low-chroma are paper. */
+  threshold: number
+}
+
+/** Max chroma for a light pixel to still count as paper (keeps pale tints as ink). */
+const PAPER_CHROMA_TOL = 12
+
+function isPaperLab(L: number, a: number, b: number, lThreshold: number): boolean {
+  return L >= lThreshold && Math.sqrt(a * a + b * b) <= PAPER_CHROMA_TOL
+}
+
 /**
  * Sample pixels from source (stride-sampled for speed) and convert to LAB.
- * Returns a Float32Array of [L, a, b] triples.
+ * Returns a Float32Array of [L, a, b] triples.  When `paper` is enabled,
+ * near-white pixels are skipped so clustering spends every slot on real inks.
  */
-function samplePixelsToLab(source: ImageData, maxSamples = 12000): Float32Array {
+function samplePixelsToLab(source: ImageData, maxSamples = 12000, paper?: PaperWhiteOptions): Float32Array {
   const { data, width, height } = source
   const total = width * height
   const stride = Math.max(1, Math.floor(total / maxSamples))
@@ -142,6 +157,7 @@ function samplePixelsToLab(source: ImageData, maxSamples = 12000): Float32Array 
     const p = i * 4
     if (data[p + 3] < 128) continue  // skip transparent pixels
     const [L, a, b] = rgbToLab(data[p], data[p + 1], data[p + 2])
+    if (paper?.enabled && isPaperLab(L, a, b, paper.threshold)) continue  // skip paper
     out[idx++] = L
     out[idx++] = a
     out[idx++] = b
@@ -484,8 +500,14 @@ export function extractPalette(
   k: number,
   defaultLpi: number,
   seeds?: Array<[number, number, number]>,
+  paper?: PaperWhiteOptions,
 ): SpotColor[] {
-  const pixels = samplePixelsToLab(source)
+  let pixels = samplePixelsToLab(source, 12000, paper)
+  // If paper exclusion left too few pixels (e.g. an almost-all-white image),
+  // fall back to sampling everything so extraction still yields a palette.
+  if (paper?.enabled && pixels.length < 3 * Math.max(k, 16)) {
+    pixels = samplePixelsToLab(source)
+  }
   const clampedK = Math.max(1, Math.min(k, 16))
 
   // Run multiple restarts and keep the best result (lowest within-cluster variance).
@@ -606,7 +628,7 @@ export interface SpotLabelData {
  * and record that ownership as a single label field plus a coverage value.
  * Background-type colors are handled separately via their alpha mask.
  */
-export function computeSpotLabels(source: ImageData, colors: SpotColor[]): SpotLabelData {
+export function computeSpotLabels(source: ImageData, colors: SpotColor[], paper?: PaperWhiteOptions): SpotLabelData {
   const { data, width, height } = source
   const n = width * height
 
@@ -622,6 +644,8 @@ export function computeSpotLabels(source: ImageData, colors: SpotColor[]): SpotL
       const p = i * 4
       if (data[p + 3] < 128) continue   // transparent → unowned
       const pixLab = rgbToLab(data[p], data[p + 1], data[p + 2])
+      // Near-white → paper: leave unowned (no ink on any plate).
+      if (paper?.enabled && isPaperLab(pixLab[0], pixLab[1], pixLab[2], paper.threshold)) continue
       let nearest = 0, minDE = Infinity
       for (let c = 0; c < labs.length; c++) {
         const de = deltaE(pixLab, labs[c])
@@ -744,8 +768,9 @@ export function separateSpotChannels(
   source: ImageData,
   colors: SpotColor[],
   smoothing = 0,
+  paper?: PaperWhiteOptions,
 ): Map<string, ImageData> {
-  return buildSpotChannels(computeSpotLabels(source, colors), smoothing)
+  return buildSpotChannels(computeSpotLabels(source, colors, paper), smoothing)
 }
 
 // ─── Flat rendering ───────────────────────────────────────────────────────────

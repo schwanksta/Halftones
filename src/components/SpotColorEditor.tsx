@@ -73,7 +73,10 @@ export function SpotColorEditor({
     setTimeout(() => {
       try {
         const seeds = seedColors.length ? seedColors : undefined
-        const newColors = extractPalette(sourceImageData, settings.numColors, defaultLpi, seeds)
+        const paper = settings.paperWhite
+          ? { enabled: true, threshold: settings.paperWhiteThreshold ?? 92 }
+          : undefined
+        const newColors = extractPalette(sourceImageData, settings.numColors, defaultLpi, seeds, paper)
         // Preserve any background layers — keep them at the front
         const bgColors = settings.colors.filter(c => c.type === 'background')
         update({ colors: [...bgColors, ...newColors] })
@@ -114,6 +117,29 @@ export function SpotColorEditor({
           disabled={disabled}
         />
       </div>
+
+      <label className="control-row" style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}
+        title="Treat near-white as bare paper: every extracted color is a real ink (no wasted white plate), and white areas print with no ink. Turn off for white ink on colored stock.">
+        <input
+          type="checkbox"
+          checked={settings.paperWhite ?? false}
+          onChange={(e) => update({ paperWhite: e.target.checked })}
+          disabled={disabled}
+        />
+        <span>Treat white as paper</span>
+      </label>
+
+      {(settings.paperWhite ?? false) && (
+        <div className="control-row" title="Pixels at/above this lightness (and near-neutral) count as paper.">
+          <span>Paper white pt <EditableValue value={settings.paperWhiteThreshold ?? 92} min={80} max={100} step={1} onChange={(v) => update({ paperWhiteThreshold: v })} /></span>
+          <input
+            type="range" min={80} max={100} step={1}
+            value={settings.paperWhiteThreshold ?? 92}
+            onChange={(e) => update({ paperWhiteThreshold: Number(e.target.value) })}
+            disabled={disabled}
+          />
+        </div>
+      )}
 
       <div className="control-row">
         <span>Vibrancy <EditableValue value={Math.round((settings.vibrancy ?? 0) * 100)} min={0} max={100} step={1} suffix="%" onChange={(v) => update({ vibrancy: v / 100 })} /></span>
