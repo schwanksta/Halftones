@@ -10,7 +10,7 @@
  *   white (255) = no ink at this pixel
  */
 
-import { SpotColor } from '../types'
+import { SpotColor, SeparationMode } from '../types'
 
 // ─── CIELAB conversion ────────────────────────────────────────────────────────
 
@@ -619,6 +619,8 @@ export interface SpotLabelData {
   values: Uint8ClampedArray
   /** Color id for each label index. */
   labColorIds: string[]
+  /** Lightness (L*) for each label index — used to order plates in build-up mode. */
+  labColorL: number[]
   /** Alpha-derived channels for background-type colors (not part of the partition). */
   backgroundChannels: Map<string, ImageData>
 }
@@ -635,6 +637,7 @@ export function computeSpotLabels(source: ImageData, colors: SpotColor[], paper?
   const labColors = colors.filter(c => c.type !== 'background')
   const labs = labColors.map(c => c.lab)
   const labColorIds = labColors.map(c => c.id)
+  const labColorL = labColors.map(c => c.lab[0])
 
   const labels = new Int32Array(n).fill(-1)
   const values = new Uint8ClampedArray(n)
@@ -663,7 +666,7 @@ export function computeSpotLabels(source: ImageData, colors: SpotColor[], paper?
     }
   }
 
-  return { width, height, labels, values, labColorIds, backgroundChannels }
+  return { width, height, labels, values, labColorIds, labColorL, backgroundChannels }
 }
 
 /**
@@ -735,20 +738,47 @@ function smoothLabelField(
  * Build the per-color grayscale channels from a label partition, applying the
  * joint smoothing first.  Channel value encodes ink coverage:
  *   black (0) = full ink   white (255) = no ink (light pixel or owned by another color)
+ *
+ * In 'buildup' mode the partition becomes nested solid plates: a pixel assigned
+ * to a tone inks that plate AND every lighter plate beneath it, so on press the
+ * inks stack (darkest opaque ink on top wins) instead of abutting.
  */
-export function buildSpotChannels(ld: SpotLabelData, smoothing: number): Map<string, ImageData> {
-  const { width, height, values, labColorIds, backgroundChannels } = ld
+export function buildSpotChannels(
+  ld: SpotLabelData,
+  smoothing: number,
+  mode: SeparationMode = 'knockout',
+): Map<string, ImageData> {
+  const { width, height, values, labColorIds, labColorL, backgroundChannels } = ld
   const n = width * height
   const labels = smoothLabelField(ld.labels, width, height, labColorIds.length, smoothing)
+  const nc = labColorIds.length
 
   const bufs = labColorIds.map(() => new Uint8ClampedArray(n * 4).fill(255))
-  for (let i = 0; i < n; i++) {
-    const lab = labels[i]
-    if (lab < 0) continue
-    const v = values[i]
-    const p = i * 4
-    const b = bufs[lab]
-    b[p] = v; b[p + 1] = v; b[p + 2] = v   // alpha already 255 from fill
+
+  if (mode === 'buildup' && nc > 1) {
+    // Rank colors by lightness (lightest = rank 0). A pixel assigned to a tone
+    // inks its plate plus every lighter plate (lower-or-equal rank), all solid.
+    const order = labColorIds.map((_, i) => i).sort((a, b) => labColorL[b] - labColorL[a])
+    const rank = new Array<number>(nc)
+    order.forEach((idx, pos) => { rank[idx] = pos })
+    for (let i = 0; i < n; i++) {
+      const lab = labels[i]
+      if (lab < 0) continue
+      const ar = rank[lab]
+      const p = i * 4
+      for (let k = 0; k < nc; k++) {
+        if (rank[k] <= ar) { const b = bufs[k]; b[p] = 0; b[p + 1] = 0; b[p + 2] = 0 }  // solid ink
+      }
+    }
+  } else {
+    for (let i = 0; i < n; i++) {
+      const lab = labels[i]
+      if (lab < 0) continue
+      const v = values[i]
+      const p = i * 4
+      const b = bufs[lab]
+      b[p] = v; b[p + 1] = v; b[p + 2] = v   // alpha already 255 from fill
+    }
   }
 
   const result = new Map<string, ImageData>()
@@ -757,6 +787,52 @@ export function buildSpotChannels(ld: SpotLabelData, smoothing: number): Map<str
   }
   for (const [id, img] of backgroundChannels) result.set(id, img)
   return result
+}
+
+/** Separable binary erosion — an ink cell survives only if its whole window is ink. */
+function erodeBinary(src: Uint8Array, w: number, h: number, r: number): Uint8Array {
+  const tmp = new Uint8Array(w * h)
+  const out = new Uint8Array(w * h)
+  for (let y = 0; y < h; y++) {
+    const row = y * w
+    for (let x = 0; x < w; x++) {
+      let m = 1
+      for (let dx = -r; dx <= r; dx++) {
+        const xx = x + dx
+        if (xx < 0 || xx >= w || !src[row + xx]) { m = 0; break }
+      }
+      tmp[row + x] = m
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    for (let y = 0; y < h; y++) {
+      let m = 1
+      for (let dy = -r; dy <= r; dy++) {
+        const yy = y + dy
+        if (yy < 0 || yy >= h || !tmp[yy * w + x]) { m = 0; break }
+      }
+      out[y * w + x] = m
+    }
+  }
+  return out
+}
+
+/**
+ * Build the underbase channel: union of all inked area (every assigned pixel),
+ * choked inward by `chokePx`, as a black-on-white plate (0 = ink, 255 = paper).
+ */
+export function buildUnderbaseChannel(ld: SpotLabelData, chokePx: number): ImageData {
+  const { width, height, labels } = ld
+  const n = width * height
+  const ink = new Uint8Array(n)
+  for (let i = 0; i < n; i++) ink[i] = labels[i] >= 0 ? 1 : 0
+  const choked = chokePx >= 1 ? erodeBinary(ink, width, height, Math.round(chokePx)) : ink
+  const buf = new Uint8ClampedArray(n * 4)
+  for (let i = 0; i < n; i++) {
+    const v = choked[i] ? 0 : 255
+    buf[i * 4] = v; buf[i * 4 + 1] = v; buf[i * 4 + 2] = v; buf[i * 4 + 3] = 255
+  }
+  return new ImageData(buf, width, height)
 }
 
 /**
@@ -769,8 +845,9 @@ export function separateSpotChannels(
   colors: SpotColor[],
   smoothing = 0,
   paper?: PaperWhiteOptions,
+  mode: SeparationMode = 'knockout',
 ): Map<string, ImageData> {
-  return buildSpotChannels(computeSpotLabels(source, colors, paper), smoothing)
+  return buildSpotChannels(computeSpotLabels(source, colors, paper), smoothing, mode)
 }
 
 // ─── Flat rendering ───────────────────────────────────────────────────────────

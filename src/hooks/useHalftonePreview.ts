@@ -6,7 +6,7 @@ import {
 } from '../types'
 import { renderHalftone } from '../engine/halftone'
 import { renderStipple } from '../engine/stipple'
-import { renderFlat, computeSpotLabels, buildSpotChannels, boostSaturation } from '../engine/spot-separation'
+import { renderFlat, computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, boostSaturation } from '../engine/spot-separation'
 import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from '../engine/edge'
 import { separateChannels, compositeChannels } from '../engine/cmyk'
 import { applyTransforms } from '../engine/transform'
@@ -175,8 +175,21 @@ export function useHalftonePreview(
   // Cheap relative to classification, so retuning smoothing doesn't re-run LAB.
   const spotChannels = useMemo(() => {
     if (!spotLabels) return null
-    return buildSpotChannels(spotLabels, (spotSettings.smoothing ?? 0) / 100)
-  }, [spotLabels, spotSettings.smoothing])
+    return buildSpotChannels(spotLabels, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout')
+  }, [spotLabels, spotSettings.smoothing, spotSettings.separationMode])
+
+  // Underbase plate (source resolution) — union of inked area, choked. Extracted
+  // per frame and composited under the colors.
+  const underbaseCanvas = useMemo(() => {
+    if (!spotLabels || !transformed || !spotSettings.underbase?.enabled) return null
+    const pxPerInch = transformed.width / Math.max(0.01, outputSettings.widthInches)
+    const chokePx = Math.round((spotSettings.underbase.chokeInches ?? 0) * pxPerInch)
+    const data = buildUnderbaseChannel(spotLabels, chokePx)
+    const c = document.createElement('canvas')
+    c.width = data.width; c.height = data.height
+    c.getContext('2d')!.putImageData(data, 0, 0)
+    return c
+  }, [spotLabels, transformed, spotSettings.underbase?.enabled, spotSettings.underbase?.chokeInches, outputSettings.widthInches])
 
   // ── Spot channel canvases ──────────────────────────────────────────────────
   //
@@ -327,15 +340,30 @@ export function useHalftonePreview(
       }
 
     } else if (halftoneSettings.colorMode === 'spot') {
-      // Spot mode: fill background, render color channels, then key plate.
-      offCtx.fillStyle = bgColor
+      // Spot mode: fill substrate, render color channels, then key plate.
+      const buildup = spotSettings.separationMode === 'buildup'
+      offCtx.fillStyle = spotSettings.substrate || bgColor
       offCtx.fillRect(0, 0, canvasW, canvasH)
+
+      // Underbase (bottom layer): union of inked area, choked, in its ink colour.
+      if (underbaseCanvas) {
+        const ubRegion = extractRegionFromCanvas(underbaseCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff')
+        const ubColored = colorizeSpot(ubRegion, spotSettings.underbase?.color || '#c0c0c0')
+        const ubc = document.createElement('canvas')
+        ubc.width = canvasW; ubc.height = canvasH
+        ubc.getContext('2d')!.putImageData(ubColored, 0, 0)
+        offCtx.drawImage(ubc, 0, 0)
+      }
 
       // Spot color channels — only when separation is available.
       if (spotSettings.colors.length > 0 && spotChannelCanvases) {
         const globalTrap = spotSettings.trap ?? 0
+        // Build-up overprints, so paint light→dark (darkest opaque ink on top).
+        const orderedColors = buildup
+          ? [...spotSettings.colors].sort((a, b) => b.lab[0] - a.lab[0])
+          : spotSettings.colors
 
-        for (const color of spotSettings.colors) {
+        for (const color of orderedColors) {
           if (!color.enabled) continue
           const chCanvas = spotChannelCanvases.get(color.id)
           if (!chCanvas) continue
@@ -377,7 +405,7 @@ export function useHalftonePreview(
           const bwCanvas = document.createElement('canvas')
           bwCanvas.width = canvasW; bwCanvas.height = canvasH
           const bwCtx = bwCanvas.getContext('2d')!
-          if (color.renderMode === 'flat') {
+          if (buildup || color.renderMode === 'flat') {
             renderFlat(bwCtx, chRegionData, color.threshold)
           } else {
             renderHalftone(bwCtx, {
@@ -553,7 +581,8 @@ export function useHalftonePreview(
   }, [
     canvasRef, transformed, transformedCanvas, stippleCanvas,
     spotSettings.colors, spotSettings.vibrancy, spotSettings.trap, spotSettings.key,
-    spotChannelCanvases, alphaOutlineCanvas,
+    spotSettings.separationMode, spotSettings.substrate, spotSettings.underbase,
+    spotChannelCanvases, alphaOutlineCanvas, underbaseCanvas,
     maskOverlayCanvas, maskStrokeCanvas,
     halftoneSettings, cmykSettings, channelView, outputSettings, viewport,
   ])

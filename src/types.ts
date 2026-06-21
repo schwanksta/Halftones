@@ -101,6 +101,23 @@ export const DEFAULT_KEY_PLATE: KeyPlateSettings = {
   maxDot: 0.95,
 }
 
+export type SeparationMode = 'knockout' | 'buildup'
+
+export interface UnderbaseSettings {
+  /** Whether to generate an underbase plate. */
+  enabled: boolean
+  /** Underbase ink color (hex) — e.g. white or silver. Shown in proof/preview. */
+  color: string
+  /** Choke the underbase inward from the print edge, in inches (so it doesn't peek out). */
+  chokeInches: number
+}
+
+export const DEFAULT_UNDERBASE: UnderbaseSettings = {
+  enabled: false,
+  color: '#c0c0c0',
+  chokeInches: 0.01,
+}
+
 export interface SpotSettings {
   numColors: number
   mergeThreshold: number
@@ -129,6 +146,18 @@ export interface SpotSettings {
   paperWhite?: boolean
   /** Lightness threshold (L*, 0–100) at/above which a low-chroma pixel is paper. Default 92. */
   paperWhiteThreshold?: number
+  /**
+   * Separation mode:
+   * - 'knockout' (default): each pixel = exactly one ink, exclusive regions.
+   * - 'buildup': nested cumulative overprint — a pixel inks its tone plate plus
+   *   every lighter plate beneath it (solid, printed light→dark). Registration-
+   *   forgiving; best for tonal / duotone palettes.
+   */
+  separationMode?: SeparationMode
+  /** Optional underbase plate: union of all inked area, choked, printed first. */
+  underbase?: UnderbaseSettings
+  /** Substrate (paper/garment) color the proof and preview composite onto. Default white. */
+  substrate?: string
   colors: SpotColor[]
   /**
    * Optional key plate: a halftone of the full image rendered on top of all
@@ -145,6 +174,8 @@ export const DEFAULT_SPOT_SETTINGS: SpotSettings = {
   smoothing: 0,
   paperWhite: true,
   paperWhiteThreshold: 92,
+  separationMode: 'knockout',
+  substrate: '#ffffff',
   colors: [],
 }
 

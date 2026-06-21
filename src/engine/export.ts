@@ -2,7 +2,7 @@ import { HalftoneSettings, CMYKSettings, OutputSettings, ImageTransformSettings,
 import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from './edge'
 import { renderHalftone } from './halftone'
 import { separateChannels } from './cmyk'
-import { separateSpotChannels, renderFlat, boostSaturation } from './spot-separation'
+import { computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, renderFlat, boostSaturation } from './spot-separation'
 import { setPngDpi } from './png-metadata'
 import { applyTransforms } from './transform'
 import { dilateMask } from './dilate'
@@ -138,8 +138,10 @@ async function renderSpotChannelCanvases(
 
   // Separate ALL colors so disabled ones claim their own pixels — preventing
   // redistribution to enabled neighbors.  Only enabled colors get rendered/exported.
-  const channels = separateSpotChannels(scaled, spotSettings.colors, (spotSettings.smoothing ?? 0) / 100,
+  const buildup = spotSettings.separationMode === 'buildup'
+  const labelData = computeSpotLabels(scaled, spotSettings.colors,
       spotSettings.paperWhite ? { enabled: true, threshold: spotSettings.paperWhiteThreshold ?? 92 } : undefined)
+  const channels = buildSpotChannels(labelData, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout')
   const enabledColors = spotSettings.colors.filter((c) => c.enabled)
 
   const radialCenter = {
@@ -154,6 +156,16 @@ async function renderSpotChannelCanvases(
   const maskOverlay = await buildMaskOverlay(options.mask ?? null, ms, targetWidth, targetHeight)
 
   const result = new Map<string, { canvas: HTMLCanvasElement; label: string; bleedPx?: number }>()
+
+  // Underbase plate (printed first): union of all inked area, choked inward.
+  if (spotSettings.underbase?.enabled) {
+    const chokePx = Math.round((spotSettings.underbase.chokeInches ?? 0) * outputSettings.dpi)
+    const ubCanvas = document.createElement('canvas')
+    ubCanvas.width = targetWidth; ubCanvas.height = targetHeight
+    ubCanvas.getContext('2d')!.putImageData(buildUnderbaseChannel(labelData, chokePx), 0, 0)
+    if (maskOverlay) applyCutOverlayToCanvas(ubCanvas, maskOverlay)
+    result.set('__underbase__', { canvas: ubCanvas, label: 'Underbase' })
+  }
 
   for (const color of enabledColors) {
     const channelData = channels.get(color.id)
@@ -192,7 +204,7 @@ async function renderSpotChannelCanvases(
     canvas.height = renderH
     const ctx = canvas.getContext('2d')!
 
-    if (color.renderMode === 'flat') {
+    if (buildup || color.renderMode === 'flat') {
       renderFlat(ctx, effectiveChannelData, color.threshold)
     } else {
       renderHalftone(ctx, {
@@ -447,7 +459,8 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
   proofCanvas.width  = totalW
   proofCanvas.height = totalH
   const proofCtx = proofCanvas.getContext('2d')!
-  proofCtx.fillStyle = '#ffffff'
+  // Substrate (paper/garment) colour backs the proof so dark/colored stock previews honestly.
+  proofCtx.fillStyle = spotSettings.substrate || '#ffffff'
   proofCtx.fillRect(0, 0, totalW, totalH)
 
   if (halftoneSettings.colorMode === 'cmyk') {
@@ -483,14 +496,28 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
 
   } else if (halftoneSettings.colorMode === 'spot') {
     // Separate ALL colors so disabled ones retain their pixels (paper/white).
-    const channels = separateSpotChannels(scaled, spotSettings.colors, (spotSettings.smoothing ?? 0) / 100,
+    const buildup = spotSettings.separationMode === 'buildup'
+    const proofLabelData = computeSpotLabels(scaled, spotSettings.colors,
       spotSettings.paperWhite ? { enabled: true, threshold: spotSettings.paperWhiteThreshold ?? 92 } : undefined)
+    const channels = buildSpotChannels(proofLabelData, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout')
+    // Build-up overprints, so paint light→dark (darkest opaque ink ends up on top).
     const enabledColors = spotSettings.colors.filter((c) => c.enabled)
+      .sort((a, b) => (buildup ? b.lab[0] - a.lab[0] : 0))
 
-    // NOTE: imgCtx is intentionally left transparent (no white fill).
-    // proofCanvas provides the white paper background; background-bleed layers
+    // NOTE: imgCtx is intentionally left transparent (no substrate fill).
+    // proofCanvas provides the substrate background; background-bleed layers
     // draw directly onto proofCanvas so their ink extends into the margin area.
     // Non-bleed layers draw onto imgCanvas which is then composited on top.
+
+    // Underbase (bottom layer): union of inked area, choked, in its ink colour.
+    if (spotSettings.underbase?.enabled) {
+      const chokePx = Math.round((spotSettings.underbase.chokeInches ?? 0) * dpi)
+      const ubColored = colorizeForOverlay(buildUnderbaseChannel(proofLabelData, chokePx), spotSettings.underbase.color || '#c0c0c0')
+      const ubCanvas = document.createElement('canvas')
+      ubCanvas.width = targetW; ubCanvas.height = targetH
+      ubCanvas.getContext('2d')!.putImageData(ubColored, 0, 0)
+      imgCtx.drawImage(ubCanvas, 0, 0)
+    }
 
     for (const color of enabledColors) {
       const channelData = channels.get(color.id)
@@ -524,7 +551,7 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
       offCanvas.height = offH
       const offCtx = offCanvas.getContext('2d')!
 
-      if (color.renderMode === 'flat') {
+      if (buildup || color.renderMode === 'flat') {
         renderFlat(offCtx, effectiveChannelData, color.threshold)
       } else {
         renderHalftone(offCtx, {
@@ -812,14 +839,16 @@ export async function exportChannelPNGs(options: ExportOptions): Promise<void> {
   if (options.halftoneSettings.colorMode === 'spot') {
     const spotEntries = [...(await renderSpotChannelCanvases(options)).entries()]
     const layerCount = spotEntries.length
+    let colorN = 0
     for (let i = 0; i < spotEntries.length; i++) {
       const [id, { canvas, bleedPx }] = spotEntries[i]
-      const isKey = id === '__key__'
-      const isStroke = id === '__maskstroke__'
-      // Layer numbers (one/two/three…) avoid filename collisions when two
-      // colors share a name; the key and mask-stroke plates keep their own labels.
-      const label = isKey ? 'Key' : isStroke ? 'Mask Stroke' : layerWord(i + 1)
-      const slug = isKey ? 'key' : isStroke ? 'mask-stroke' : label.toLowerCase()
+      // Special plates keep their own labels; color plates get layer numbers
+      // (one/two/three…) counted independently so underbase/key/stroke don't shift them.
+      let label: string, slug: string
+      if (id === '__underbase__')      { label = 'Underbase';   slug = 'underbase' }
+      else if (id === '__key__')       { label = 'Key';         slug = 'key' }
+      else if (id === '__maskstroke__'){ label = 'Mask Stroke'; slug = 'mask-stroke' }
+      else { colorN++; label = layerWord(colorN); slug = label.toLowerCase() }
       const page = composeChannelPage(canvas, bleedPx ?? 0, options.outputSettings, label, i / layerCount)
       await pushCanvas(page, `${stem}-${slug}.png`)
     }
@@ -1076,6 +1105,7 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
     const layerCount = spotEntries.length
     const labelStep = imageWPts / Math.max(1, layerCount)
     let first = true
+    let colorN = 0
 
     for (let layerIdx = 0; layerIdx < spotEntries.length; layerIdx++) {
       const [id, { canvas, bleedPx }] = spotEntries[layerIdx]
@@ -1091,10 +1121,12 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
         imageWPts + 2 * bleedPts, imageHPts + 2 * bleedPts)
 
       pdf.setTextColor(0)
-      // Layer number; the key and mask-stroke plates keep their own labels.
-      const plateLabel = id === '__key__' ? 'Key'
+      // Special plates keep their own labels; color plates get layer numbers
+      // counted independently so underbase/key/stroke don't shift them.
+      const plateLabel = id === '__underbase__' ? 'Underbase'
+        : id === '__key__' ? 'Key'
         : id === '__maskstroke__' ? 'Mask Stroke'
-        : layerWord(layerIdx + 1)
+        : layerWord(++colorN)
       const labelX = imgOffX + labelStep * layerIdx
       if (cropMarkPts > 0) {
         // Fill ~55% of the crop-mark waste strip and centre it vertically.

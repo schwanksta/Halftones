@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { SpotColor, SpotSettings, KeyPlateSettings, DEFAULT_KEY_PLATE } from '../types'
+import { SpotColor, SpotSettings, KeyPlateSettings, DEFAULT_KEY_PLATE, SeparationMode, DEFAULT_UNDERBASE } from '../types'
 import { extractPalette, mergeSimilarColors, labToHex, rgbToLab, guessColorName } from '../engine/spot-separation'
 import { EditableValue } from './EditableValue'
 
@@ -334,6 +334,80 @@ export function SpotColorEditor({
           onRemove={() => removeColor(color.id)}
         />
       ))}
+
+      {/* Printing / output */}
+      <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+        <div className="subsection-title">Printing</div>
+
+        <label className="control-row" title="Knockout: each pixel is one ink (exclusive regions). Build-up: nested overprint — each tone inks its plate plus every lighter plate beneath it, printed light→dark. Build-up is registration-forgiving and best for tonal/duotone palettes.">
+          <span>Separation</span>
+          <select
+            value={settings.separationMode ?? 'knockout'}
+            onChange={(e) => update({ separationMode: e.target.value as SeparationMode })}
+            disabled={disabled}
+          >
+            <option value="knockout">Knockout</option>
+            <option value="buildup">Build-up (overprint)</option>
+          </select>
+        </label>
+
+        <div className="control-row control-row--colors">
+          <span>Substrate</span>
+          <div className="color-pair">
+            <label className="color-swatch-label" title="Paper / garment color the proof & preview composite onto">
+              <span className="color-swatch-hint">Stock</span>
+              <input
+                type="color"
+                value={settings.substrate ?? '#ffffff'}
+                onChange={(e) => update({ substrate: e.target.value })}
+                disabled={disabled}
+              />
+            </label>
+          </div>
+        </div>
+
+        <label className="control-row control-row--toggle" title="Generate a base plate (union of all inked area, choked inward) printed first — e.g. white or silver under the whole design.">
+          <span>Underbase</span>
+          <input
+            type="checkbox"
+            checked={settings.underbase?.enabled ?? false}
+            onChange={(e) => update({ underbase: { ...DEFAULT_UNDERBASE, ...settings.underbase, enabled: e.target.checked } })}
+            disabled={disabled}
+          />
+        </label>
+
+        {settings.underbase?.enabled && (
+          <>
+            <div className="control-row control-row--colors">
+              <span>Base ink</span>
+              <div className="color-pair">
+                <label className="color-swatch-label">
+                  <span className="color-swatch-hint">Base</span>
+                  <input
+                    type="color"
+                    value={settings.underbase?.color ?? DEFAULT_UNDERBASE.color}
+                    onChange={(e) => update({ underbase: { ...DEFAULT_UNDERBASE, ...settings.underbase, enabled: true, color: e.target.value } })}
+                    disabled={disabled}
+                  />
+                </label>
+              </div>
+            </div>
+            <div className="control-row" title="Pull the underbase inward from the print edge so it doesn't peek out past the colors.">
+              <span>Choke <EditableValue
+                value={Math.round((settings.underbase?.chokeInches ?? 0) * 100) / 100}
+                min={0} max={0.2} step={0.01} suffix='"'
+                onChange={(v) => update({ underbase: { ...DEFAULT_UNDERBASE, ...settings.underbase, enabled: true, chokeInches: v } })}
+              /></span>
+              <input
+                type="range" min={0} max={0.2} step={0.01}
+                value={settings.underbase?.chokeInches ?? 0}
+                onChange={(e) => update({ underbase: { ...DEFAULT_UNDERBASE, ...settings.underbase, enabled: true, chokeInches: Number(e.target.value) } })}
+                disabled={disabled}
+              />
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Key plate */}
       <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
