@@ -261,18 +261,23 @@ async function renderSpotChannelCanvases(
     }
 
     // Edge stroke (Sobel): burn contour lines into the key plate.
+    // Detect at SOURCE resolution (same as the preview) then scale the mask up
+    // to output res — Sobel magnitude is resolution-dependent, so detecting on
+    // the full-res `scaled` image passed a different (sparser) edge set than the
+    // preview.  Nearest-neighbour scaling keeps the contour crisp/1-bit.
     if (key.strokeEnabled) {
-      const edgeMask = computeEdgeMask(scaled, key.strokeThreshold ?? 0.3)
+      const edgeSrc = computeEdgeMask(transformed, key.strokeThreshold ?? 0.3)
+      const edgeSrcCanvas = document.createElement('canvas')
+      edgeSrcCanvas.width = transformed.width; edgeSrcCanvas.height = transformed.height
+      edgeSrcCanvas.getContext('2d')!.putImageData(edgeSrc, 0, 0)
+      const edgeScaled = document.createElement('canvas')
+      edgeScaled.width = targetWidth; edgeScaled.height = targetHeight
+      const esCtx = edgeScaled.getContext('2d')!
+      esCtx.imageSmoothingEnabled = false
+      esCtx.drawImage(edgeSrcCanvas, 0, 0, targetWidth, targetHeight)
       const strokePx = key.strokeWidth ?? 2
-      let edgeToDraw: ImageData = edgeMask
-      if (strokePx > 1) {
-        const edgeTmp = document.createElement('canvas')
-        edgeTmp.width = targetWidth; edgeTmp.height = targetHeight
-        edgeTmp.getContext('2d')!.putImageData(edgeMask, 0, 0)
-        const dilated = dilateMask(edgeTmp, strokePx)
-        edgeToDraw = dilated.getContext('2d')!.getImageData(0, 0, targetWidth, targetHeight)
-      }
-      applyEdgeMaskToCanvas(keyCanvas, edgeToDraw)
+      const edgeFinal = strokePx > 1 ? dilateMask(edgeScaled, strokePx) : edgeScaled
+      applyEdgeMaskToCanvas(keyCanvas, edgeFinal.getContext('2d')!.getImageData(0, 0, targetWidth, targetHeight))
     }
 
     // Alpha boundary outline: solid ring around the subject silhouette.
@@ -616,19 +621,21 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
         keyCtx.fillRect(0, 0, targetW, targetH)
       }
 
-      // Edge stroke (Sobel) on color proof matches the plate output.
+      // Edge stroke (Sobel) on color proof — detect at source res then scale,
+      // matching the plate output and the preview.
       if (key.strokeEnabled) {
-        const edgeMask = computeEdgeMask(scaled, key.strokeThreshold ?? 0.3)
+        const edgeSrc = computeEdgeMask(transformed, key.strokeThreshold ?? 0.3)
+        const edgeSrcCanvas = document.createElement('canvas')
+        edgeSrcCanvas.width = transformed.width; edgeSrcCanvas.height = transformed.height
+        edgeSrcCanvas.getContext('2d')!.putImageData(edgeSrc, 0, 0)
+        const edgeScaled = document.createElement('canvas')
+        edgeScaled.width = targetW; edgeScaled.height = targetH
+        const esCtx = edgeScaled.getContext('2d')!
+        esCtx.imageSmoothingEnabled = false
+        esCtx.drawImage(edgeSrcCanvas, 0, 0, targetW, targetH)
         const strokePx = key.strokeWidth ?? 2
-        let edgeToDraw: ImageData = edgeMask
-        if (strokePx > 1) {
-          const edgeTmp = document.createElement('canvas')
-          edgeTmp.width = targetW; edgeTmp.height = targetH
-          edgeTmp.getContext('2d')!.putImageData(edgeMask, 0, 0)
-          const dilated = dilateMask(edgeTmp, strokePx)
-          edgeToDraw = dilated.getContext('2d')!.getImageData(0, 0, targetW, targetH)
-        }
-        applyEdgeMaskToCanvas(keyCanvas, edgeToDraw)
+        const edgeFinal = strokePx > 1 ? dilateMask(edgeScaled, strokePx) : edgeScaled
+        applyEdgeMaskToCanvas(keyCanvas, edgeFinal.getContext('2d')!.getImageData(0, 0, targetW, targetH))
       }
 
       // Alpha boundary outline: solid ring around the subject silhouette.

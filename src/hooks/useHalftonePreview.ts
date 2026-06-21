@@ -232,6 +232,23 @@ export function useHalftonePreview(
     return c
   }, [transformed, halftoneSettings.colorMode, spotSettings.key])
 
+  // ── Key edge-stroke canvas ─────────────────────────────────────────────────
+  //
+  // Sobel edges are detected at SOURCE resolution (memoized), then extracted to
+  // the viewport here and scaled to output res on export.  Detecting at a fixed
+  // resolution keeps the edge set stable across zoom and makes preview match
+  // export — running Sobel at the viewport/output resolution changed which edges
+  // passed the (magnitude-normalized) threshold.
+  const keyEdgeCanvas = useMemo(() => {
+    if (!transformed || halftoneSettings.colorMode !== 'spot') return null
+    if (!spotSettings.key?.enabled || !spotSettings.key.strokeEnabled) return null
+    const edge = computeEdgeMask(transformed, spotSettings.key.strokeThreshold ?? 0.3)
+    const c = document.createElement('canvas')
+    c.width = transformed.width; c.height = transformed.height
+    c.getContext('2d')!.putImageData(edge, 0, 0)
+    return c
+  }, [transformed, halftoneSettings.colorMode, spotSettings.key])
+
   // ── Mask overlay canvas ────────────────────────────────────────────────────
   //
   // Built asynchronously at source resolution (same dimensions as transformed),
@@ -474,8 +491,12 @@ export function useHalftonePreview(
         }
 
         // Edge stroke: overlay Sobel contour lines on the key plate halftone.
-        if (key.strokeEnabled) {
-          const edgeMask = computeEdgeMask(keyRegion, key.strokeThreshold ?? 0.3)
+        // Edges are detected at source res (keyEdgeCanvas) and extracted here, so
+        // the edge set is stable across zoom and matches export.
+        if (key.strokeEnabled && keyEdgeCanvas) {
+          const edgeMask = extractRegionFromCanvas(
+            keyEdgeCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff',
+          )
           // strokeWidth is in output-DPI pixels; scale to viewport pixels, min 1
           const outStrokePx = key.strokeWidth ?? 2
           const previewStrokePx = outStrokePx > 0
@@ -582,7 +603,7 @@ export function useHalftonePreview(
     canvasRef, transformed, transformedCanvas, stippleCanvas,
     spotSettings.colors, spotSettings.vibrancy, spotSettings.trap, spotSettings.key,
     spotSettings.separationMode, spotSettings.substrate, spotSettings.underbase,
-    spotChannelCanvases, alphaOutlineCanvas, underbaseCanvas,
+    spotChannelCanvases, alphaOutlineCanvas, keyEdgeCanvas, underbaseCanvas,
     maskOverlayCanvas, maskStrokeCanvas,
     halftoneSettings, cmykSettings, channelView, outputSettings, viewport,
   ])
