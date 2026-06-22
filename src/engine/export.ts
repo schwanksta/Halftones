@@ -2,7 +2,7 @@ import { HalftoneSettings, CMYKSettings, OutputSettings, ImageTransformSettings,
 import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from './edge'
 import { renderHalftone } from './halftone'
 import { separateChannels } from './cmyk'
-import { computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, renderFlat, boostSaturation } from './spot-separation'
+import { computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, renderFlat, boostSaturation, darkestSpotColor } from './spot-separation'
 import { setPngDpi } from './png-metadata'
 import { applyTransforms } from './transform'
 import { dilateMask } from './dilate'
@@ -167,74 +167,13 @@ async function renderSpotChannelCanvases(
     result.set('__underbase__', { canvas: ubCanvas, label: 'Underbase' })
   }
 
-  for (const color of enabledColors) {
-    const channelData = channels.get(color.id)
-    if (!channelData) continue
-
-    // Bleed: expand the channel source data BEFORE rendering so the halftone
-    // (or flat fill) naturally extends into the bleed area.  Same approach as
-    // the preview — avoids the solid-black border that a post-render expansion
-    // would produce for halftone backgrounds.
-    const bleedPx = color.type === 'background' && (color.bleedInches ?? 0) > 0
-      ? Math.round(color.bleedInches! * outputSettings.dpi)
-      : 0
-
-    let effectiveChannelData = channelData
-    let renderW = targetWidth
-    let renderH = targetHeight
-    if (bleedPx > 0) {
-      const expW = targetWidth  + 2 * bleedPx
-      const expH = targetHeight + 2 * bleedPx
-      // Build expanded channel: border = 0 (full ink), image = original channel
-      const expandSrc = document.createElement('canvas')
-      expandSrc.width = targetWidth; expandSrc.height = targetHeight
-      expandSrc.getContext('2d')!.putImageData(channelData, 0, 0)
-      const expandDst = document.createElement('canvas')
-      expandDst.width = expW; expandDst.height = expH
-      const expandCtx = expandDst.getContext('2d')!
-      expandCtx.fillStyle = '#000000'
-      expandCtx.fillRect(0, 0, expW, expH)
-      expandCtx.drawImage(expandSrc, bleedPx, bleedPx)
-      effectiveChannelData = expandCtx.getImageData(0, 0, expW, expH)
-      renderW = expW; renderH = expH
-    }
-
-    const canvas = document.createElement('canvas')
-    canvas.width  = renderW
-    canvas.height = renderH
-    const ctx = canvas.getContext('2d')!
-
-    if (buildup || color.renderMode === 'flat') {
-      renderFlat(ctx, effectiveChannelData, color.threshold)
-    } else {
-      renderHalftone(ctx, {
-        source: effectiveChannelData,
-        settings: { ...halftoneSettings, angle: color.angle, lpi: color.lpi },
-        renderDpi: outputSettings.dpi,
-        radialCenter,
-        isExport: true,
-      })
-    }
-
-    // Apply mask overlay to the image-rect portion of the plate.
-    // Bleed extends OUTSIDE the mask region — leave those pixels as-is
-    // (they're in the margin and won't appear in the final trimmed piece).
-    if (maskOverlay) {
-      ctx.drawImage(maskOverlay, bleedPx, bleedPx)
-    }
-
-    // Trap: dilate the plate so this layer's ink spreads outward, overlapping
-    // neighbouring colors on press and hiding visible paper seams.
-    const trap = trapFor(color, spotSettings)
-    const finalCanvas = trap > 0 ? dilateMask(canvas, trap) : canvas
-
-    result.set(color.id, { canvas: finalCanvas, label: color.name, bleedPx: bleedPx || undefined })
-  }
-
-  // Key plate: halftone of the full image (not color-separated).
+  // Key plate content (dots + edge stroke + outline), rendered black-on-white.
+  // Built before the per-color loop so it can be merged directly into the
+  // darkest color's plate instead of exported as its own layer.
+  let keyCanvas: HTMLCanvasElement | null = null
   if (spotSettings.key?.enabled) {
     const key = spotSettings.key
-    const keyCanvas = document.createElement('canvas')
+    keyCanvas = document.createElement('canvas')
     keyCanvas.width  = targetWidth
     keyCanvas.height = targetHeight
     const keyCtx = keyCanvas.getContext('2d')!
@@ -285,10 +224,90 @@ async function renderSpotChannelCanvases(
       const outlineMask = computeAlphaBoundaryMask(scaled, key.outlineWidth ?? 3)
       applyEdgeMaskToCanvas(keyCanvas, outlineMask)
     }
+  }
 
-    // Apply mask to key plate.
+  // When merging, fold the key plate's ink directly into the darkest enabled
+  // color's plate (one screen, that color's ink) instead of exporting it as a
+  // separate overprinted layer. Falls back to a standalone key plate if there's
+  // no enabled spot color to merge into.
+  const keyMergeTarget = spotSettings.key?.enabled && spotSettings.key.mergeWithDarkest
+    ? darkestSpotColor(spotSettings.colors)
+    : null
+
+  for (const color of enabledColors) {
+    const channelData = channels.get(color.id)
+    if (!channelData) continue
+
+    // Bleed: expand the channel source data BEFORE rendering so the halftone
+    // (or flat fill) naturally extends into the bleed area.  Same approach as
+    // the preview — avoids the solid-black border that a post-render expansion
+    // would produce for halftone backgrounds.
+    const bleedPx = color.type === 'background' && (color.bleedInches ?? 0) > 0
+      ? Math.round(color.bleedInches! * outputSettings.dpi)
+      : 0
+
+    let effectiveChannelData = channelData
+    let renderW = targetWidth
+    let renderH = targetHeight
+    if (bleedPx > 0) {
+      const expW = targetWidth  + 2 * bleedPx
+      const expH = targetHeight + 2 * bleedPx
+      // Build expanded channel: border = 0 (full ink), image = original channel
+      const expandSrc = document.createElement('canvas')
+      expandSrc.width = targetWidth; expandSrc.height = targetHeight
+      expandSrc.getContext('2d')!.putImageData(channelData, 0, 0)
+      const expandDst = document.createElement('canvas')
+      expandDst.width = expW; expandDst.height = expH
+      const expandCtx = expandDst.getContext('2d')!
+      expandCtx.fillStyle = '#000000'
+      expandCtx.fillRect(0, 0, expW, expH)
+      expandCtx.drawImage(expandSrc, bleedPx, bleedPx)
+      effectiveChannelData = expandCtx.getImageData(0, 0, expW, expH)
+      renderW = expW; renderH = expH
+    }
+
+    const canvas = document.createElement('canvas')
+    canvas.width  = renderW
+    canvas.height = renderH
+    const ctx = canvas.getContext('2d')!
+
+    if (buildup || color.renderMode === 'flat') {
+      renderFlat(ctx, effectiveChannelData, color.threshold)
+    } else {
+      renderHalftone(ctx, {
+        source: effectiveChannelData,
+        settings: { ...halftoneSettings, angle: color.angle, lpi: color.lpi },
+        renderDpi: outputSettings.dpi,
+        radialCenter,
+        isExport: true,
+      })
+    }
+
+    // Merge the key plate's ink into this color's plate (one screen) when
+    // mergeWithDarkest targets this color — masked/trapped together below.
+    if (keyMergeTarget && color.id === keyMergeTarget.id && keyCanvas) {
+      applyEdgeMaskToCanvas(canvas, keyCanvas.getContext('2d')!.getImageData(0, 0, targetWidth, targetHeight))
+    }
+
+    // Apply mask overlay to the image-rect portion of the plate.
+    // Bleed extends OUTSIDE the mask region — leave those pixels as-is
+    // (they're in the margin and won't appear in the final trimmed piece).
+    if (maskOverlay) {
+      ctx.drawImage(maskOverlay, bleedPx, bleedPx)
+    }
+
+    // Trap: dilate the plate so this layer's ink spreads outward, overlapping
+    // neighbouring colors on press and hiding visible paper seams.
+    const trap = trapFor(color, spotSettings)
+    const finalCanvas = trap > 0 ? dilateMask(canvas, trap) : canvas
+
+    result.set(color.id, { canvas: finalCanvas, label: color.name, bleedPx: bleedPx || undefined })
+  }
+
+  // Key plate: exported as its own layer only when NOT merged into a color
+  // plate above (merge is off, or there's no enabled spot color to merge into).
+  if (keyCanvas && !keyMergeTarget) {
     if (maskOverlay) applyCutOverlayToCanvas(keyCanvas, maskOverlay)
-
     result.set('__key__', { canvas: keyCanvas, label: 'Key' })
   }
 
@@ -524,80 +543,13 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
       imgCtx.drawImage(ubCanvas, 0, 0)
     }
 
-    for (const color of enabledColors) {
-      const channelData = channels.get(color.id)
-      if (!channelData) continue
-
-      // Bleed: expand the channel source data BEFORE rendering so the halftone
-      // or flat fill naturally extends through the bleed area.
-      const bleedPx = color.type === 'background' && (color.bleedInches ?? 0) > 0
-        ? Math.round(color.bleedInches! * dpi) : 0
-
-      let effectiveChannelData = channelData
-      let offW = targetW, offH = targetH
-      if (bleedPx > 0) {
-        const expW = targetW + 2 * bleedPx
-        const expH = targetH + 2 * bleedPx
-        const expandSrc = document.createElement('canvas')
-        expandSrc.width = targetW; expandSrc.height = targetH
-        expandSrc.getContext('2d')!.putImageData(channelData, 0, 0)
-        const expandDst = document.createElement('canvas')
-        expandDst.width = expW; expandDst.height = expH
-        const expandCtx = expandDst.getContext('2d')!
-        expandCtx.fillStyle = '#000000'
-        expandCtx.fillRect(0, 0, expW, expH)
-        expandCtx.drawImage(expandSrc, bleedPx, bleedPx)
-        effectiveChannelData = expandCtx.getImageData(0, 0, expW, expH)
-        offW = expW; offH = expH
-      }
-
-      const offCanvas = document.createElement('canvas')
-      offCanvas.width  = offW
-      offCanvas.height = offH
-      const offCtx = offCanvas.getContext('2d')!
-
-      if (buildup || color.renderMode === 'flat') {
-        renderFlat(offCtx, effectiveChannelData, color.threshold)
-      } else {
-        renderHalftone(offCtx, {
-          source: effectiveChannelData,
-          settings: { ...bwSettings(halftoneSettings), angle: color.angle, lpi: color.lpi },
-          renderDpi: dpi,
-          radialCenter,
-          outputDpi: dpi,
-          isExport: true,
-        })
-      }
-
-      // Trap: dilate the BW mask before colorize.
-      const trap = trapFor(color, spotSettings)
-      const maskCanvas = trap > 0 ? dilateMask(offCanvas, trap) : offCanvas
-      const maskCtx = maskCanvas.getContext('2d')!
-      const displayHex = boostSaturation(color.hex, spotSettings.vibrancy ?? 0)
-      const colored = colorizeForOverlay(
-        maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height), displayHex)
-      const overlayCanvas = document.createElement('canvas')
-      overlayCanvas.width = maskCanvas.width
-      overlayCanvas.height = maskCanvas.height
-      overlayCanvas.getContext('2d')!.putImageData(colored, 0, 0)
-
-      if (color.type === 'background' && bleedPx > 0) {
-        // Draw directly onto proofCanvas so bleed ink extends into the margin.
-        // The expanded overlay is (targetW + 2*bleedPx) × (targetH + 2*bleedPx);
-        // positioning at (marginPx - bleedPx, marginPx - bleedPx) lands the
-        // image-area portion at (marginPx, marginPx) and lets the bleed surround it.
-        proofCtx.globalCompositeOperation = 'source-over'
-        proofCtx.drawImage(overlayCanvas, marginPx - bleedPx, marginPx - bleedPx)
-      } else {
-        imgCtx.globalCompositeOperation = 'source-over'
-        imgCtx.drawImage(overlayCanvas, 0, 0)
-      }
-    }
-
-    // Key plate: overprint halftone of the full image on top of all colors.
+    // Key plate content (dots + edge stroke + outline), rendered black-on-white.
+    // Built before the per-color loop so it can be merged directly into the
+    // darkest color's plate instead of overprinted as its own layer.
+    let keyCanvas: HTMLCanvasElement | null = null
     if (spotSettings.key?.enabled) {
       const key = spotSettings.key
-      const keyCanvas = document.createElement('canvas')
+      keyCanvas = document.createElement('canvas')
       keyCanvas.width = targetW; keyCanvas.height = targetH
       const keyCtx = keyCanvas.getContext('2d')!
       if (key.dotsEnabled !== false) {
@@ -643,9 +595,97 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
         const outlineMask = computeAlphaBoundaryMask(scaled, key.outlineWidth ?? 3)
         applyEdgeMaskToCanvas(keyCanvas, outlineMask)
       }
+    }
 
-      const keyImgData = keyCtx.getImageData(0, 0, targetW, targetH)
-      const keyColored = colorizeForOverlay(keyImgData, key.color)
+    // When merging, fold the key plate's ink directly into the darkest enabled
+    // color's plate (one screen, that color's hue) instead of compositing it as
+    // a separate overprinted layer. Falls back to a standalone key layer if
+    // there's no enabled spot color to merge into.
+    const keyMergeTarget = spotSettings.key?.enabled && spotSettings.key.mergeWithDarkest
+      ? darkestSpotColor(spotSettings.colors)
+      : null
+
+    for (const color of enabledColors) {
+      const channelData = channels.get(color.id)
+      if (!channelData) continue
+
+      // Bleed: expand the channel source data BEFORE rendering so the halftone
+      // or flat fill naturally extends through the bleed area.
+      const bleedPx = color.type === 'background' && (color.bleedInches ?? 0) > 0
+        ? Math.round(color.bleedInches! * dpi) : 0
+
+      let effectiveChannelData = channelData
+      let offW = targetW, offH = targetH
+      if (bleedPx > 0) {
+        const expW = targetW + 2 * bleedPx
+        const expH = targetH + 2 * bleedPx
+        const expandSrc = document.createElement('canvas')
+        expandSrc.width = targetW; expandSrc.height = targetH
+        expandSrc.getContext('2d')!.putImageData(channelData, 0, 0)
+        const expandDst = document.createElement('canvas')
+        expandDst.width = expW; expandDst.height = expH
+        const expandCtx = expandDst.getContext('2d')!
+        expandCtx.fillStyle = '#000000'
+        expandCtx.fillRect(0, 0, expW, expH)
+        expandCtx.drawImage(expandSrc, bleedPx, bleedPx)
+        effectiveChannelData = expandCtx.getImageData(0, 0, expW, expH)
+        offW = expW; offH = expH
+      }
+
+      const offCanvas = document.createElement('canvas')
+      offCanvas.width  = offW
+      offCanvas.height = offH
+      const offCtx = offCanvas.getContext('2d')!
+
+      if (buildup || color.renderMode === 'flat') {
+        renderFlat(offCtx, effectiveChannelData, color.threshold)
+      } else {
+        renderHalftone(offCtx, {
+          source: effectiveChannelData,
+          settings: { ...bwSettings(halftoneSettings), angle: color.angle, lpi: color.lpi },
+          renderDpi: dpi,
+          radialCenter,
+          outputDpi: dpi,
+          isExport: true,
+        })
+      }
+
+      // Merge the key plate's ink into this color's plate (one screen) when
+      // mergeWithDarkest targets this color — trapped/colorized together below.
+      if (keyMergeTarget && color.id === keyMergeTarget.id && keyCanvas) {
+        applyEdgeMaskToCanvas(offCanvas, keyCanvas.getContext('2d')!.getImageData(0, 0, targetW, targetH))
+      }
+
+      // Trap: dilate the BW mask before colorize.
+      const trap = trapFor(color, spotSettings)
+      const maskCanvas = trap > 0 ? dilateMask(offCanvas, trap) : offCanvas
+      const maskCtx = maskCanvas.getContext('2d')!
+      const displayHex = boostSaturation(color.hex, spotSettings.vibrancy ?? 0)
+      const colored = colorizeForOverlay(
+        maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height), displayHex)
+      const overlayCanvas = document.createElement('canvas')
+      overlayCanvas.width = maskCanvas.width
+      overlayCanvas.height = maskCanvas.height
+      overlayCanvas.getContext('2d')!.putImageData(colored, 0, 0)
+
+      if (color.type === 'background' && bleedPx > 0) {
+        // Draw directly onto proofCanvas so bleed ink extends into the margin.
+        // The expanded overlay is (targetW + 2*bleedPx) × (targetH + 2*bleedPx);
+        // positioning at (marginPx - bleedPx, marginPx - bleedPx) lands the
+        // image-area portion at (marginPx, marginPx) and lets the bleed surround it.
+        proofCtx.globalCompositeOperation = 'source-over'
+        proofCtx.drawImage(overlayCanvas, marginPx - bleedPx, marginPx - bleedPx)
+      } else {
+        imgCtx.globalCompositeOperation = 'source-over'
+        imgCtx.drawImage(overlayCanvas, 0, 0)
+      }
+    }
+
+    // Key plate: overprinted on top of all colors only when NOT merged into a
+    // color plate above (merge is off, or there's no enabled spot color).
+    if (keyCanvas && !keyMergeTarget) {
+      const keyImgData = keyCanvas.getContext('2d')!.getImageData(0, 0, targetW, targetH)
+      const keyColored = colorizeForOverlay(keyImgData, spotSettings.key!.color)
       const keyOverlay = document.createElement('canvas')
       keyOverlay.width = targetW; keyOverlay.height = targetH
       keyOverlay.getContext('2d')!.putImageData(keyColored, 0, 0)

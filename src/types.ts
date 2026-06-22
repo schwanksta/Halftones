@@ -90,6 +90,13 @@ export interface KeyPlateSettings {
    * Set to false to use only edge stroke and/or outline without tonal dots.
    */
   dotsEnabled?: boolean
+  /**
+   * Merge the key plate into the darkest enabled spot color's plate instead of
+   * exporting/rendering it as its own overprinted layer. Useful when the key
+   * detail is meant to print in the same ink as the darkest separation color
+   * (one screen instead of two). The merged content uses that color's ink hue.
+   */
+  mergeWithDarkest?: boolean
 }
 
 export const DEFAULT_KEY_PLATE: KeyPlateSettings = {

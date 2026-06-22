@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { SpotColor, SpotSettings, KeyPlateSettings, DEFAULT_KEY_PLATE, SeparationMode, DEFAULT_UNDERBASE } from '../types'
-import { extractPalette, mergeSimilarColors, labToHex, rgbToLab, guessColorName } from '../engine/spot-separation'
+import { extractPalette, mergeSimilarColors, labToHex, rgbToLab, guessColorName, darkestSpotColor } from '../engine/spot-separation'
 import { EditableValue } from './EditableValue'
 
 interface Props {
@@ -435,16 +435,38 @@ export function SpotColorEditor({
                 disabled={disabled}
               />
             </label>
-            <div className="control-row control-row--colors">
+            <label className="control-row control-row--toggle">
+              <span title="Print the key plate's dots/strokes on the same screen as the darkest separation color, instead of as its own overprinted plate">
+                Merge with Darkest Color
+                {keySettings.mergeWithDarkest && (
+                  <>
+                    {' '}
+                    <small style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>
+                      {(() => {
+                        const target = darkestSpotColor(settings.colors)
+                        return target ? `→ ${target.name}` : '(no enabled color)'
+                      })()}
+                    </small>
+                  </>
+                )}
+              </span>
+              <input
+                type="checkbox"
+                checked={keySettings.mergeWithDarkest ?? false}
+                onChange={(e) => updateKey({ mergeWithDarkest: e.target.checked })}
+                disabled={disabled}
+              />
+            </label>
+            <div className="control-row control-row--colors" style={{ opacity: keySettings.mergeWithDarkest ? 0.4 : 1 }}>
               <span>Ink</span>
               <div className="color-pair">
-                <label className="color-swatch-label" title="Key plate ink color">
+                <label className="color-swatch-label" title={keySettings.mergeWithDarkest ? 'Unused while merged — uses the darkest color\'s ink' : 'Key plate ink color'}>
                   <span className="color-swatch-hint">Key</span>
                   <input
                     type="color"
                     value={keySettings.color}
                     onChange={(e) => updateKey({ color: e.target.value })}
-                    disabled={disabled}
+                    disabled={disabled || keySettings.mergeWithDarkest}
                   />
                 </label>
               </div>

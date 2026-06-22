@@ -6,7 +6,7 @@ import {
 } from '../types'
 import { renderHalftone } from '../engine/halftone'
 import { renderStipple } from '../engine/stipple'
-import { renderFlat, computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, boostSaturation } from '../engine/spot-separation'
+import { renderFlat, computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, boostSaturation, darkestSpotColor } from '../engine/spot-separation'
 import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from '../engine/edge'
 import { separateChannels, compositeChannels } from '../engine/cmyk'
 import { applyTransforms } from '../engine/transform'
@@ -372,6 +372,82 @@ export function useHalftonePreview(
         offCtx.drawImage(ubc, 0, 0)
       }
 
+      // Key plate content (dots + edge stroke + outline), rendered black-on-white.
+      // Built before the color loop so it can optionally be merged directly into
+      // the darkest color's plate instead of overprinted as its own layer.
+      let keyBwCanvas: HTMLCanvasElement | null = null
+      if (spotSettings.key?.enabled) {
+        const key = spotSettings.key
+        const keyRegion = extractRegionFromCanvas(
+          transformedCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff',
+        )
+        keyBwCanvas = document.createElement('canvas')
+        keyBwCanvas.width = canvasW; keyBwCanvas.height = canvasH
+        const keyBwCtx = keyBwCanvas.getContext('2d')!
+        if (key.dotsEnabled !== false) {
+          renderHalftone(keyBwCtx, {
+            source: keyRegion,
+            settings: {
+              ...halftoneSettings,
+              lpi: key.lpi,
+              angle: key.angle,
+              minDot: key.minDot,
+              maxDot: key.maxDot,
+              fgColor: '#000000',
+              bgColor: '#ffffff',
+              invert: false,
+            },
+            renderDpi,
+            radialCenter,
+            outputDpi: outputSettings.dpi,
+          })
+        } else {
+          // No dots — fill white so strokes composite correctly
+          keyBwCtx.fillStyle = '#ffffff'
+          keyBwCtx.fillRect(0, 0, canvasW, canvasH)
+        }
+
+        // Edge stroke: overlay Sobel contour lines on the key plate halftone.
+        // Edges are detected at source res (keyEdgeCanvas) and extracted here, so
+        // the edge set is stable across zoom and matches export.
+        if (key.strokeEnabled && keyEdgeCanvas) {
+          const edgeMask = extractRegionFromCanvas(
+            keyEdgeCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff',
+          )
+          // strokeWidth is in output-DPI pixels; scale to viewport pixels, min 1
+          const outStrokePx = key.strokeWidth ?? 2
+          const previewStrokePx = outStrokePx > 0
+            ? Math.max(1, Math.round(outStrokePx * renderDpi / outputSettings.dpi))
+            : 0
+
+          let edgeToDraw: ImageData = edgeMask
+          if (previewStrokePx > 1) {
+            const edgeTmp = document.createElement('canvas')
+            edgeTmp.width = canvasW; edgeTmp.height = canvasH
+            edgeTmp.getContext('2d')!.putImageData(edgeMask, 0, 0)
+            const dilated = dilateMask(edgeTmp, previewStrokePx)
+            edgeToDraw = dilated.getContext('2d')!.getImageData(0, 0, canvasW, canvasH)
+          }
+          applyEdgeMaskToCanvas(keyBwCanvas, edgeToDraw)
+        }
+
+        // Alpha boundary outline: solid ring around the subject silhouette.
+        // Computed at source resolution (memoized), extracted to viewport here.
+        if (key.outlineEnabled && alphaOutlineCanvas) {
+          const outlineViewport = extractRegionFromCanvas(
+            alphaOutlineCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff',
+          )
+          applyEdgeMaskToCanvas(keyBwCanvas, outlineViewport)
+        }
+      }
+
+      // When merging, the key's ink is folded directly into the darkest enabled
+      // color's plate (same screen, that color's hue) instead of overprinted as
+      // its own layer. Falls back to a standalone key layer if no spot color exists.
+      const keyMergeTarget = spotSettings.key?.enabled && spotSettings.key.mergeWithDarkest
+        ? darkestSpotColor(spotSettings.colors)
+        : null
+
       // Spot color channels — only when separation is available.
       if (spotSettings.colors.length > 0 && spotChannelCanvases) {
         const globalTrap = spotSettings.trap ?? 0
@@ -434,6 +510,13 @@ export function useHalftonePreview(
             })
           }
 
+          // Merge the key plate's ink into this color's plate (one screen) when
+          // mergeWithDarkest targets this color — trapped/colorized together below.
+          if (keyMergeTarget && color.id === keyMergeTarget.id && keyBwCanvas) {
+            const keyImgData = keyBwCanvas.getContext('2d')!.getImageData(0, 0, canvasW, canvasH)
+            applyEdgeMaskToCanvas(bwCanvas, keyImgData)
+          }
+
           // Trap: dilate the BW mask so this layer's ink spreads outward and
           // bleeds under adjacent layers, hiding seams between halftone/flat.
           // Per-color override (including 0) wins over the global value.
@@ -457,74 +540,11 @@ export function useHalftonePreview(
         }
       }
 
-      // Key plate: halftone of the full image overprinted on top of all colors.
-      // Rendered independently — does not require spot colors to be present.
-      if (spotSettings.key?.enabled) {
-        const key = spotSettings.key
-        const keyRegion = extractRegionFromCanvas(
-          transformedCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff',
-        )
-        const keyBwCanvas = document.createElement('canvas')
-        keyBwCanvas.width = canvasW; keyBwCanvas.height = canvasH
-        const keyBwCtx = keyBwCanvas.getContext('2d')!
-        if (key.dotsEnabled !== false) {
-          renderHalftone(keyBwCtx, {
-            source: keyRegion,
-            settings: {
-              ...halftoneSettings,
-              lpi: key.lpi,
-              angle: key.angle,
-              minDot: key.minDot,
-              maxDot: key.maxDot,
-              fgColor: '#000000',
-              bgColor: '#ffffff',
-              invert: false,
-            },
-            renderDpi,
-            radialCenter,
-            outputDpi: outputSettings.dpi,
-          })
-        } else {
-          // No dots — fill white so strokes composite correctly
-          keyBwCtx.fillStyle = '#ffffff'
-          keyBwCtx.fillRect(0, 0, canvasW, canvasH)
-        }
-
-        // Edge stroke: overlay Sobel contour lines on the key plate halftone.
-        // Edges are detected at source res (keyEdgeCanvas) and extracted here, so
-        // the edge set is stable across zoom and matches export.
-        if (key.strokeEnabled && keyEdgeCanvas) {
-          const edgeMask = extractRegionFromCanvas(
-            keyEdgeCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff',
-          )
-          // strokeWidth is in output-DPI pixels; scale to viewport pixels, min 1
-          const outStrokePx = key.strokeWidth ?? 2
-          const previewStrokePx = outStrokePx > 0
-            ? Math.max(1, Math.round(outStrokePx * renderDpi / outputSettings.dpi))
-            : 0
-
-          let edgeToDraw: ImageData = edgeMask
-          if (previewStrokePx > 1) {
-            const edgeTmp = document.createElement('canvas')
-            edgeTmp.width = canvasW; edgeTmp.height = canvasH
-            edgeTmp.getContext('2d')!.putImageData(edgeMask, 0, 0)
-            const dilated = dilateMask(edgeTmp, previewStrokePx)
-            edgeToDraw = dilated.getContext('2d')!.getImageData(0, 0, canvasW, canvasH)
-          }
-          applyEdgeMaskToCanvas(keyBwCanvas, edgeToDraw)
-        }
-
-        // Alpha boundary outline: solid ring around the subject silhouette.
-        // Computed at source resolution (memoized), extracted to viewport here.
-        if (key.outlineEnabled && alphaOutlineCanvas) {
-          const outlineViewport = extractRegionFromCanvas(
-            alphaOutlineCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff',
-          )
-          applyEdgeMaskToCanvas(keyBwCanvas, outlineViewport)
-        }
-
-        const keyImgData = keyBwCtx.getImageData(0, 0, canvasW, canvasH)
-        const keyColored = colorizeSpot(keyImgData, key.color)
+      // Key plate overlay: only drawn as its own layer when NOT merged into a
+      // color plate (merge is off, or there's no enabled spot color to merge into).
+      if (keyBwCanvas && !keyMergeTarget) {
+        const keyImgData = keyBwCanvas.getContext('2d')!.getImageData(0, 0, canvasW, canvasH)
+        const keyColored = colorizeSpot(keyImgData, spotSettings.key!.color)
         const keyOverlay = document.createElement('canvas')
         keyOverlay.width = canvasW; keyOverlay.height = canvasH
         keyOverlay.getContext('2d')!.putImageData(keyColored, 0, 0)

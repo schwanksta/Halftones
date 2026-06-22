@@ -284,6 +284,16 @@ function kmeans(pixels: Float32Array, k: number, maxIter = 50, seeds?: Array<[nu
 let _nextId = 1
 function newId() { return `spot-${_nextId++}` }
 
+/** The darkest enabled, non-background spot color (lowest L*), or null if none. */
+export function darkestSpotColor(colors: SpotColor[]): SpotColor | null {
+  let best: SpotColor | null = null
+  for (const c of colors) {
+    if (!c.enabled || c.type === 'background') continue
+    if (!best || c.lab[0] < best.lab[0]) best = c
+  }
+  return best
+}
+
 // ─── Named color lookup ───────────────────────────────────────────────────────
 
 /**
