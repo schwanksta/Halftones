@@ -1,5 +1,5 @@
 import { HalftoneSettings, CMYKSettings, OutputSettings, ImageTransformSettings, SpotSettings, SpotColor, MaskSettings, MaskImage } from '../types'
-import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from './edge'
+import { computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from './edge'
 import { renderHalftone } from './halftone'
 import { separateChannels } from './cmyk'
 import { computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, renderFlat, boostSaturation, darkestSpotColor } from './spot-separation'
@@ -10,6 +10,7 @@ import { buildMaskOverlay, buildMaskStroke, applyCutOverlayToCanvas } from './ma
 import { platform } from '../platform'
 import { precomputeGrayscale, sampleGray } from './sampling'
 import { applyDotSettings } from './dot-settings'
+import { buildKeyPlateCanvas, buildExportEdgeMask } from './key-plate'
 
 /** Effective trap (px at export DPI) for a color — per-color override wins. */
 function trapFor(color: SpotColor, spotSettings: SpotSettings): number {
@@ -173,57 +174,24 @@ async function renderSpotChannelCanvases(
   let keyCanvas: HTMLCanvasElement | null = null
   if (spotSettings.key?.enabled) {
     const key = spotSettings.key
-    keyCanvas = document.createElement('canvas')
-    keyCanvas.width  = targetWidth
-    keyCanvas.height = targetHeight
-    const keyCtx = keyCanvas.getContext('2d')!
-    if (key.dotsEnabled !== false) {
-      renderHalftone(keyCtx, {
-        source: scaled,
-        settings: {
-          ...halftoneSettings,
-          lpi: key.lpi,
-          angle: key.angle,
-          minDot: key.minDot,
-          maxDot: key.maxDot,
-          fgColor: '#000000',
-          bgColor: '#ffffff',
-          invert: false,
-        },
-        renderDpi: outputSettings.dpi,
-        radialCenter,
-        isExport: true,
-      })
-    } else {
-      keyCtx.fillStyle = '#ffffff'
-      keyCtx.fillRect(0, 0, targetWidth, targetHeight)
-    }
-
-    // Edge stroke (Sobel): burn contour lines into the key plate.
-    // Detect at SOURCE resolution (same as the preview) then scale the mask up
-    // to output res — Sobel magnitude is resolution-dependent, so detecting on
-    // the full-res `scaled` image passed a different (sparser) edge set than the
-    // preview.  Nearest-neighbour scaling keeps the contour crisp/1-bit.
-    if (key.strokeEnabled) {
-      const edgeSrc = computeEdgeMask(transformed, key.strokeThreshold ?? 0.3)
-      const edgeSrcCanvas = document.createElement('canvas')
-      edgeSrcCanvas.width = transformed.width; edgeSrcCanvas.height = transformed.height
-      edgeSrcCanvas.getContext('2d')!.putImageData(edgeSrc, 0, 0)
-      const edgeScaled = document.createElement('canvas')
-      edgeScaled.width = targetWidth; edgeScaled.height = targetHeight
-      const esCtx = edgeScaled.getContext('2d')!
-      esCtx.imageSmoothingEnabled = false
-      esCtx.drawImage(edgeSrcCanvas, 0, 0, targetWidth, targetHeight)
-      const strokePx = key.strokeWidth ?? 2
-      const edgeFinal = strokePx > 1 ? dilateMask(edgeScaled, strokePx) : edgeScaled
-      applyEdgeMaskToCanvas(keyCanvas, edgeFinal.getContext('2d')!.getImageData(0, 0, targetWidth, targetHeight))
-    }
-
-    // Alpha boundary outline: solid ring around the subject silhouette.
-    if (key.outlineEnabled) {
-      const outlineMask = computeAlphaBoundaryMask(scaled, key.outlineWidth ?? 3)
-      applyEdgeMaskToCanvas(keyCanvas, outlineMask)
-    }
+    const edgeMask = key.strokeEnabled
+      ? buildExportEdgeMask(transformed, targetWidth, targetHeight, key.strokeThreshold ?? 0.3, key.strokeWidth ?? 2)
+      : null
+    const outlineMask = key.outlineEnabled
+      ? computeAlphaBoundaryMask(scaled, key.outlineWidth ?? 3)
+      : null
+    keyCanvas = buildKeyPlateCanvas({
+      width: targetWidth,
+      height: targetHeight,
+      dotsSource: scaled,
+      key,
+      baseSettings: halftoneSettings,
+      renderDpi: outputSettings.dpi,
+      isExport: true,
+      radialCenter,
+      edgeMask,
+      outlineMask,
+    })
   }
 
   // When merging, fold the key plate's ink directly into the darkest enabled
@@ -549,52 +517,25 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
     let keyCanvas: HTMLCanvasElement | null = null
     if (spotSettings.key?.enabled) {
       const key = spotSettings.key
-      keyCanvas = document.createElement('canvas')
-      keyCanvas.width = targetW; keyCanvas.height = targetH
-      const keyCtx = keyCanvas.getContext('2d')!
-      if (key.dotsEnabled !== false) {
-        renderHalftone(keyCtx, {
-          source: scaled,
-          settings: {
-            ...bwSettings(halftoneSettings),
-            lpi: key.lpi,
-            angle: key.angle,
-            minDot: key.minDot,
-            maxDot: key.maxDot,
-            invert: false,
-          },
-          renderDpi: dpi,
-          radialCenter,
-          outputDpi: dpi,
-          isExport: true,
-        })
-      } else {
-        keyCtx.fillStyle = '#ffffff'
-        keyCtx.fillRect(0, 0, targetW, targetH)
-      }
-
-      // Edge stroke (Sobel) on color proof — detect at source res then scale,
-      // matching the plate output and the preview.
-      if (key.strokeEnabled) {
-        const edgeSrc = computeEdgeMask(transformed, key.strokeThreshold ?? 0.3)
-        const edgeSrcCanvas = document.createElement('canvas')
-        edgeSrcCanvas.width = transformed.width; edgeSrcCanvas.height = transformed.height
-        edgeSrcCanvas.getContext('2d')!.putImageData(edgeSrc, 0, 0)
-        const edgeScaled = document.createElement('canvas')
-        edgeScaled.width = targetW; edgeScaled.height = targetH
-        const esCtx = edgeScaled.getContext('2d')!
-        esCtx.imageSmoothingEnabled = false
-        esCtx.drawImage(edgeSrcCanvas, 0, 0, targetW, targetH)
-        const strokePx = key.strokeWidth ?? 2
-        const edgeFinal = strokePx > 1 ? dilateMask(edgeScaled, strokePx) : edgeScaled
-        applyEdgeMaskToCanvas(keyCanvas, edgeFinal.getContext('2d')!.getImageData(0, 0, targetW, targetH))
-      }
-
-      // Alpha boundary outline: solid ring around the subject silhouette.
-      if (key.outlineEnabled) {
-        const outlineMask = computeAlphaBoundaryMask(scaled, key.outlineWidth ?? 3)
-        applyEdgeMaskToCanvas(keyCanvas, outlineMask)
-      }
+      const edgeMask = key.strokeEnabled
+        ? buildExportEdgeMask(transformed, targetW, targetH, key.strokeThreshold ?? 0.3, key.strokeWidth ?? 2)
+        : null
+      const outlineMask = key.outlineEnabled
+        ? computeAlphaBoundaryMask(scaled, key.outlineWidth ?? 3)
+        : null
+      keyCanvas = buildKeyPlateCanvas({
+        width: targetW,
+        height: targetH,
+        dotsSource: scaled,
+        key,
+        baseSettings: halftoneSettings,
+        renderDpi: dpi,
+        outputDpi: dpi,
+        isExport: true,
+        radialCenter,
+        edgeMask,
+        outlineMask,
+      })
     }
 
     // When merging, fold the key plate's ink directly into the darkest enabled
