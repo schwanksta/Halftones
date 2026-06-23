@@ -745,7 +745,10 @@ function composeChannelPage(
 
   ctx.strokeStyle = '#000000'
   ctx.fillStyle = '#000000'
-  ctx.lineWidth = Math.max(1, 0.5 * pxPerPt)
+  // 1.5pt — thick enough to expose/develop reliably on screen emulsion and
+  // hold ink through the mesh; thinner hairlines (e.g. 0.5pt) print fine on
+  // paper proofs but burn inconsistently depending on mesh count/exposure.
+  ctx.lineWidth = Math.max(1, 1.5 * pxPerPt)
 
   if (showCropMarks) {
     const pieceX0 = cropPx, pieceY0 = cropPx
@@ -1231,7 +1234,8 @@ function drawAlignmentMarks(
   ]
 
   pdf.setDrawColor(0, 0, 0)
-  pdf.setLineWidth(0.5)
+  // 1.5pt — see composeChannelPage for why (burns reliably on screen emulsion).
+  pdf.setLineWidth(1.5)
 
   for (const { x, y } of positions) {
     pdf.circle(x, y, radius, 'S')
@@ -1249,7 +1253,8 @@ function drawCropMarks(
   wasteSize: number,
 ) {
   pdf.setDrawColor(0)
-  pdf.setLineWidth(0.5)
+  // 1.5pt — see composeChannelPage for why (burns reliably on screen emulsion).
+  pdf.setLineWidth(1.5)
 
   const gap     = Math.max(3, wasteSize * 0.12)
   const markLen = Math.min(wasteSize - gap - 2, wasteSize * 0.75)
