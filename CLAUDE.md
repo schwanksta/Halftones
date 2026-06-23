@@ -1,13 +1,16 @@
 # Halftones — Project Guide
 
 Browser-based halftone image processor. React + TypeScript + Vite, no backend.
-Packaged as a native macOS app via Tauri 2. The `tauri` branch was merged to `main` — there is only one branch now.
+Packaged as a native macOS app via Tauri 2. Default workflow is single-branch (`main`), but feature branches do get created for larger changes (e.g. `feature/separation-modes`) — check `git log main..HEAD` rather than assuming `main` is current, and merge the feature branch back to `main` before tagging a release.
+
+The shipped `.app`/`.dmg` is **unsigned** — no Apple Developer ID or notarization configured in `tauri.conf.json`. Downloads from GitHub get a quarantine flag from the browser, so recipients on a different Mac than the one that built it need to right-click → Open, or `xattr -cr` if macOS reports the app as "damaged" (see README Download section for the user-facing version of this note).
 
 ## Working Rules
 
 - **Always commit when done.** After completing any task, run `npm run build` to verify, then `git add -A && git commit`.
 - **Also run `npm run tauri:build` when done.** This produces the `.app` and `.dmg` at `src-tauri/target/release/bundle/macos/`. Takes ~50s on second+ Rust builds (just JS changed), ~2–3 min after Rust changes.
 - **Before creating a GitHub release, ask the user what version number to use.** Don't infer it from prior releases.
+- **Releasing, in order**: (1) if work is on a feature branch, fast-forward merge it into `main` and push; (2) bump the version in all **three** places it's duplicated — `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`; (3) `npm run build` then `npm run tauri:build`; (4) `git tag vX.Y.Z && git push origin vX.Y.Z`; (5) `gh release create vX.Y.Z <path-to-dmg> --title ... --notes ...`. Release notes should keep the unsigned-app Gatekeeper workaround (right-click → Open, or `xattr -cr ...` if "damaged").
 
 ## Quick Reference
 
@@ -54,7 +57,7 @@ src/
     sampling.ts               # precomputeGrayscale(), sampleGray() — fast luminance sampling
     cmyk.ts                   # separateChannels(), compositeChannels()
     transform.ts              # applyTransforms() — rotation, crop, levels
-    spot-separation.ts        # separateSpotChannels(), renderFlat(), boostSaturation(), extractPalette()
+    spot-separation.ts        # separateSpotChannels(), renderFlat(), boostSaturation(), extractPalette(), darkestSpotColor()
     dilate.ts                 # dilateMask() — morphological dilation for spot trap
     export.ts                 # exportPNG(), exportChannelPNGs(), exportPDF(), exportColorProof()
     png-metadata.ts           # setPngDpi() — inject pHYs chunk for DPI metadata
@@ -185,3 +188,4 @@ src/
 - **Key plate is independent of spot color channels**: in the preview hook, `colorMode === 'spot'` is the outer condition; spot channel rendering and key plate rendering are separate sub-blocks. Key plate must NOT be nested inside `spotSettings.colors.length > 0 && spotChannelCanvases` — it can render even with no colors extracted.
 - **Adding new tone-curve controls**: update `dot-settings.ts` (CPU), `shared.glsl.ts` (GLSL uniform declaration + applyDotSettings body), and `render.ts` (uniform upload). All three must stay in sync.
 - **DMG bundler occasionally flakes** on macOS — if `npm run tauri:build` fails at `bundle_dmg.sh`, just re-run; it succeeds on the next attempt.
+- **Key plate logic is implemented independently three times**, with no shared helper: `useHalftonePreview.ts` (live preview), `renderSpotChannelCanvases` in `export.ts` (feeds both channel-PNG and PDF export), and `exportColorProof` in `export.ts`. Each builds its own BW key canvas (dots + Sobel stroke + alpha outline) from scratch. Any new key-plate feature (e.g. `mergeWithDarkest`) must be added to all three or preview and export will disagree.
