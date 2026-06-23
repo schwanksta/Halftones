@@ -58,6 +58,7 @@ src/
     cmyk.ts                   # separateChannels(), compositeChannels()
     transform.ts              # applyTransforms() — rotation, crop, levels
     spot-separation.ts        # separateSpotChannels(), renderFlat(), boostSaturation(), extractPalette(), darkestSpotColor()
+    key-plate.ts              # buildKeyPlateCanvas(), buildExportEdgeMask() — shared by preview + both export paths
     dilate.ts                 # dilateMask() — morphological dilation for spot trap
     export.ts                 # exportPNG(), exportChannelPNGs(), exportPDF(), exportColorProof()
     png-metadata.ts           # setPngDpi() — inject pHYs chunk for DPI metadata
@@ -188,4 +189,4 @@ src/
 - **Key plate is independent of spot color channels**: in the preview hook, `colorMode === 'spot'` is the outer condition; spot channel rendering and key plate rendering are separate sub-blocks. Key plate must NOT be nested inside `spotSettings.colors.length > 0 && spotChannelCanvases` — it can render even with no colors extracted.
 - **Adding new tone-curve controls**: update `dot-settings.ts` (CPU), `shared.glsl.ts` (GLSL uniform declaration + applyDotSettings body), and `render.ts` (uniform upload). All three must stay in sync.
 - **DMG bundler occasionally flakes** on macOS — if `npm run tauri:build` fails at `bundle_dmg.sh`, just re-run; it succeeds on the next attempt.
-- **Key plate logic is implemented independently three times**, with no shared helper: `useHalftonePreview.ts` (live preview), `renderSpotChannelCanvases` in `export.ts` (feeds both channel-PNG and PDF export), and `exportColorProof` in `export.ts`. Each builds its own BW key canvas (dots + Sobel stroke + alpha outline) from scratch. Any new key-plate feature (e.g. `mergeWithDarkest`) must be added to all three or preview and export will disagree.
+- **Key plate canvas-build logic is shared via `src/engine/key-plate.ts`** (`buildKeyPlateCanvas`, `buildExportEdgeMask`) — used by `useHalftonePreview.ts`, `renderSpotChannelCanvases`, and `exportColorProof`. The shared function only covers the final "render dots, composite stroke, composite outline" step; each call site still acquires its own `dotsSource`/`edgeMask`/`outlineMask` inputs differently (preview crops memoized source-resolution masks per frame for performance; export computes and scales them fresh against the full output canvas). When adding a new key-plate feature, check whether it belongs in the shared function (rendering/compositing) or needs to be replicated per call site (mask acquisition/resolution).
