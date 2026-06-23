@@ -12,7 +12,10 @@ A native macOS app (and browser tool) for halftone image processing and spot col
 ### Color Modes
 - **Grayscale** — single halftone layer with ink/paper color preview
 - **CMYK** — four-channel process separation with per-channel angle/LPI and composite preview
-- **Spot Color** — LAB k-means palette extraction, per-color flat or halftone rendering, click-to-seed palette colors from the image, per-color and global trap, and a **key plate** (halftone of the full image overprinted on top of all color layers for tonal depth — with optional edge stroke, silhouette outline, and a toggle to use the strokes without the halftone dots)
+- **Spot Color** — LAB k-means palette extraction, per-color flat or halftone rendering, click-to-seed palette colors from the image, per-color and global trap, and a **key plate** (halftone of the full image overprinted on top of all color layers for tonal depth — with optional edge stroke, silhouette outline, a toggle to use the strokes without the halftone dots, and a **merge with darkest color** option to fold the key into the darkest separation plate as one screen instead of a separate overprint)
+- **Separation mode** — **knockout** (default: exclusive regions, one ink per pixel) or **build-up** (nested cumulative overprint — each tone inks its plate plus every lighter plate beneath it; registration-forgiving, suited to tonal/duotone palettes)
+- **Underbase** — an optional base plate (union of all inked area, choked inward) printed first, e.g. white or silver under the full design
+- **Substrate color** — set the paper/garment color the proof and preview composite onto, for previewing ink on colored stock
 - **Smoothing** — jointly cleans up the color separation so adjacent layers never erode apart and leave paper showing through; low values remove stray specks, higher values smooth jagged boundaries
 - **Treat white as paper** — reserve near-white as bare paper so every extracted color is a real ink (no wasted white plate) and white areas knock out to paper; turn off for white ink on colored stock
 - **Background layer** — for transparent/cutout images, add a color plate covering exactly the transparent area, rendered flat or halftoned, with an adjustable **bleed** that extends it into the margin
@@ -50,7 +53,7 @@ Load a mask that clips every plate at once — confine the artwork to a shape, k
 
 ## Download
 
-**[Download for macOS (Apple Silicon)](https://github.com/schwanksta/Halftones/releases/latest)** — unsigned app; on first launch right-click → Open, or go to System Settings → Privacy & Security → Open Anyway.
+**[Download for macOS (Apple Silicon)](https://github.com/schwanksta/Halftones/releases/latest)** — unsigned app; on first launch right-click → Open, or go to System Settings → Privacy & Security → Open Anyway. If macOS reports the app is "damaged" instead of giving that option, the quarantine flag set by your browser is the cause — clear it with `xattr -cr /Applications/Halftones.app` in Terminal, then open normally.
 
 ## Getting Started
 
