@@ -118,6 +118,16 @@ export function SpotColorEditor({
         />
       </div>
 
+      <div className="control-row" title="How aggressively visually similar colors are merged during Extract / Merge. Higher = more colors collapse into one ink (fewer plates). This is the similarity threshold — the 'Merge' button applies it on demand.">
+        <span>Merge colors <EditableValue value={settings.mergeThreshold} min={0} max={50} step={1} onChange={(v) => update({ mergeThreshold: v })} /></span>
+        <input
+          type="range" min={0} max={50} step={1}
+          value={settings.mergeThreshold}
+          onChange={(e) => update({ mergeThreshold: Number(e.target.value) })}
+          disabled={disabled}
+        />
+      </div>
+
       <label className="control-row" style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}
         title="Treat near-white as bare paper: every extracted color is a real ink (no wasted white plate), and white areas print with no ink. Turn off for white ink on colored stock.">
         <input
@@ -140,46 +150,6 @@ export function SpotColorEditor({
           />
         </div>
       )}
-
-      <div className="control-row">
-        <span>Vibrancy <EditableValue value={Math.round((settings.vibrancy ?? 0) * 100)} min={0} max={100} step={1} suffix="%" onChange={(v) => update({ vibrancy: v / 100 })} /></span>
-        <input
-          type="range" min={0} max={1} step={0.01}
-          value={settings.vibrancy ?? 0}
-          onChange={(e) => update({ vibrancy: Number(e.target.value) })}
-          disabled={disabled}
-        />
-      </div>
-
-      <div className="control-row" title="Expand each color's ink region so layers bleed into each other, hiding visible seams between halftone and flat layers. Per-color overrides this global value.">
-        <span>Trap <EditableValue value={settings.trap ?? 0} min={0} max={10} step={1} suffix="px" onChange={(v) => update({ trap: v })} /></span>
-        <input
-          type="range" min={0} max={10} step={1}
-          value={settings.trap ?? 0}
-          onChange={(e) => update({ trap: Number(e.target.value) })}
-          disabled={disabled}
-        />
-      </div>
-
-      <div className="control-row" title="Smooth the color separation — jointly cleans up which color owns each pixel, so layers never erode apart and leave paper showing through. Low = remove stray specks, high = smooth boundaries more.">
-        <span>Smoothing <EditableValue value={settings.smoothing ?? 0} min={0} max={100} step={5} suffix="%" onChange={(v) => update({ smoothing: v })} /></span>
-        <input
-          type="range" min={0} max={100} step={5}
-          value={settings.smoothing ?? 0}
-          onChange={(e) => update({ smoothing: Number(e.target.value) })}
-          disabled={disabled}
-        />
-      </div>
-
-      <div className="control-row">
-        <span>Merge ΔE <EditableValue value={settings.mergeThreshold} min={0} max={50} step={1} onChange={(v) => update({ mergeThreshold: v })} /></span>
-        <input
-          type="range" min={0} max={50} step={1}
-          value={settings.mergeThreshold}
-          onChange={(e) => update({ mergeThreshold: Number(e.target.value) })}
-          disabled={disabled}
-        />
-      </div>
 
       {/* Seed color picking */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 2 }}>
@@ -337,12 +307,12 @@ export function SpotColorEditor({
         />
       ))}
 
-      {/* Printing / output */}
+      {/* Separation — how the image is split into inks */}
       <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-        <div className="subsection-title">Printing</div>
+        <div className="subsection-title">Separation</div>
 
         <label className="control-row" title="Knockout: each pixel is one ink (exclusive regions). Build-up: nested overprint — each tone inks its plate plus every lighter plate beneath it, printed light→dark. Build-up is registration-forgiving and best for tonal/duotone palettes.">
-          <span>Separation</span>
+          <span>Mode</span>
           <select
             value={settings.separationMode ?? 'knockout'}
             onChange={(e) => update({ separationMode: e.target.value as SeparationMode })}
@@ -352,6 +322,62 @@ export function SpotColorEditor({
             <option value="buildup">Build-up (overprint)</option>
           </select>
         </label>
+
+        <div className="control-row" title="Clean up the color separation — jointly tidies which color owns each pixel so layers never erode apart and leave paper showing through. Low = remove stray specks; high = smooth ragged boundaries more.">
+          <span>Despeckle <EditableValue value={settings.smoothing ?? 0} min={0} max={100} step={5} suffix="%" onChange={(v) => update({ smoothing: v })} /></span>
+          <input
+            type="range" min={0} max={100} step={5}
+            value={settings.smoothing ?? 0}
+            onChange={(e) => update({ smoothing: Number(e.target.value) })}
+            disabled={disabled}
+          />
+        </div>
+      </div>
+
+      {/* Trapping & edges — global plate-rendering defaults (overridable per color) */}
+      <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+        <div className="subsection-title">Trapping & edges</div>
+
+        <div className="control-row" title="Expand each color's ink region so layers bleed into each other, hiding visible seams between halftone and flat layers. Sets the default; override per-color in each color's controls.">
+          <span>Trap <EditableValue value={settings.trap ?? 0} min={0} max={10} step={1} suffix="px" onChange={(v) => update({ trap: v })} /></span>
+          <input
+            type="range" min={0} max={10} step={1}
+            value={settings.trap ?? 0}
+            onChange={(e) => update({ trap: Number(e.target.value) })}
+            disabled={disabled}
+          />
+        </div>
+
+        <label className="control-row control-row--toggle" title="Trace flat color plates into vector outlines so diagonal and curved edges aren't pixelated (staircased). Sets the default for all flat plates; override per-color in each color's controls (e.g. leave fine line/hatch art crisp). Halftone plates are unaffected.">
+          <span>Vectorize flat edges</span>
+          <input
+            type="checkbox"
+            checked={settings.smoothFlat ?? false}
+            onChange={(e) => update({ smoothFlat: e.target.checked })}
+            disabled={disabled}
+          />
+        </label>
+
+        {settings.smoothFlat && (
+          <div className="control-row" title="How much the traced outlines are rounded. 0 = straight/angular (just de-staircased); higher rounds corners and curves more.">
+            <span>Rounding <EditableValue
+              value={settings.smoothFlatStrength ?? 50}
+              min={0} max={100} step={1}
+              onChange={(v) => update({ smoothFlatStrength: v })}
+            /></span>
+            <input
+              type="range" min={0} max={100} step={1}
+              value={settings.smoothFlatStrength ?? 50}
+              onChange={(e) => update({ smoothFlatStrength: Number(e.target.value) })}
+              disabled={disabled}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Plates & stock — the physical output */}
+      <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+        <div className="subsection-title">Plates &amp; stock</div>
 
         <div className="control-row control-row--colors">
           <span>Substrate</span>
@@ -408,32 +434,6 @@ export function SpotColorEditor({
               />
             </div>
           </>
-        )}
-
-        <label className="control-row control-row--toggle" title="Trace flat color plates into smooth vector outlines so diagonal and curved edges aren't pixelated. Sets the default for all flat plates; override per-color in each color's controls (e.g. leave fine line/hatch art crisp). Halftone plates are unaffected.">
-          <span>Smooth flat edges</span>
-          <input
-            type="checkbox"
-            checked={settings.smoothFlat ?? false}
-            onChange={(e) => update({ smoothFlat: e.target.checked })}
-            disabled={disabled}
-          />
-        </label>
-
-        {settings.smoothFlat && (
-          <div className="control-row">
-            <span>Smoothness <EditableValue
-              value={settings.smoothFlatStrength ?? 50}
-              min={0} max={100} step={1}
-              onChange={(v) => update({ smoothFlatStrength: v })}
-            /></span>
-            <input
-              type="range" min={0} max={100} step={1}
-              value={settings.smoothFlatStrength ?? 50}
-              onChange={(e) => update({ smoothFlatStrength: Number(e.target.value) })}
-              disabled={disabled}
-            />
-          </div>
         )}
       </div>
 
@@ -631,6 +631,20 @@ export function SpotColorEditor({
             )}
           </>
         )}
+      </div>
+
+      {/* Preview — appearance only; does not change the separated plates */}
+      <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+        <div className="subsection-title">Preview</div>
+        <div className="control-row" title="Boost each ink's saturation in the on-screen preview and the exported color proof. The separated plates are black-and-white, so this never changes the actual printed output.">
+          <span>Vibrancy <EditableValue value={Math.round((settings.vibrancy ?? 0) * 100)} min={0} max={100} step={1} suffix="%" onChange={(v) => update({ vibrancy: v / 100 })} /></span>
+          <input
+            type="range" min={0} max={1} step={0.01}
+            value={settings.vibrancy ?? 0}
+            onChange={(e) => update({ vibrancy: Number(e.target.value) })}
+            disabled={disabled}
+          />
+        </div>
       </div>
     </div>
   )
@@ -840,8 +854,8 @@ function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, buildu
 
           {/* Smooth edges override — flat plates only (incl. build-up). */}
           {(buildup || color.renderMode === 'flat') && (
-            <label className="control-row control-row--toggle" title="Trace this plate's edges into smooth vector outlines. Defaults to the global 'Smooth flat edges' setting — toggle to override for this color (e.g. keep fine line/hatch art as crisp raster).">
-              <span>Smooth edges</span>
+            <label className="control-row control-row--toggle" title="Trace this plate's edges into vector outlines. Defaults to the global 'Vectorize flat edges' setting — toggle to override for this color (e.g. keep fine line/hatch art as crisp raster).">
+              <span>Vectorize edges</span>
               <input
                 type="checkbox"
                 checked={color.smooth ?? globalSmooth}
