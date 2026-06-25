@@ -42,18 +42,6 @@ function downsampleFactor(width: number, height: number): number {
  */
 const SIMPLIFY_EPSILON = 1.0
 
-/**
- * Self-trap overlap (in mask/output pixels) to close the sub-pixel seams between
- * independently-traced adjacent flat plates: each plate's shared boundary is
- * simplified separately and can diverge slightly, leaving bare paper between
- * them. Stroking each filled plate by this width makes complementary plates
- * overlap instead. CONSTANT with respect to smoothness (only scales with the
- * perf-downsample factor so it stays ~2px at any resolution) — so raising
- * smoothness no longer fattens line weight. Additive to the user's trap.
- */
-export function flatOverlapWidth(width: number, height: number): number {
-  return downsampleFactor(width, height) * 2
-}
 
 /** A single marching-squares segment: two grid-corner endpoints (in corner-grid units). */
 interface Segment {

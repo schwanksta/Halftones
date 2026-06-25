@@ -30,6 +30,13 @@ export interface SpotColor {
    */
   trap?: number | null
   /**
+   * Per-color "smooth flat edges" override. `undefined` = follow the global
+   * SpotSettings.smoothFlat toggle. `true`/`false` force vectorization on/off
+   * for this plate — e.g. leave a fine line/hatch plate as crisp raster while
+   * smoothing the flat masses. Only affects flat-rendered plates.
+   */
+  smooth?: boolean
+  /**
    * Bleed: extends a background-type color plate outward from the image edge
    * into the margin, in inches. 0 = no bleed (plate stops at image boundary).
    * Only meaningful when `type === 'background'`.

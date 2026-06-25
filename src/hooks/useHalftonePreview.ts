@@ -9,7 +9,7 @@ import { renderStipple } from '../engine/stipple'
 import { renderFlat, computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, boostSaturation, darkestSpotColor } from '../engine/spot-separation'
 import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from '../engine/edge'
 import { buildKeyPlateCanvas } from '../engine/key-plate'
-import { traceBinaryMask, polygonsToPath2D, flatOverlapWidth } from '../engine/vectorize'
+import { traceBinaryMask, polygonsToPath2D } from '../engine/vectorize'
 import { separateChannels, compositeChannels } from '../engine/cmyk'
 import { applyTransforms } from '../engine/transform'
 import { dilateMask } from '../engine/dilate'
@@ -221,22 +221,21 @@ export function useHalftonePreview(
   // expensive trace never runs in the hot render loop.  Paths are in
   // transformed-source pixel coords.
   const flatVectorPaths = useMemo(() => {
-    if (halftoneSettings.colorMode !== 'spot') return null
-    if (!spotSettings.smoothFlat || !spotChannels) return null
+    if (halftoneSettings.colorMode !== 'spot' || !spotChannels) return null
     const buildup = spotSettings.separationMode === 'buildup'
     const strength = spotSettings.smoothFlatStrength ?? 50
-    const map = new Map<string, { path: Path2D; overlap: number }>()
+    const map = new Map<string, Path2D>()
     for (const color of spotSettings.colors) {
       if (!color.enabled) continue
       if (!(buildup || color.renderMode === 'flat')) continue
+      // per-color smooth override; undefined follows the global toggle
+      if (!(color.smooth ?? spotSettings.smoothFlat ?? false)) continue
       const channel = spotChannels.get(color.id)
       if (!channel) continue
       const polys = traceBinaryMask(channel, { threshold: color.threshold ?? 0.5, strength })
-      // overlap is in mask (source) pixel units; the per-frame fill strokes
-      // under the viewport transform so it scales with zoom automatically.
-      map.set(color.id, { path: polygonsToPath2D(polys), overlap: flatOverlapWidth(channel.width, channel.height) })
+      map.set(color.id, polygonsToPath2D(polys))
     }
-    return map
+    return map.size ? map : null
   }, [halftoneSettings.colorMode, spotSettings.smoothFlat, spotSettings.smoothFlatStrength,
       spotSettings.separationMode, spotSettings.colors, spotChannels])
 
@@ -524,12 +523,7 @@ export function useHalftonePreview(
             bwCtx.save()
             bwCtx.setTransform(viewport.zoom, 0, 0, viewport.zoom, -srcX * viewport.zoom, -srcY * viewport.zoom)
             bwCtx.fillStyle = '#000000'
-            bwCtx.fill(vec.path, 'evenodd')
-            // Built-in overlap (mask units) so adjacent plates don't leave seams.
-            bwCtx.strokeStyle = '#000000'
-            bwCtx.lineJoin = 'round'
-            bwCtx.lineWidth = vec.overlap
-            bwCtx.stroke(vec.path)
+            bwCtx.fill(vec, 'evenodd')
             bwCtx.restore()
           } else if (isFlat) {
             renderFlat(bwCtx, chRegionData, color.threshold)

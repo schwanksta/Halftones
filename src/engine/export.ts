@@ -11,14 +11,19 @@ import { platform } from '../platform'
 import { precomputeGrayscale, sampleGray } from './sampling'
 import { applyDotSettings } from './dot-settings'
 import { buildKeyPlateCanvas, buildExportEdgeMask } from './key-plate'
-import { traceBinaryMask, polygonsToPath2D, flatOverlapWidth } from './vectorize'
+import { traceBinaryMask, polygonsToPath2D } from './vectorize'
+
+/** Whether a color's flat plate should be vectorized: per-color override wins
+ *  over the global toggle. */
+function smoothFor(color: SpotColor, spotSettings: SpotSettings): boolean {
+  return color.smooth ?? spotSettings.smoothFlat ?? false
+}
 
 /**
  * Fill a flat plate by vectorizing its mask into smooth polygons instead of
  * rendering the raw per-pixel staircase. `mask` and the target ctx are at the
  * same (output) resolution, so polygons map 1:1. Black-on-white, even-odd fill.
- * A thin stroke of the same path gives a built-in overlap so adjacent plates
- * don't leave bare-paper seams at their shared (independently-traced) edges.
+ * No built-in trap — adjacent-plate seam closure (if wanted) is the user's trap.
  */
 function fillFlatVector(
   ctx: CanvasRenderingContext2D, w: number, h: number,
@@ -28,10 +33,6 @@ function fillFlatVector(
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h)
   ctx.fillStyle = '#000000'
   ctx.fill(path, 'evenodd')
-  ctx.strokeStyle = '#000000'
-  ctx.lineJoin = 'round'
-  ctx.lineWidth = flatOverlapWidth(mask.width, mask.height)
-  ctx.stroke(path)
 }
 
 /** Effective trap (px at export DPI) for a color — per-color override wins. */
@@ -262,7 +263,7 @@ async function renderSpotChannelCanvases(
     const ctx = canvas.getContext('2d')!
 
     const isFlat = buildup || color.renderMode === 'flat'
-    if (isFlat && spotSettings.smoothFlat && bleedPx === 0) {
+    if (isFlat && smoothFor(color, spotSettings) && bleedPx === 0) {
       // Vectorize the flat mask for smooth (non-staircased) edges. Bleed plates
       // fall back to raster fill (their edge runs off into the trimmed margin).
       fillFlatVector(ctx, renderW, renderH, channelData, color.threshold, spotSettings.smoothFlatStrength ?? 50)
@@ -606,7 +607,7 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
       const offCtx = offCanvas.getContext('2d')!
 
       const isFlat = buildup || color.renderMode === 'flat'
-      if (isFlat && spotSettings.smoothFlat && bleedPx === 0) {
+      if (isFlat && smoothFor(color, spotSettings) && bleedPx === 0) {
         fillFlatVector(offCtx, offW, offH, channelData, color.threshold, spotSettings.smoothFlatStrength ?? 50)
       } else if (isFlat) {
         renderFlat(offCtx, effectiveChannelData, color.threshold)

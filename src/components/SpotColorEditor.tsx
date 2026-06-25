@@ -330,6 +330,8 @@ export function SpotColorEditor({
           index={idx}
           disabled={disabled}
           globalTrap={settings.trap ?? 0}
+          globalSmooth={settings.smoothFlat ?? false}
+          buildup={settings.separationMode === 'buildup'}
           onChange={(partial) => updateColor(color.id, partial)}
           onRemove={() => removeColor(color.id)}
         />
@@ -408,7 +410,7 @@ export function SpotColorEditor({
           </>
         )}
 
-        <label className="control-row control-row--toggle" title="Trace flat color plates into smooth vector outlines so diagonal and curved edges aren't pixelated. Applies to flat plates only — halftone plates are unaffected.">
+        <label className="control-row control-row--toggle" title="Trace flat color plates into smooth vector outlines so diagonal and curved edges aren't pixelated. Sets the default for all flat plates; override per-color in each color's controls (e.g. leave fine line/hatch art crisp). Halftone plates are unaffected.">
           <span>Smooth flat edges</span>
           <input
             type="checkbox"
@@ -641,11 +643,13 @@ interface RowProps {
   index: number
   disabled: boolean
   globalTrap: number
+  globalSmooth: boolean
+  buildup: boolean
   onChange: (partial: Partial<SpotColor>) => void
   onRemove: () => void
 }
 
-function SpotColorRow({ color, index, disabled, globalTrap, onChange, onRemove }: RowProps) {
+function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, buildup, onChange, onRemove }: RowProps) {
   const [expanded, setExpanded] = useState(false)
   const [hexDraft, setHexDraft] = useState(color.hex)
 
@@ -832,6 +836,19 @@ function SpotColorRow({ color, index, disabled, globalTrap, onChange, onRemove }
                 disabled={disabled}
               />
             </div>
+          )}
+
+          {/* Smooth edges override — flat plates only (incl. build-up). */}
+          {(buildup || color.renderMode === 'flat') && (
+            <label className="control-row control-row--toggle" title="Trace this plate's edges into smooth vector outlines. Defaults to the global 'Smooth flat edges' setting — toggle to override for this color (e.g. keep fine line/hatch art as crisp raster).">
+              <span>Smooth edges</span>
+              <input
+                type="checkbox"
+                checked={color.smooth ?? globalSmooth}
+                onChange={(e) => onChange({ smooth: e.target.checked })}
+                disabled={disabled}
+              />
+            </label>
           )}
 
           {/* Halftone-specific: LPI + angle */}
