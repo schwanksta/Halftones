@@ -407,6 +407,32 @@ export function SpotColorEditor({
             </div>
           </>
         )}
+
+        <label className="control-row control-row--toggle" title="Trace flat color plates into smooth vector outlines so diagonal and curved edges aren't pixelated. Applies to flat plates only — halftone plates are unaffected.">
+          <span>Smooth flat edges</span>
+          <input
+            type="checkbox"
+            checked={settings.smoothFlat ?? false}
+            onChange={(e) => update({ smoothFlat: e.target.checked })}
+            disabled={disabled}
+          />
+        </label>
+
+        {settings.smoothFlat && (
+          <div className="control-row">
+            <span>Smoothness <EditableValue
+              value={settings.smoothFlatStrength ?? 50}
+              min={0} max={100} step={1}
+              onChange={(v) => update({ smoothFlatStrength: v })}
+            /></span>
+            <input
+              type="range" min={0} max={100} step={1}
+              value={settings.smoothFlatStrength ?? 50}
+              onChange={(e) => update({ smoothFlatStrength: Number(e.target.value) })}
+              disabled={disabled}
+            />
+          </div>
+        )}
       </div>
 
       {/* Key plate */}

@@ -11,6 +11,28 @@ import { platform } from '../platform'
 import { precomputeGrayscale, sampleGray } from './sampling'
 import { applyDotSettings } from './dot-settings'
 import { buildKeyPlateCanvas, buildExportEdgeMask } from './key-plate'
+import { traceBinaryMask, polygonsToPath2D, flatOverlapWidth } from './vectorize'
+
+/**
+ * Fill a flat plate by vectorizing its mask into smooth polygons instead of
+ * rendering the raw per-pixel staircase. `mask` and the target ctx are at the
+ * same (output) resolution, so polygons map 1:1. Black-on-white, even-odd fill.
+ * A thin stroke of the same path gives a built-in overlap so adjacent plates
+ * don't leave bare-paper seams at their shared (independently-traced) edges.
+ */
+function fillFlatVector(
+  ctx: CanvasRenderingContext2D, w: number, h: number,
+  mask: ImageData, threshold: number, strength: number,
+): void {
+  const path = polygonsToPath2D(traceBinaryMask(mask, { threshold, strength }))
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h)
+  ctx.fillStyle = '#000000'
+  ctx.fill(path, 'evenodd')
+  ctx.strokeStyle = '#000000'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = flatOverlapWidth(mask.width, mask.height, strength)
+  ctx.stroke(path)
+}
 
 /** Effective trap (px at export DPI) for a color — per-color override wins. */
 function trapFor(color: SpotColor, spotSettings: SpotSettings): number {
@@ -239,7 +261,12 @@ async function renderSpotChannelCanvases(
     canvas.height = renderH
     const ctx = canvas.getContext('2d')!
 
-    if (buildup || color.renderMode === 'flat') {
+    const isFlat = buildup || color.renderMode === 'flat'
+    if (isFlat && spotSettings.smoothFlat && bleedPx === 0) {
+      // Vectorize the flat mask for smooth (non-staircased) edges. Bleed plates
+      // fall back to raster fill (their edge runs off into the trimmed margin).
+      fillFlatVector(ctx, renderW, renderH, channelData, color.threshold, spotSettings.smoothFlatStrength ?? 50)
+    } else if (isFlat) {
       renderFlat(ctx, effectiveChannelData, color.threshold)
     } else {
       renderHalftone(ctx, {
@@ -578,7 +605,10 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
       offCanvas.height = offH
       const offCtx = offCanvas.getContext('2d')!
 
-      if (buildup || color.renderMode === 'flat') {
+      const isFlat = buildup || color.renderMode === 'flat'
+      if (isFlat && spotSettings.smoothFlat && bleedPx === 0) {
+        fillFlatVector(offCtx, offW, offH, channelData, color.threshold, spotSettings.smoothFlatStrength ?? 50)
+      } else if (isFlat) {
         renderFlat(offCtx, effectiveChannelData, color.threshold)
       } else {
         renderHalftone(offCtx, {

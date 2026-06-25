@@ -165,6 +165,14 @@ export interface SpotSettings {
   underbase?: UnderbaseSettings
   /** Substrate (paper/garment) color the proof and preview composite onto. Default white. */
   substrate?: string
+  /**
+   * Smooth flat-plate edges by tracing each flat color's binary mask into vector
+   * outlines instead of rendering the raw per-pixel staircase. Flat plates only
+   * (halftone plates are unaffected). Off by default. Absent in older files = off.
+   */
+  smoothFlat?: boolean
+  /** 0–100: aggressiveness of the flat-edge simplification + smoothing. Default 50. */
+  smoothFlatStrength?: number
   colors: SpotColor[]
   /**
    * Optional key plate: a halftone of the full image rendered on top of all
@@ -183,6 +191,8 @@ export const DEFAULT_SPOT_SETTINGS: SpotSettings = {
   paperWhiteThreshold: 92,
   separationMode: 'knockout',
   substrate: '#ffffff',
+  smoothFlat: false,
+  smoothFlatStrength: 50,
   colors: [],
 }
 

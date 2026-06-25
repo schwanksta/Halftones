@@ -9,6 +9,7 @@ import { renderStipple } from '../engine/stipple'
 import { renderFlat, computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, boostSaturation, darkestSpotColor } from '../engine/spot-separation'
 import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from '../engine/edge'
 import { buildKeyPlateCanvas } from '../engine/key-plate'
+import { traceBinaryMask, polygonsToPath2D, flatOverlapWidth } from '../engine/vectorize'
 import { separateChannels, compositeChannels } from '../engine/cmyk'
 import { applyTransforms } from '../engine/transform'
 import { dilateMask } from '../engine/dilate'
@@ -211,6 +212,33 @@ export function useHalftonePreview(
     }
     return result
   }, [spotChannels])
+
+  // ── Flat-plate vector paths ────────────────────────────────────────────────
+  //
+  // When "smooth flat edges" is on, each flat color's source-resolution mask is
+  // traced into smooth polygons ONCE here (memoized at the same cadence as the
+  // separation), then filled per frame under the viewport transform — so the
+  // expensive trace never runs in the hot render loop.  Paths are in
+  // transformed-source pixel coords.
+  const flatVectorPaths = useMemo(() => {
+    if (halftoneSettings.colorMode !== 'spot') return null
+    if (!spotSettings.smoothFlat || !spotChannels) return null
+    const buildup = spotSettings.separationMode === 'buildup'
+    const strength = spotSettings.smoothFlatStrength ?? 50
+    const map = new Map<string, { path: Path2D; overlap: number }>()
+    for (const color of spotSettings.colors) {
+      if (!color.enabled) continue
+      if (!(buildup || color.renderMode === 'flat')) continue
+      const channel = spotChannels.get(color.id)
+      if (!channel) continue
+      const polys = traceBinaryMask(channel, { threshold: color.threshold ?? 0.5, strength })
+      // overlap is in mask (source) pixel units; the per-frame fill strokes
+      // under the viewport transform so it scales with zoom automatically.
+      map.set(color.id, { path: polygonsToPath2D(polys), overlap: flatOverlapWidth(channel.width, channel.height, strength) })
+    }
+    return map
+  }, [halftoneSettings.colorMode, spotSettings.smoothFlat, spotSettings.smoothFlatStrength,
+      spotSettings.separationMode, spotSettings.colors, spotChannels])
 
   // ── Alpha boundary outline canvas ─────────────────────────────────────────
   //
@@ -487,7 +515,23 @@ export function useHalftonePreview(
           const bwCanvas = document.createElement('canvas')
           bwCanvas.width = canvasW; bwCanvas.height = canvasH
           const bwCtx = bwCanvas.getContext('2d')!
-          if (buildup || color.renderMode === 'flat') {
+          const isFlat = buildup || color.renderMode === 'flat'
+          const vec = flatVectorPaths?.get(color.id)
+          if (isFlat && vec && bleedSourcePx === 0) {
+            // Fill pre-traced smooth polygons (source coords) under the viewport
+            // transform. Bleed plates fall back to raster fill below.
+            bwCtx.fillStyle = '#ffffff'; bwCtx.fillRect(0, 0, canvasW, canvasH)
+            bwCtx.save()
+            bwCtx.setTransform(viewport.zoom, 0, 0, viewport.zoom, -srcX * viewport.zoom, -srcY * viewport.zoom)
+            bwCtx.fillStyle = '#000000'
+            bwCtx.fill(vec.path, 'evenodd')
+            // Built-in overlap (mask units) so adjacent plates don't leave seams.
+            bwCtx.strokeStyle = '#000000'
+            bwCtx.lineJoin = 'round'
+            bwCtx.lineWidth = vec.overlap
+            bwCtx.stroke(vec.path)
+            bwCtx.restore()
+          } else if (isFlat) {
             renderFlat(bwCtx, chRegionData, color.threshold)
           } else {
             renderHalftone(bwCtx, {
@@ -612,7 +656,7 @@ export function useHalftonePreview(
     canvasRef, transformed, transformedCanvas, stippleCanvas,
     spotSettings.colors, spotSettings.vibrancy, spotSettings.trap, spotSettings.key,
     spotSettings.separationMode, spotSettings.substrate, spotSettings.underbase,
-    spotChannelCanvases, alphaOutlineCanvas, keyEdgeCanvas, underbaseCanvas,
+    spotChannelCanvases, flatVectorPaths, alphaOutlineCanvas, keyEdgeCanvas, underbaseCanvas,
     maskOverlayCanvas, maskStrokeCanvas,
     halftoneSettings, cmykSettings, channelView, outputSettings, viewport,
   ])
