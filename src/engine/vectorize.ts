@@ -32,22 +32,27 @@ function downsampleFactor(width: number, height: number): number {
   return maxDim > 2000 ? Math.ceil(maxDim / 2000) : 1
 }
 
-/** Douglas–Peucker tolerance (in downsampled-grid units) for a strength 0–100. */
-function epsilonFor(strength: number): number {
-  return 0.5 + (strength / 100) * 2.0
-}
+/**
+ * Douglas–Peucker tolerance (in downsampled-grid units). Kept small and
+ * CONSTANT — just enough to collapse the 1px separation staircase into straight
+ * edges. Smoothness comes from Chaikin rounding instead; deliberately NOT raised
+ * with the strength slider, because a larger tolerance makes each plate's shared
+ * boundary diverge more from its neighbour's, which would force a wider overlap
+ * (see flatOverlapWidth) and visibly fatten every flat shape as smoothness goes up.
+ */
+const SIMPLIFY_EPSILON = 1.0
 
 /**
- * Recommended self-trap overlap (in mask/output pixels) to close the sub-pixel
- * seams that appear between independently-traced adjacent flat plates: each
- * plate's shared boundary is simplified separately, so they can diverge by up
- * to the simplification tolerance and leave bare paper between them. Stroking
- * each filled plate by this width makes complementary plates overlap instead.
- * Tracks both strength and the perf-downsample factor so it stays correct at
- * any resolution. (This is independent of, and additive to, the user's trap.)
+ * Self-trap overlap (in mask/output pixels) to close the sub-pixel seams between
+ * independently-traced adjacent flat plates: each plate's shared boundary is
+ * simplified separately and can diverge slightly, leaving bare paper between
+ * them. Stroking each filled plate by this width makes complementary plates
+ * overlap instead. CONSTANT with respect to smoothness (only scales with the
+ * perf-downsample factor so it stays ~2px at any resolution) — so raising
+ * smoothness no longer fattens line weight. Additive to the user's trap.
  */
-export function flatOverlapWidth(width: number, height: number, strength: number): number {
-  return epsilonFor(strength) * downsampleFactor(width, height) * 2
+export function flatOverlapWidth(width: number, height: number): number {
+  return downsampleFactor(width, height) * 2
 }
 
 /** A single marching-squares segment: two grid-corner endpoints (in corner-grid units). */
@@ -102,7 +107,7 @@ export function traceBinaryMask(mask: ImageData, opts: VectorizeOptions): Polygo
   const loops = traceContours(inside, gridW, gridH)
 
   // ── Step 4+5+6: simplify, smooth, drop degenerate, rescale ────────────────
-  const epsilon = epsilonFor(opts.strength)
+  const epsilon = SIMPLIFY_EPSILON
   const chaikinIterations = Math.round((opts.strength / 100) * 4)
 
   const result: Polygon[] = []

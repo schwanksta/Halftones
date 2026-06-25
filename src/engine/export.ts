@@ -30,7 +30,7 @@ function fillFlatVector(
   ctx.fill(path, 'evenodd')
   ctx.strokeStyle = '#000000'
   ctx.lineJoin = 'round'
-  ctx.lineWidth = flatOverlapWidth(mask.width, mask.height, strength)
+  ctx.lineWidth = flatOverlapWidth(mask.width, mask.height)
   ctx.stroke(path)
 }
 

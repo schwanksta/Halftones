@@ -234,7 +234,7 @@ export function useHalftonePreview(
       const polys = traceBinaryMask(channel, { threshold: color.threshold ?? 0.5, strength })
       // overlap is in mask (source) pixel units; the per-frame fill strokes
       // under the viewport transform so it scales with zoom automatically.
-      map.set(color.id, { path: polygonsToPath2D(polys), overlap: flatOverlapWidth(channel.width, channel.height, strength) })
+      map.set(color.id, { path: polygonsToPath2D(polys), overlap: flatOverlapWidth(channel.width, channel.height) })
     }
     return map
   }, [halftoneSettings.colorMode, spotSettings.smoothFlat, spotSettings.smoothFlatStrength,
