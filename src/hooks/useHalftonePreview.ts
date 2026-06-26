@@ -220,6 +220,14 @@ export function useHalftonePreview(
   // separation), then filled per frame under the viewport transform — so the
   // expensive trace never runs in the hot render loop.  Paths are in
   // transformed-source pixel coords.
+  // Signature of only the per-color fields the trace actually depends on.
+  // Deliberately excludes hex/name/angle/lpi/trap so changing a color's display
+  // ink — which fires rapidly while dragging the picker — does NOT re-trace
+  // every flat plate (marching squares + Douglas-Peucker is expensive).
+  const flatVectorSig = spotSettings.colors
+    .map((c) => `${c.id}:${c.enabled ? 1 : 0}:${c.renderMode}:${c.threshold}:${c.smooth ?? ''}`)
+    .join('|')
+
   const flatVectorPaths = useMemo(() => {
     if (halftoneSettings.colorMode !== 'spot' || !spotChannels) return null
     const buildup = spotSettings.separationMode === 'buildup'
@@ -236,8 +244,11 @@ export function useHalftonePreview(
       map.set(color.id, polygonsToPath2D(polys))
     }
     return map.size ? map : null
+  // spotSettings.colors is read inside but intentionally NOT a dep — flatVectorSig
+  // captures the trace-relevant subset so display-only changes don't re-trace.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [halftoneSettings.colorMode, spotSettings.smoothFlat, spotSettings.smoothFlatStrength,
-      spotSettings.separationMode, spotSettings.colors, spotChannels])
+      spotSettings.separationMode, flatVectorSig, spotChannels])
 
   // ── Alpha boundary outline canvas ─────────────────────────────────────────
   //
