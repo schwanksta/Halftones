@@ -38,9 +38,13 @@ export interface SpotColor {
   smooth?: boolean
   /**
    * Bleed: extends a background-type color plate outward from the image edge
-   * into the margin, in inches. 0 = no bleed (plate stops at image boundary).
+   * into the margin, as a percentage (0–100) of the margin. 100 = fills the
+   * margin out to the trim edge. Measured against the smallest side margin so
+   * the (symmetric) bleed never overflows a tighter side. 0 = no bleed.
    * Only meaningful when `type === 'background'`.
    */
+  bleedPct?: number
+  /** @deprecated legacy inches-based bleed; superseded by bleedPct. */
   bleedInches?: number
   /**
    * 'background': mask is derived from the source image's alpha channel
@@ -250,8 +254,23 @@ export interface OutputSettings {
   heightInches: number
   dpi: number
   lockAspectRatio: boolean
-  /** Margin around the image for registration/crop marks, in inches. */
+  /**
+   * Margin around the image for registration/crop marks, in inches. Used for
+   * all sides when margins are linked, and as the fallback for any unset
+   * per-side value below.
+   */
   marginInches: number
+  /**
+   * When false, margins are set independently per side (marginTop/Bottom/
+   * Left/Right below). Absent or true = all sides use marginInches (legacy
+   * behavior, and how older projects load).
+   */
+  marginLinked?: boolean
+  /** Per-side margins in inches (used only when marginLinked === false). */
+  marginTop?: number
+  marginRight?: number
+  marginBottom?: number
+  marginLeft?: number
   /** Whether to include crop marks in PDF export. Defaults to true. */
   cropMarks?: boolean
   /** Whether to include the margin in PDF export. Defaults to true. */
@@ -260,6 +279,32 @@ export interface OutputSettings {
   vectorPDF?: boolean
   /** Draw registration marks (circle + crosshair) at side midpoints for multi-layer alignment. */
   alignmentMarks?: boolean
+}
+
+/** Resolved per-side margins, in inches. */
+export interface Margins {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
+
+/**
+ * Resolve the effective per-side margins (inches). When margins are linked
+ * (default), every side uses marginInches. When unlinked, each side uses its
+ * own value, falling back to marginInches if a side is unset.
+ */
+export function resolveMargins(s: OutputSettings): Margins {
+  const base = s.marginInches ?? 1
+  if (s.marginLinked === false) {
+    return {
+      top: s.marginTop ?? base,
+      right: s.marginRight ?? base,
+      bottom: s.marginBottom ?? base,
+      left: s.marginLeft ?? base,
+    }
+  }
+  return { top: base, right: base, bottom: base, left: base }
 }
 
 export interface ImageTransformSettings {

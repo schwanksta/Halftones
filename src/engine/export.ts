@@ -1,4 +1,4 @@
-import { HalftoneSettings, CMYKSettings, OutputSettings, ImageTransformSettings, SpotSettings, SpotColor, MaskSettings, MaskImage } from '../types'
+import { HalftoneSettings, CMYKSettings, OutputSettings, ImageTransformSettings, SpotSettings, SpotColor, MaskSettings, MaskImage, resolveMargins } from '../types'
 import { computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from './edge'
 import { renderHalftone } from './halftone'
 import { separateChannels } from './cmyk'
@@ -38,6 +38,18 @@ function fillFlatVector(
 /** Effective trap (px at export DPI) for a color — per-color override wins. */
 function trapFor(color: SpotColor, spotSettings: SpotSettings): number {
   return color.trap ?? spotSettings.trap ?? 0
+}
+
+/**
+ * Background-plate bleed in target pixels: bleedPct% of the SMALLEST side
+ * margin (so the symmetric bleed never overflows a tighter side). 0 for
+ * non-background colors or no bleed.
+ */
+function bleedPxFor(color: SpotColor, outputSettings: OutputSettings, pxPerInch: number): number {
+  if (color.type !== 'background' || !(color.bleedPct ?? 0)) return 0
+  const m = resolveMargins(outputSettings)
+  const minMarginIn = Math.min(m.top, m.right, m.bottom, m.left)
+  return Math.round((color.bleedPct! / 100) * minMarginIn * pxPerInch)
 }
 
 interface ExportOptions {
@@ -233,9 +245,7 @@ async function renderSpotChannelCanvases(
     // (or flat fill) naturally extends into the bleed area.  Same approach as
     // the preview — avoids the solid-black border that a post-render expansion
     // would produce for halftone backgrounds.
-    const bleedPx = color.type === 'background' && (color.bleedInches ?? 0) > 0
-      ? Math.round(color.bleedInches! * outputSettings.dpi)
-      : 0
+    const bleedPx = bleedPxFor(color, outputSettings, outputSettings.dpi)
 
     let effectiveChannelData = channelData
     let renderW = targetWidth
@@ -446,10 +456,13 @@ async function renderFullRes(options: ExportOptions): Promise<HTMLCanvasElement>
 export async function exportColorProof(options: ExportOptions): Promise<void> {
   const { source, transformSettings, halftoneSettings, cmykSettings, spotSettings, outputSettings, projectName } = options
   const { widthInches, dpi } = outputSettings
-  const margin = outputSettings.marginInches ?? 1
+  const m = resolveMargins(outputSettings)
+  const mL = Math.round(m.left * dpi)
+  const mR = Math.round(m.right * dpi)
+  const mT = Math.round(m.top * dpi)
+  const mB = Math.round(m.bottom * dpi)
 
   const targetW  = Math.round(widthInches  * dpi)
-  const marginPx = Math.round(margin * dpi)
 
   const transformed = applyTransforms(source, transformSettings)
 
@@ -473,8 +486,8 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
 
   // Create proof canvas up front so the spot branch can paint background-bleed
   // layers directly into the margin area (before imgCanvas is composited).
-  const totalW = targetW + 2 * marginPx
-  const totalH = targetH + 2 * marginPx
+  const totalW = targetW + mL + mR
+  const totalH = targetH + mT + mB
   const proofCanvas = document.createElement('canvas')
   proofCanvas.width  = totalW
   proofCanvas.height = totalH
@@ -580,8 +593,7 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
 
       // Bleed: expand the channel source data BEFORE rendering so the halftone
       // or flat fill naturally extends through the bleed area.
-      const bleedPx = color.type === 'background' && (color.bleedInches ?? 0) > 0
-        ? Math.round(color.bleedInches! * dpi) : 0
+      const bleedPx = bleedPxFor(color, outputSettings, dpi)
 
       let effectiveChannelData = channelData
       let offW = targetW, offH = targetH
@@ -643,10 +655,10 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
       if (color.type === 'background' && bleedPx > 0) {
         // Draw directly onto proofCanvas so bleed ink extends into the margin.
         // The expanded overlay is (targetW + 2*bleedPx) × (targetH + 2*bleedPx);
-        // positioning at (marginPx - bleedPx, marginPx - bleedPx) lands the
-        // image-area portion at (marginPx, marginPx) and lets the bleed surround it.
+        // positioning at (mL - bleedPx, mT - bleedPx) lands the image-area
+        // portion at (mL, mT) and lets the bleed surround it.
         proofCtx.globalCompositeOperation = 'source-over'
-        proofCtx.drawImage(overlayCanvas, marginPx - bleedPx, marginPx - bleedPx)
+        proofCtx.drawImage(overlayCanvas, mL - bleedPx, mT - bleedPx)
       } else {
         imgCtx.globalCompositeOperation = 'source-over'
         imgCtx.drawImage(overlayCanvas, 0, 0)
@@ -698,7 +710,7 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
   // white. Background-bleed spot layers were painted directly onto it; all other
   // layers are on imgCanvas and composited here.
   proofCtx.globalCompositeOperation = 'source-over'
-  proofCtx.drawImage(imgCanvas, marginPx, marginPx)
+  proofCtx.drawImage(imgCanvas, mL, mT)
 
   const blob = await new Promise<Blob>((resolve) => {
     proofCanvas.toBlob((b) => resolve(b!), 'image/png')
@@ -747,21 +759,23 @@ function composeChannelPage(
 ): HTMLCanvasElement {
   const dpi = outputSettings.dpi
   const pxPerPt = dpi / 72
-  const margin = (outputSettings.marginInches != null && isFinite(outputSettings.marginInches))
-    ? outputSettings.marginInches : 1
   const showCropMarks = outputSettings.cropMarks !== false
   const showMargin = outputSettings.showMargin !== false
   const showAlign = !!outputSettings.alignmentMarks
 
+  const m = resolveMargins(outputSettings)
   const cropPx = showCropMarks ? Math.round(0.5 * dpi) : 0
-  const marginPx = showMargin ? Math.round(margin * dpi) : 0
+  const mT = showMargin ? Math.round(m.top * dpi) : 0
+  const mR = showMargin ? Math.round(m.right * dpi) : 0
+  const mB = showMargin ? Math.round(m.bottom * dpi) : 0
+  const mL = showMargin ? Math.round(m.left * dpi) : 0
   const imageW = Math.round(outputSettings.widthInches * dpi)
   const imageH = Math.round(outputSettings.heightInches * dpi)
 
-  const pageW = imageW + 2 * marginPx + 2 * cropPx
-  const pageH = imageH + 2 * marginPx + 2 * cropPx
-  const offX = cropPx + marginPx
-  const offY = cropPx + marginPx
+  const pageW = imageW + mL + mR + 2 * cropPx
+  const pageH = imageH + mT + mB + 2 * cropPx
+  const offX = cropPx + mL
+  const offY = cropPx + mT
 
   const page = document.createElement('canvas')
   page.width = pageW
@@ -783,8 +797,8 @@ function composeChannelPage(
 
   if (showCropMarks) {
     const pieceX0 = cropPx, pieceY0 = cropPx
-    const pieceX1 = cropPx + 2 * marginPx + imageW
-    const pieceY1 = cropPx + 2 * marginPx + imageH
+    const pieceX1 = cropPx + mL + imageW + mR
+    const pieceY1 = cropPx + mT + imageH + mB
     const gap = Math.max(3 * pxPerPt, cropPx * 0.12)
     const markLen = Math.min(cropPx - gap - 2 * pxPerPt, cropPx * 0.75)
     const corners: [number, number, number, number][] = [
@@ -807,9 +821,9 @@ function composeChannelPage(
     const cy = offY + imageH / 2
     const positions = [
       { x: cx, y: half },
-      { x: cx, y: offY + imageH + marginPx + half },
+      { x: cx, y: offY + imageH + mB + half },
       { x: half, y: cy },
-      { x: offX + imageW + marginPx + half, y: cy },
+      { x: offX + imageW + mR + half, y: cy },
     ]
     for (const { x, y } of positions) {
       ctx.beginPath(); ctx.arc(x, y, radius, 0, 2 * Math.PI); ctx.stroke()
@@ -840,7 +854,7 @@ function composeChannelPage(
       // No waste strip — small label centred in the top margin instead.
       const fontPx = Math.max(8, Math.round(8 * pxPerPt))
       ctx.font = `${fontPx}px sans-serif`
-      ctx.fillText(label, lx, Math.max(fontPx, marginPx / 2))
+      ctx.fillText(label, lx, Math.max(fontPx, mT / 2))
     }
   }
 
@@ -1090,27 +1104,28 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
   const { halftoneSettings, cmykSettings, outputSettings } = options
   const { widthInches, heightInches } = outputSettings
 
-  const margin = (outputSettings.marginInches != null && isFinite(outputSettings.marginInches))
-    ? outputSettings.marginInches
-    : 1
+  const m = resolveMargins(outputSettings)
   const showCropMarks    = outputSettings.cropMarks !== false
   const showMargin       = outputSettings.showMargin !== false
   const showAlignMarks   = !!outputSettings.alignmentMarks
   const cropMarkPts = showCropMarks ? 0.5 * 72 : 0
-  const marginPts   = showMargin ? margin * 72 : 0
+  const mTpt = showMargin ? m.top * 72 : 0
+  const mRpt = showMargin ? m.right * 72 : 0
+  const mBpt = showMargin ? m.bottom * 72 : 0
+  const mLpt = showMargin ? m.left * 72 : 0
   const imageWPts   = widthInches  * 72
   const imageHPts   = heightInches * 72
 
-  const pageW = imageWPts + 2 * marginPts + 2 * cropMarkPts
-  const pageH = imageHPts + 2 * marginPts + 2 * cropMarkPts
+  const pageW = imageWPts + mLpt + mRpt + 2 * cropMarkPts
+  const pageH = imageHPts + mTpt + mBpt + 2 * cropMarkPts
 
-  const imgOffX = marginPts + cropMarkPts
-  const imgOffY = marginPts + cropMarkPts
+  const imgOffX = mLpt + cropMarkPts
+  const imgOffY = mTpt + cropMarkPts
 
   const pieceX0 = cropMarkPts
   const pieceY0 = cropMarkPts
-  const pieceX1 = cropMarkPts + 2 * marginPts + imageWPts
-  const pieceY1 = cropMarkPts + 2 * marginPts + imageHPts
+  const pieceX1 = cropMarkPts + mLpt + imageWPts + mRpt
+  const pieceY1 = cropMarkPts + mTpt + imageHPts + mBpt
 
   const pdf = new jsPDF({
     orientation: widthInches > heightInches ? 'landscape' : 'portrait',
@@ -1164,10 +1179,10 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
         pdf.text(plateLabel, tx, cropMarkPts / 2, { baseline: 'middle' })
       } else {
         pdf.setFontSize(8)
-        pdf.text(plateLabel, labelX, Math.max(8, marginPts / 2), { baseline: 'middle' })
+        pdf.text(plateLabel, labelX, Math.max(8, mTpt / 2), { baseline: 'middle' })
       }
       if (showCropMarks) drawCropMarks(pdf, pieceX0, pieceY0, pieceX1, pieceY1, cropMarkPts)
-      if (showAlignMarks) drawAlignmentMarks(pdf, imgOffX, imgOffY, imageWPts, imageHPts, marginPts, cropMarkPts)
+      if (showAlignMarks) drawAlignmentMarks(pdf, imgOffX, imgOffY, imageWPts, imageHPts, { top: mTpt, right: mRpt, bottom: mBpt, left: mLpt }, cropMarkPts)
     }
   } else if (halftoneSettings.colorMode === 'cmyk') {
     const channelCanvases = await renderChannelCanvases(options)
@@ -1191,7 +1206,7 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
       )
 
       if (showCropMarks) drawCropMarks(pdf, pieceX0, pieceY0, pieceX1, pieceY1, cropMarkPts)
-      if (showAlignMarks) drawAlignmentMarks(pdf, imgOffX, imgOffY, imageWPts, imageHPts, marginPts, cropMarkPts)
+      if (showAlignMarks) drawAlignmentMarks(pdf, imgOffX, imgOffY, imageWPts, imageHPts, { top: mTpt, right: mRpt, bottom: mBpt, left: mLpt }, cropMarkPts)
     }
   } else {
     // Use vector paths only when no mask is active — the mask overlay is a
@@ -1239,17 +1254,16 @@ function drawAlignmentMarks(
   imgOffY: number,
   imageWPts: number,
   imageHPts: number,
-  marginPts: number,
+  marginPts: { top: number; right: number; bottom: number; left: number },
   cropMarkPts: number,
 ) {
   // Marks live in the crop-mark waste strip (outside the cut line) so they
   // are removed when the piece is trimmed — never inside the margin.
   if (cropMarkPts < 6) return  // no waste strip to place marks in
 
-  // Centre of each waste strip, at the midpoint of the image edge.
-  // imgOffX = cropMarkPts + marginPts, so:
-  //   left waste centre  = cropMarkPts / 2
-  //   right waste centre = imgOffX + imageWPts + marginPts + cropMarkPts / 2
+  // Centre of each waste strip, at the midpoint of the image edge. The waste
+  // strip sits beyond each side's margin, so the bottom/right positions use
+  // that side's margin.
   const half = cropMarkPts / 2
   const radius = Math.min(8, cropMarkPts * 0.36)
   const armLen = radius * 1.4
@@ -1258,10 +1272,10 @@ function drawAlignmentMarks(
   const cy = imgOffY + imageHPts / 2
 
   const positions = [
-    { x: cx,                                            y: half },                                          // top
-    { x: cx,                                            y: imgOffY + imageHPts + marginPts + half },        // bottom
-    { x: half,                                          y: cy },                                            // left
-    { x: imgOffX + imageWPts + marginPts + half,        y: cy },                                            // right
+    { x: cx,                                              y: half },                                              // top
+    { x: cx,                                              y: imgOffY + imageHPts + marginPts.bottom + half },     // bottom
+    { x: half,                                            y: cy },                                                // left
+    { x: imgOffX + imageWPts + marginPts.right + half,    y: cy },                                                // right
   ]
 
   pdf.setDrawColor(0, 0, 0)

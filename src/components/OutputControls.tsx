@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { OutputSettings } from '../types'
+import { OutputSettings, resolveMargins } from '../types'
 
 interface Props {
   settings: OutputSettings
@@ -17,10 +17,11 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
   // Full printed page size, matching exportPDF's geometry: the image plus the
   // margin on all sides (when enabled) plus the 0.5" crop-mark waste strip
   // (when enabled). This is the actual sheet that comes out of the printer.
-  const marginIn = settings.showMargin !== false ? (settings.marginInches ?? 1) : 0
+  const m = resolveMargins(settings)
+  const showM = settings.showMargin !== false
   const cropIn = settings.cropMarks !== false ? 0.5 : 0
-  const totalW = settings.widthInches + 2 * marginIn + 2 * cropIn
-  const totalH = settings.heightInches + 2 * marginIn + 2 * cropIn
+  const totalW = settings.widthInches + (showM ? m.left + m.right : 0) + 2 * cropIn
+  const totalH = settings.heightInches + (showM ? m.top + m.bottom : 0) + 2 * cropIn
 
   // Local draft strings so the user can backspace freely while typing.
   // onChange is only called when the typed value is a valid positive number.
@@ -141,25 +142,108 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
         />
       </label>
 
-      <label className="control-row">
-        <span>Margin (inches)</span>
+      <label className="control-row" style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
         <input
-          type="number"
-          min={0}
-          max={4}
-          step={0.25}
-          value={settings.marginInches ?? 1}
-          onBlur={(e) => {
-            const v = parseFloat(e.target.value)
-            onChange({ ...settings, marginInches: isNaN(v) ? 1 : Math.max(0, v) })
-          }}
+          type="checkbox"
+          checked={settings.marginLinked !== false}
           onChange={(e) => {
-            const v = parseFloat(e.target.value)
-            if (!isNaN(v)) onChange({ ...settings, marginInches: v })
+            if (e.target.checked) {
+              onChange({ ...settings, marginLinked: true })
+            } else {
+              const m = settings.marginInches ?? 1
+              onChange({ ...settings, marginLinked: false, marginTop: m, marginBottom: m, marginLeft: m, marginRight: m })
+            }
           }}
           disabled={disabled}
         />
+        <span>Link margins</span>
       </label>
+
+      {settings.marginLinked !== false ? (
+        <label className="control-row">
+          <span>Margin (inches)</span>
+          <input
+            type="number"
+            min={0}
+            max={4}
+            step={0.25}
+            value={settings.marginInches ?? 1}
+            onBlur={(e) => {
+              const v = parseFloat(e.target.value)
+              onChange({ ...settings, marginInches: isNaN(v) ? 1 : Math.max(0, v) })
+            }}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value)
+              if (!isNaN(v)) onChange({ ...settings, marginInches: v })
+            }}
+            disabled={disabled}
+          />
+        </label>
+      ) : (
+        <>
+          <label className="control-row">
+            <span>Top (in)</span>
+            <input
+              type="number"
+              min={0}
+              max={4}
+              step={0.25}
+              value={settings.marginTop ?? settings.marginInches ?? 1}
+              onBlur={(e) => {
+                const v = parseFloat(e.target.value)
+                onChange({ ...settings, marginTop: isNaN(v) ? (settings.marginTop ?? settings.marginInches ?? 1) : Math.max(0, v) })
+              }}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value)
+                if (!isNaN(v)) onChange({ ...settings, marginTop: v })
+              }}
+              disabled={disabled}
+            />
+          </label>
+
+          <label className="control-row">
+            <span>Bottom (in)</span>
+            <input
+              type="number"
+              min={0}
+              max={4}
+              step={0.25}
+              value={settings.marginBottom ?? settings.marginInches ?? 1}
+              onBlur={(e) => {
+                const v = parseFloat(e.target.value)
+                onChange({ ...settings, marginBottom: isNaN(v) ? (settings.marginBottom ?? settings.marginInches ?? 1) : Math.max(0, v) })
+              }}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value)
+                if (!isNaN(v)) onChange({ ...settings, marginBottom: v })
+              }}
+              disabled={disabled}
+            />
+          </label>
+
+          <label className="control-row">
+            <span>Sides (in)</span>
+            <input
+              type="number"
+              min={0}
+              max={4}
+              step={0.25}
+              value={settings.marginLeft ?? settings.marginInches ?? 1}
+              onBlur={(e) => {
+                const v = parseFloat(e.target.value)
+                const fallback = settings.marginLeft ?? settings.marginInches ?? 1
+                const next = isNaN(v) ? fallback : Math.max(0, v)
+                onChange({ ...settings, marginLeft: next, marginRight: next })
+              }}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value)
+                if (!isNaN(v)) onChange({ ...settings, marginLeft: v, marginRight: v })
+              }}
+              disabled={disabled}
+            />
+          </label>
+        </>
+      )}
 
       <div
         style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 4 }}

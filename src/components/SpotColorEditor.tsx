@@ -892,19 +892,19 @@ function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, buildu
           {/* Bleed — background layers only */}
           {color.type === 'background' && (
             <div className="control-row">
-              <span title="Extend this color plate outward from the image edge into the margin (inches). 0 = stops at image boundary.">
+              <span title="How far the background plate extends into the margin, as a percentage of the (smallest) margin. 100% = out to the trim edge.">
                 Bleed{' '}
                 <EditableValue
-                  value={Math.round((color.bleedInches ?? 0) * 100) / 100}
-                  min={0} max={4} step={0.05}
-                  suffix='"'
-                  onChange={(v) => onChange({ bleedInches: v })}
+                  value={Math.round(color.bleedPct ?? 0)}
+                  min={0} max={100} step={1}
+                  suffix="%"
+                  onChange={(v) => onChange({ bleedPct: v })}
                 />
               </span>
               <input
-                type="range" min={0} max={1} step={0.05}
-                value={color.bleedInches ?? 0}
-                onChange={(e) => onChange({ bleedInches: Number(e.target.value) })}
+                type="range" min={0} max={100} step={1}
+                value={color.bleedPct ?? 0}
+                onChange={(e) => onChange({ bleedPct: Number(e.target.value) })}
                 disabled={disabled}
               />
             </div>

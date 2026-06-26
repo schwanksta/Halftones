@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import {
   HalftoneSettings, CMYKSettings, SourceImage,
   ImageTransformSettings, OutputSettings, SpotSettings,
-  MaskSettings, MaskImage,
+  MaskSettings, MaskImage, resolveMargins,
 } from '../types'
 import { renderHalftone } from '../engine/halftone'
 import { renderStipple } from '../engine/stipple'
@@ -350,6 +350,11 @@ export function useHalftonePreview(
     const sourcePixelsPerInch = transformed.width / outputSettings.widthInches
     const renderDpi = viewport.zoom * sourcePixelsPerInch
 
+    // Per-side margins (source px) for the piece clip rect, and the smallest
+    // margin (inches) used as the reference for background bleed (% of margin).
+    const margins = resolveMargins(outputSettings)
+    const minMarginIn = Math.min(margins.top, margins.right, margins.bottom, margins.left)
+
     const rawFg = halftoneSettings.fgColor || '#000000'
     const rawBg = halftoneSettings.bgColor || '#ffffff'
     const bgColor = halftoneSettings.invert ? rawFg : rawBg
@@ -493,8 +498,8 @@ export function useHalftonePreview(
           // extracting the viewport region.  This way flat fill and halftone dots
           // naturally extend into the bleed area — no seam, and halftone patterns
           // continue through the bleed just like the rest of the background.
-          const bleedSourcePx = color.type === 'background' && (color.bleedInches ?? 0) > 0
-            ? Math.round(color.bleedInches! * sourcePixelsPerInch)
+          const bleedSourcePx = color.type === 'background' && (color.bleedPct ?? 0) > 0
+            ? Math.round((color.bleedPct! / 100) * minMarginIn * sourcePixelsPerInch)
             : 0
 
           let effectiveChCanvas = chCanvas
@@ -622,11 +627,10 @@ export function useHalftonePreview(
     ctx.fillStyle = GUTTER_COLOR
     ctx.fillRect(0, 0, canvasW, canvasH)
 
-    const marginSrcPx = (outputSettings.marginInches ?? 0) * sourcePixelsPerInch
-    const pieceLeft   = (-srcX - marginSrcPx) * viewport.zoom
-    const pieceTop    = (-srcY - marginSrcPx) * viewport.zoom
-    const pieceRight  = (transformed.width  - srcX + marginSrcPx) * viewport.zoom
-    const pieceBottom = (transformed.height - srcY + marginSrcPx) * viewport.zoom
+    const pieceLeft   = (-srcX - margins.left   * sourcePixelsPerInch) * viewport.zoom
+    const pieceTop    = (-srcY - margins.top    * sourcePixelsPerInch) * viewport.zoom
+    const pieceRight  = (transformed.width  - srcX + margins.right  * sourcePixelsPerInch) * viewport.zoom
+    const pieceBottom = (transformed.height - srcY + margins.bottom * sourcePixelsPerInch) * viewport.zoom
 
     ctx.save()
     ctx.beginPath()
