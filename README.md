@@ -1,10 +1,12 @@
 # Halftones
 
-A native macOS app (and browser tool) for halftone image processing and spot color separation aimed at screen printing. Drop in a photo, choose a pattern, adjust settings, and export print-ready files. Built with Claude for my own purposes, but perhaps it's useful to you as well.
+A native macOS app (or browser tool) for halftone image processing and spot color separation aimed at artists who screen print. Drop in an image, choose a pattern, adjust settings, and export print-ready files and color proofs. Halftones allows you to experiment with many different options, mixing and matching color separation layers and halftones in different ways.
 
-![Radial-line halftone in grayscale](docs/screenshot-radial.png)
-![Two-color spot separation of a poodle](docs/screenshot-spot-poodle.png)
+Built with Claude for my own purposes, but perhaps it's useful to you as well.
+
 ![Four-color spot separation of a disco ball with vectorized flat edges](docs/screenshot-spot-disco.png)
+![Two-color spot separation of a poodle](docs/screenshot-spot-poodle.png)
+![Radial-line halftone in grayscale](docs/screenshot-radial.png)
 
 ## Features
 
