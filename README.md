@@ -2,6 +2,11 @@
 
 A native macOS app (or browser-based app) for halftone image processing and spot color separation aimed at artists who screen print. Drop in an image, choose a pattern, adjust settings, and export print-ready files and color proofs. Halftones allows you to experiment with many different options, mixing and matching color separation layers and halftones in different ways.
 
+There are three modes: 
+* Grayscale / halftone, with a single halftone pattern.
+* Color separation (which can include halftoned layers or a halftoned key plate)
+* CMYK. 
+
 Built with Claude for my own purposes, but perhaps it's useful to you as well.
 
 ![Four-color spot separation of a disco ball with vectorized flat edges](docs/screenshot-spot-disco.png)
@@ -9,11 +14,6 @@ Built with Claude for my own purposes, but perhaps it's useful to you as well.
 ![Radial-line halftone in grayscale](docs/screenshot-radial.png)
 
 ## Features
-
-There are three modes: 
-* Grayscale / halftone, with a single halftone pattern.
-* Color separation (which can include halftoned layers or a halftoned key plate)
-* CMYK. 
 
 ### Halftone Patterns
 13 patterns: dot, euclidean dot, ellipse, diamond, hexagonal, line, crosshatch, concentric, brick, radial dots, radial lines, stochastic (FM dither), and Poisson-disk stipple.
