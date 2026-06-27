@@ -16,9 +16,10 @@ A native macOS app (and browser tool) for halftone image processing and spot col
 - **Separation mode** — **knockout** (default: exclusive regions, one ink per pixel) or **build-up** (nested cumulative overprint — each tone inks its plate plus every lighter plate beneath it; registration-forgiving, suited to tonal/duotone palettes)
 - **Underbase** — an optional base plate (union of all inked area, choked inward) printed first, e.g. white or silver under the full design
 - **Substrate color** — set the paper/garment color the proof and preview composite onto, for previewing ink on colored stock
-- **Smoothing** — jointly cleans up the color separation so adjacent layers never erode apart and leave paper showing through; low values remove stray specks, higher values smooth jagged boundaries
+- **Vectorize flat edges** — optionally trace flat color plates into smooth vector outlines so diagonal/curved color boundaries aren't pixelated (staircased). A global default with a **per-color override** (e.g. smooth the flat masses but leave a fine line/hatch plate crisp) and a **Rounding** amount; applies to flat plates only
+- **Despeckle** — jointly cleans up the color separation so adjacent layers never erode apart and leave paper showing through; low values remove stray specks, higher values smooth jagged boundaries
 - **Treat white as paper** — reserve near-white as bare paper so every extracted color is a real ink (no wasted white plate) and white areas knock out to paper; turn off for white ink on colored stock
-- **Background layer** — for transparent/cutout images, add a color plate covering exactly the transparent area, rendered flat or halftoned, with an adjustable **bleed** that extends it into the margin
+- **Background layer** — for transparent/cutout images, add a color plate covering exactly the transparent area, rendered flat or halftoned, with an adjustable **bleed** (as a percentage of the margin) that extends it out toward the trim edge
 
 ### Dot & Tone Controls
 - Min/max dot, dot gain compensation, dot size multiplier
@@ -45,7 +46,7 @@ Load a mask that clips every plate at once — confine the artwork to a shape, k
 - Vector PDF paths for dot, hex, ellipse, diamond, line, euclidean, and radial-line patterns
 
 ### Other
-- Adjustable margin; crop marks and alignment marks in the waste strip (removed on trim)
+- **Margins** — a single linked margin, or independent **Top/Bottom** and **Sides** values; crop marks and alignment marks live in the waste strip (removed on trim)
 - Pan/zoom viewport with Fit and 100% (output-accurate) presets
 - Transparent PNG source: transparent areas produce no ink on any plate
 - Project persistence: named projects with auto-save; `.halftones` file format (zip of JSON + source image)
