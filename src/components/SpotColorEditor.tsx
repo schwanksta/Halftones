@@ -892,7 +892,7 @@ function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, buildu
           {/* Bleed — background layers only */}
           {color.type === 'background' && (
             <div className="control-row">
-              <span title="How far the background plate extends into the margin, as a percentage of the (smallest) margin. 100% = out to the trim edge.">
+              <span title="How far the background plate extends into the margin, as a percentage of the (largest) margin. 100% = out to the trim edge.">
                 Bleed{' '}
                 <EditableValue
                   value={Math.round(color.bleedPct ?? 0)}

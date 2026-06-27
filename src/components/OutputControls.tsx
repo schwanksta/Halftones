@@ -182,7 +182,7 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
       ) : (
         <>
           <label className="control-row">
-            <span>Top (in)</span>
+            <span>Top / Bottom (in)</span>
             <input
               type="number"
               min={0}
@@ -191,31 +191,13 @@ export function OutputControls({ settings, onChange, disabled }: Props) {
               value={settings.marginTop ?? settings.marginInches ?? 1}
               onBlur={(e) => {
                 const v = parseFloat(e.target.value)
-                onChange({ ...settings, marginTop: isNaN(v) ? (settings.marginTop ?? settings.marginInches ?? 1) : Math.max(0, v) })
+                const fallback = settings.marginTop ?? settings.marginInches ?? 1
+                const next = isNaN(v) ? fallback : Math.max(0, v)
+                onChange({ ...settings, marginTop: next, marginBottom: next })
               }}
               onChange={(e) => {
                 const v = parseFloat(e.target.value)
-                if (!isNaN(v)) onChange({ ...settings, marginTop: v })
-              }}
-              disabled={disabled}
-            />
-          </label>
-
-          <label className="control-row">
-            <span>Bottom (in)</span>
-            <input
-              type="number"
-              min={0}
-              max={4}
-              step={0.25}
-              value={settings.marginBottom ?? settings.marginInches ?? 1}
-              onBlur={(e) => {
-                const v = parseFloat(e.target.value)
-                onChange({ ...settings, marginBottom: isNaN(v) ? (settings.marginBottom ?? settings.marginInches ?? 1) : Math.max(0, v) })
-              }}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value)
-                if (!isNaN(v)) onChange({ ...settings, marginBottom: v })
+                if (!isNaN(v)) onChange({ ...settings, marginTop: v, marginBottom: v })
               }}
               disabled={disabled}
             />

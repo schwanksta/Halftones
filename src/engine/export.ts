@@ -41,15 +41,16 @@ function trapFor(color: SpotColor, spotSettings: SpotSettings): number {
 }
 
 /**
- * Background-plate bleed in target pixels: bleedPct% of the SMALLEST side
- * margin (so the symmetric bleed never overflows a tighter side). 0 for
+ * Background-plate bleed in target pixels: bleedPct% of the LARGEST side
+ * margin (100% reaches the trim edge on the widest-margin side; on tighter
+ * sides the symmetric bleed simply runs past the trim, which is fine). 0 for
  * non-background colors or no bleed.
  */
 function bleedPxFor(color: SpotColor, outputSettings: OutputSettings, pxPerInch: number): number {
   if (color.type !== 'background' || !(color.bleedPct ?? 0)) return 0
   const m = resolveMargins(outputSettings)
-  const minMarginIn = Math.min(m.top, m.right, m.bottom, m.left)
-  return Math.round((color.bleedPct! / 100) * minMarginIn * pxPerInch)
+  const maxMarginIn = Math.max(m.top, m.right, m.bottom, m.left)
+  return Math.round((color.bleedPct! / 100) * maxMarginIn * pxPerInch)
 }
 
 interface ExportOptions {

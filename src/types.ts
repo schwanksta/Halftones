@@ -39,8 +39,8 @@ export interface SpotColor {
   /**
    * Bleed: extends a background-type color plate outward from the image edge
    * into the margin, as a percentage (0–100) of the margin. 100 = fills the
-   * margin out to the trim edge. Measured against the smallest side margin so
-   * the (symmetric) bleed never overflows a tighter side. 0 = no bleed.
+   * margin out to the trim edge. Measured against the largest side margin
+   * (on tighter sides the symmetric bleed simply runs past the trim). 0 = no bleed.
    * Only meaningful when `type === 'background'`.
    */
   bleedPct?: number

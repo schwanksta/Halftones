@@ -350,10 +350,10 @@ export function useHalftonePreview(
     const sourcePixelsPerInch = transformed.width / outputSettings.widthInches
     const renderDpi = viewport.zoom * sourcePixelsPerInch
 
-    // Per-side margins (source px) for the piece clip rect, and the smallest
+    // Per-side margins (source px) for the piece clip rect, and the largest
     // margin (inches) used as the reference for background bleed (% of margin).
     const margins = resolveMargins(outputSettings)
-    const minMarginIn = Math.min(margins.top, margins.right, margins.bottom, margins.left)
+    const maxMarginIn = Math.max(margins.top, margins.right, margins.bottom, margins.left)
 
     const rawFg = halftoneSettings.fgColor || '#000000'
     const rawBg = halftoneSettings.bgColor || '#ffffff'
@@ -499,7 +499,7 @@ export function useHalftonePreview(
           // naturally extend into the bleed area — no seam, and halftone patterns
           // continue through the bleed just like the rest of the background.
           const bleedSourcePx = color.type === 'background' && (color.bleedPct ?? 0) > 0
-            ? Math.round((color.bleedPct! / 100) * minMarginIn * sourcePixelsPerInch)
+            ? Math.round((color.bleedPct! / 100) * maxMarginIn * sourcePixelsPerInch)
             : 0
 
           let effectiveChCanvas = chCanvas
