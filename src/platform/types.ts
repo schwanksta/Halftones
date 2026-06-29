@@ -1,4 +1,4 @@
-import { HalftoneSettings, CMYKSettings, SpotSettings, OutputSettings, ImageTransformSettings, MaskSettings, ShopProfile } from '../types'
+import { HalftoneSettings, CMYKSettings, SpotSettings, OutputSettings, ImageTransformSettings, MaskSettings, ShopProfile, SavedPalette } from '../types'
 
 export interface AllSettings {
   halftone: HalftoneSettings
@@ -61,6 +61,11 @@ export interface PlatformAPI {
   /** Returns the stored shop profile, or null if the user hasn't set one. */
   getShopProfile(): Promise<ShopProfile | null>
   setShopProfile(profile: ShopProfile): Promise<void>
+
+  // ── Palette library (saved ink palettes for Spot Color mode) ──
+  /** Returns the saved palettes, or null if none have been saved yet. */
+  getPalettes(): Promise<SavedPalette[] | null>
+  setPalettes(palettes: SavedPalette[]): Promise<void>
 }
 
 export type MenuEvent =

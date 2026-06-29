@@ -504,3 +504,17 @@ export const DEFAULT_SHOP_PROFILE: ShopProfile = {
   ],
   edgeClearanceIn: 3.25,
 }
+
+// ─── Saved palette library ──────────────────────────────────────────────────
+//
+// Machine-level config: a saved set of ink colors that can be re-applied to
+// Spot Color mode later, replacing the current non-background spot colors.
+// Persisted in app prefs (prefs.json on native; localStorage on web), NOT in
+// the per-project file.
+
+/** A saved ink palette (just the inks; per-layer render settings aren't stored). */
+export interface SavedPalette {
+  id: string
+  name: string
+  colors: { hex: string; name: string }[]
+}

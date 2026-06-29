@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { SpotColor, SpotSettings, KeyPlateSettings, DEFAULT_KEY_PLATE, SeparationMode, DEFAULT_UNDERBASE } from '../types'
 import { extractPalette, mergeSimilarColors, labToHex, rgbToLab, guessColorName, darkestSpotColor } from '../engine/spot-separation'
 import { EditableValue } from './EditableValue'
+import { PaletteBar } from './PaletteBar'
 
 interface Props {
   settings: SpotSettings
@@ -104,6 +105,29 @@ export function SpotColorEditor({
   }
 
   const darkest = darkestSpotColor(settings.colors)
+
+  const currentInks = settings.colors.filter(c => c.type !== 'background').map(c => ({ hex: c.hex, name: c.name }))
+
+  const applyPaletteInks = (inks: { hex: string; name: string }[]) => {
+    const built = inks.map((ink, i) => {
+      const r = parseInt(ink.hex.slice(1, 3), 16)
+      const g = parseInt(ink.hex.slice(3, 5), 16)
+      const b = parseInt(ink.hex.slice(5, 7), 16)
+      return {
+        id: `spot-${Date.now()}-${i}`,
+        name: ink.name,
+        hex: ink.hex,
+        lab: rgbToLab(r, g, b),
+        angle: [45, 75, 15, 0, 60, 30][i % 6],
+        lpi: defaultLpi,
+        renderMode: 'flat' as const,
+        threshold: 0.5,
+        enabled: true,
+      }
+    })
+    const bgColors = settings.colors.filter(c => c.type === 'background')
+    update({ colors: [...bgColors, ...built] })
+  }
 
   return (
     <div className="control-section">
@@ -232,6 +256,8 @@ export function SpotColorEditor({
           </button>
         )}
       </div>
+
+      <PaletteBar currentInks={currentInks} onApply={applyPaletteInks} disabled={disabled} />
 
       {/* Background layer button — only when image has transparent pixels */}
       {hasTransparency && (

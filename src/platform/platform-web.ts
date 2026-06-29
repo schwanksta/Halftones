@@ -1,5 +1,5 @@
 import { PlatformAPI, MenuEvent } from './types'
-import { ShopProfile } from '../types'
+import { ShopProfile, SavedPalette } from '../types'
 
 export function createPlatform(): PlatformAPI {
   return {
@@ -97,6 +97,23 @@ export function createPlatform(): PlatformAPI {
         localStorage.setItem('halftones_shop_profile', JSON.stringify(profile))
       } catch (e) {
         console.warn('[halftones] Failed to persist shop profile:', e)
+      }
+    },
+
+    async getPalettes() {
+      try {
+        const raw = localStorage.getItem('halftones_palettes')
+        return raw ? (JSON.parse(raw) as SavedPalette[]) : null
+      } catch {
+        return null
+      }
+    },
+
+    async setPalettes(palettes: SavedPalette[]) {
+      try {
+        localStorage.setItem('halftones_palettes', JSON.stringify(palettes))
+      } catch (e) {
+        console.warn('[halftones] Failed to persist palettes:', e)
       }
     },
   }

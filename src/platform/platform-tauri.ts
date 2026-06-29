@@ -21,7 +21,7 @@ import {
 } from '@tauri-apps/api/path'
 
 import { PlatformAPI, RecentEntry, MenuEvent } from './types'
-import { ShopProfile } from '../types'
+import { ShopProfile, SavedPalette } from '../types'
 import { packHalftonesFile, unpackHalftonesFile } from './halftones-file'
 
 // ─── Prefs ────────────────────────────────────────────────────────────────────
@@ -37,6 +37,8 @@ interface Prefs {
   }
   /** Shop screen/mesh inventory for the Print Plan. Absent until the user edits it. */
   shopProfile?: ShopProfile
+  /** Saved ink palettes for Spot Color mode. Absent until the user saves one. */
+  palettes?: SavedPalette[]
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -380,6 +382,17 @@ export function createPlatform(): PlatformAPI {
     async setShopProfile(profile: ShopProfile) {
       const prefs = await readPrefs()
       prefs.shopProfile = profile
+      await writePrefs(prefs)
+    },
+
+    async getPalettes() {
+      const prefs = await readPrefs()
+      return prefs.palettes ?? null
+    },
+
+    async setPalettes(palettes: SavedPalette[]) {
+      const prefs = await readPrefs()
+      prefs.palettes = palettes
       await writePrefs(prefs)
     },
   }
