@@ -824,8 +824,15 @@ function composeChannelPage(
   ctx.fillRect(0, 0, pageW, pageH)
 
   // Channel image. Bleed plates are larger than the image and shifted outward
-  // so their ink runs into the margin on all sides.
+  // so their ink runs into the margin on all sides — but clip to the trim area
+  // (page minus the crop-mark waste strip) so a bleed never covers the crop
+  // marks. Non-bleed plates sit inside the image rect, so this is a no-op.
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(cropPx, cropPx, pageW - 2 * cropPx, pageH - 2 * cropPx)
+  ctx.clip()
   ctx.drawImage(channelCanvas, offX - bleedPx, offY - bleedPx)
+  ctx.restore()
 
   ctx.strokeStyle = '#000000'
   ctx.fillStyle = '#000000'
@@ -1192,9 +1199,21 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
       // Background bleed: plate is larger than the image; offset placement so
       // bleed ink extends into the margin area on all sides.
       const bleedPts = bleedPx ? (bleedPx / outputSettings.dpi * 72) : 0
-      pdf.addImage(imgData, 'PNG',
+      const drawPlate = () => pdf.addImage(imgData, 'PNG',
         imgOffX - bleedPts, imgOffY - bleedPts,
         imageWPts + 2 * bleedPts, imageHPts + 2 * bleedPts)
+      if (bleedPts > 0 && cropMarkPts > 0) {
+        // Clip the bleed to the trim area so it fills each margin to the trim
+        // line but never covers the crop marks.
+        const p = pdf as any
+        p.saveGraphicsState()
+        p.rect(cropMarkPts, cropMarkPts, pageW - 2 * cropMarkPts, pageH - 2 * cropMarkPts, null)
+        p.clip(); p.discardPath()
+        drawPlate()
+        p.restoreGraphicsState()
+      } else {
+        drawPlate()
+      }
 
       pdf.setTextColor(0)
       // Special plates keep their own labels; color plates get layer numbers
