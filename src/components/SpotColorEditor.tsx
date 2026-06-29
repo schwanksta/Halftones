@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { SpotColor, SpotSettings, KeyPlateSettings, DEFAULT_KEY_PLATE, SeparationMode, DEFAULT_UNDERBASE } from '../types'
+import { SpotColor, SpotSettings, KeyPlateSettings, DEFAULT_KEY_PLATE, SeparationMode, DEFAULT_UNDERBASE, SavedPalette } from '../types'
 import { extractPalette, mergeSimilarColors, labToHex, rgbToLab, guessColorName, darkestSpotColor } from '../engine/spot-separation'
 import { EditableValue } from './EditableValue'
 import { PaletteBar } from './PaletteBar'
@@ -107,18 +107,22 @@ export function SpotColorEditor({
   const darkest = darkestSpotColor(settings.colors)
 
   const currentInks = settings.colors.filter(c => c.type !== 'background').map(c => ({ hex: c.hex, name: c.name }))
+  const bgLayer = settings.colors.find(c => c.type === 'background')
+  const currentBackground = bgLayer ? { hex: bgLayer.hex, name: bgLayer.name } : undefined
 
-  const applyPaletteInks = (inks: { hex: string; name: string }[]) => {
+  const applyPalette = (palette: SavedPalette) => {
     // Recolor the existing layers in order — exactly like changing each layer's
     // color swatch by hand: only the display ink (hex + name) changes. The
     // separation seed (lab), threshold, render mode, angle, etc. stay put, so
-    // the print structure is identical. Background layers are left alone, and
-    // a shorter/longer palette just recolors as many layers as line up. Works
-    // with palettes saved from other prints.
+    // the print structure is identical. The background is recolored by role (not
+    // position), and only when both this print and the palette have one; a
+    // shorter/longer palette recolors as many regular layers as line up.
     let i = 0
     const colors = settings.colors.map((c) => {
-      if (c.type === 'background') return c
-      const ink = inks[i++]
+      if (c.type === 'background') {
+        return palette.background ? { ...c, hex: palette.background.hex, name: palette.background.name } : c
+      }
+      const ink = palette.colors[i++]
       return ink ? { ...c, hex: ink.hex, name: ink.name } : c
     })
     update({ colors })
@@ -252,7 +256,7 @@ export function SpotColorEditor({
         )}
       </div>
 
-      <PaletteBar currentInks={currentInks} onApply={applyPaletteInks} disabled={disabled} />
+      <PaletteBar currentInks={currentInks} currentBackground={currentBackground} onApply={applyPalette} disabled={disabled} />
 
       {/* Background layer button — only when image has transparent pixels */}
       {hasTransparency && (

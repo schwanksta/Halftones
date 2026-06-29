@@ -5,16 +5,20 @@ import { platform } from '../platform'
 interface Props {
   /** Current non-background inks, for "Save current as palette". */
   currentInks: { hex: string; name: string }[]
-  /** Apply a saved palette's inks (parent recolors the layers in order). */
-  onApply: (inks: { hex: string; name: string }[]) => void
+  /** Current background-layer ink, if a background layer exists. */
+  currentBackground?: { hex: string; name: string }
+  /** Apply a saved palette (parent recolors the layers in order). */
+  onApply: (palette: SavedPalette) => void
   disabled: boolean
 }
 
-export function PaletteBar({ currentInks, onApply, disabled }: Props) {
+export function PaletteBar({ currentInks, currentBackground, onApply, disabled }: Props) {
   const [palettes, setPalettes] = useState<SavedPalette[]>([])
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [draftName, setDraftName] = useState('')
+
+  const canSave = currentInks.length > 0 || !!currentBackground
 
   // Load persisted palettes once on mount.
   useEffect(() => {
@@ -32,7 +36,7 @@ export function PaletteBar({ currentInks, onApply, disabled }: Props) {
   }
 
   const handleApply = (p: SavedPalette) => {
-    onApply(p.colors)
+    onApply(p)
     setOpen(false)
   }
 
@@ -41,6 +45,7 @@ export function PaletteBar({ currentInks, onApply, disabled }: Props) {
       id: `pal-${Date.now()}`,
       name: draftName.trim() || `Palette ${palettes.length + 1}`,
       colors: currentInks,
+      ...(currentBackground ? { background: currentBackground } : {}),
     }
     persist([...palettes, next])
     setDraftName('')
@@ -90,7 +95,7 @@ export function PaletteBar({ currentInks, onApply, disabled }: Props) {
                   background: 'var(--bg-primary)', border: '1px solid var(--border)',
                 }}
               >
-                {swatches(p.colors)}
+                {swatches(p.background ? [p.background, ...p.colors] : p.colors)}
                 {p.name && (
                   <span style={{ flex: 1, minWidth: 0, fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>
                     {p.name}
@@ -115,12 +120,12 @@ export function PaletteBar({ currentInks, onApply, disabled }: Props) {
       {!saving ? (
         <button
           onClick={() => setSaving(true)}
-          disabled={disabled || currentInks.length === 0}
+          disabled={disabled || !canSave}
           style={{
             width: '100%', marginTop: 4, padding: '4px 8px', fontSize: 11, borderRadius: 4,
             border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)',
-            cursor: disabled || currentInks.length === 0 ? 'not-allowed' : 'pointer',
-            opacity: disabled || currentInks.length === 0 ? 0.5 : 1,
+            cursor: disabled || !canSave ? 'not-allowed' : 'pointer',
+            opacity: disabled || !canSave ? 0.5 : 1,
           }}
         >
           ＋ Save palette
@@ -145,12 +150,12 @@ export function PaletteBar({ currentInks, onApply, disabled }: Props) {
           />
           <button
             onClick={handleSave}
-            disabled={disabled || currentInks.length === 0}
+            disabled={disabled || !canSave}
             style={{
               padding: '3px 8px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)',
               background: 'var(--accent)', color: '#fff',
-              cursor: disabled || currentInks.length === 0 ? 'not-allowed' : 'pointer',
-              opacity: disabled || currentInks.length === 0 ? 0.5 : 1,
+              cursor: disabled || !canSave ? 'not-allowed' : 'pointer',
+              opacity: disabled || !canSave ? 0.5 : 1,
             }}
           >Save</button>
           <button

@@ -517,4 +517,6 @@ export interface SavedPalette {
   id: string
   name: string
   colors: { hex: string; name: string }[]
+  /** The background-layer ink, if the source print had a background layer. */
+  background?: { hex: string; name: string }
 }
