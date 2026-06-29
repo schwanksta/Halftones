@@ -1,4 +1,5 @@
 import { PlatformAPI, MenuEvent } from './types'
+import { ShopProfile } from '../types'
 
 export function createPlatform(): PlatformAPI {
   return {
@@ -80,6 +81,23 @@ export function createPlatform(): PlatformAPI {
 
     async getStartupFiles() {
       return []
+    },
+
+    async getShopProfile() {
+      try {
+        const raw = localStorage.getItem('halftones_shop_profile')
+        return raw ? (JSON.parse(raw) as ShopProfile) : null
+      } catch {
+        return null
+      }
+    },
+
+    async setShopProfile(profile: ShopProfile) {
+      try {
+        localStorage.setItem('halftones_shop_profile', JSON.stringify(profile))
+      } catch (e) {
+        console.warn('[halftones] Failed to persist shop profile:', e)
+      }
     },
   }
 }

@@ -1,4 +1,4 @@
-import { HalftoneSettings, CMYKSettings, SpotSettings, OutputSettings, ImageTransformSettings, MaskSettings } from '../types'
+import { HalftoneSettings, CMYKSettings, SpotSettings, OutputSettings, ImageTransformSettings, MaskSettings, ShopProfile } from '../types'
 
 export interface AllSettings {
   halftone: HalftoneSettings
@@ -56,6 +56,11 @@ export interface PlatformAPI {
   setLastProjectPath(path: string | null): Promise<void>
   /** Drains file paths queued before JS was ready (cold-start file associations). */
   getStartupFiles(): Promise<string[]>
+
+  // ── Shop profile (screen/mesh inventory for Print Plan) ────────
+  /** Returns the stored shop profile, or null if the user hasn't set one. */
+  getShopProfile(): Promise<ShopProfile | null>
+  setShopProfile(profile: ShopProfile): Promise<void>
 }
 
 export type MenuEvent =

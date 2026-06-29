@@ -455,3 +455,37 @@ export interface MaskImage {
   /** Original filename (e.g. "mask.svg", "logo.png"). */
   fileName: string
 }
+
+// ─── Shop profile (screen/mesh inventory) ──────────────────────────────────────
+//
+// Machine-level config describing the physical screens a shop owns: used by the
+// Print Plan to recommend how many screens, which frame size, and which mesh
+// count per plate. Persisted in app prefs (prefs.json on native; localStorage
+// on web), NOT in the per-project file.
+
+/** One frame the shop stocks: outside dimensions (inches) + available mesh counts. */
+export interface ShopFrame {
+  widthIn: number
+  heightIn: number
+  /** Mesh counts stocked in this frame size, e.g. [110, 156, 230]. */
+  meshes: number[]
+}
+
+export interface ShopProfile {
+  frames: ShopFrame[]
+  /**
+   * Clearance to reserve on each side (inches) = frame rails + squeegee/flood
+   * buffer. Usable image area ≈ frame − 2 × this. Default 3.25.
+   */
+  edgeClearanceIn: number
+}
+
+export const DEFAULT_SHOP_PROFILE: ShopProfile = {
+  frames: [
+    { widthIn: 20, heightIn: 24, meshes: [110, 156, 230] },
+    { widthIn: 23, heightIn: 31, meshes: [195, 230, 305] },
+    { widthIn: 25, heightIn: 36, meshes: [195, 230, 305] },
+    { widthIn: 30, heightIn: 40, meshes: [195, 230, 305] },
+  ],
+  edgeClearanceIn: 3.25,
+}

@@ -21,6 +21,7 @@ import {
 } from '@tauri-apps/api/path'
 
 import { PlatformAPI, RecentEntry, MenuEvent } from './types'
+import { ShopProfile } from '../types'
 import { packHalftonesFile, unpackHalftonesFile } from './halftones-file'
 
 // ─── Prefs ────────────────────────────────────────────────────────────────────
@@ -34,6 +35,8 @@ interface Prefs {
     export?: string
     image?: string
   }
+  /** Shop screen/mesh inventory for the Print Plan. Absent until the user edits it. */
+  shopProfile?: ShopProfile
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -367,6 +370,17 @@ export function createPlatform(): PlatformAPI {
 
     async getStartupFiles() {
       return invoke<string[]>('take_startup_files')
+    },
+
+    async getShopProfile() {
+      const prefs = await readPrefs()
+      return prefs.shopProfile ?? null
+    },
+
+    async setShopProfile(profile: ShopProfile) {
+      const prefs = await readPrefs()
+      prefs.shopProfile = profile
+      await writePrefs(prefs)
     },
   }
 }

@@ -5,6 +5,7 @@ import { OutputControls } from './OutputControls'
 import { TransformControls } from './TransformControls'
 import { SpotColorEditor } from './SpotColorEditor'
 import { MaskControls } from './MaskControls'
+import { PrintPlan } from './PrintPlan'
 
 interface Props {
   halftoneSettings: HalftoneSettings
@@ -97,6 +98,14 @@ export function ControlPanel({
         settings={outputSettings}
         sourceAspect={sourceAspect}
         onChange={onOutputChange}
+        disabled={!hasImage}
+      />
+      <PrintPlan
+        halftoneSettings={halftoneSettings}
+        spotSettings={spotSettings}
+        cmykSettings={cmykSettings}
+        outputSettings={outputSettings}
+        maskSettings={maskSettings}
         disabled={!hasImage}
       />
       <MaskControls
