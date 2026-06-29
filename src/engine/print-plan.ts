@@ -108,8 +108,10 @@ export function derivePlates(
   // spot
   const buildup = spot.separationMode === 'buildup'
   if (spot.underbase?.enabled) plates.push({ name: 'Underbase', kind: 'underbase' })
+  const mt = darkestSpotColor(spot.colors)
   for (const c of spot.colors) {
     if (!c.enabled) continue
+    if (c.mergeWithDarkest && mt && c.id !== mt.id) continue
     const flat = buildup || c.renderMode === 'flat'
     plates.push(flat
       ? { name: c.name, kind: 'flat' }

@@ -53,6 +53,14 @@ export interface SpotColor {
    * Absent or undefined = normal LAB-distance separation.
    */
   type?: 'background'
+  /**
+   * Merge this color's plate into the darkest enabled color's plate on export
+   * (one screen, the darkest color's ink) instead of its own screen. Use for
+   * same-ink plates (e.g. a black background folded into the black top layer).
+   * No visual effect on preview/proof; only changes the exported separation
+   * and the Print Plan screen count.
+   */
+  mergeWithDarkest?: boolean
 }
 
 /**

@@ -318,6 +318,44 @@ async function renderSpotChannelCanvases(
     result.set('__key__', { canvas: keyCanvas, label: 'Key' })
   }
 
+  // Merge plates flagged mergeWithDarkest into the darkest color's plate (one
+  // screen). Union is a multiply/darken composite (black ink wins); the combined
+  // plate inherits the largest bleed so a bleed background survives the merge.
+  const mergeInto = darkestSpotColor(spotSettings.colors)
+  if (mergeInto) {
+    const targetEntry = result.get(mergeInto.id)
+    if (targetEntry) {
+      const mergers: { canvas: HTMLCanvasElement; bleedPx: number }[] = []
+      for (const c of enabledColors) {
+        if (c.id === mergeInto.id || !c.mergeWithDarkest) continue
+        const e = result.get(c.id)
+        if (!e) continue
+        mergers.push({ canvas: e.canvas, bleedPx: e.bleedPx ?? 0 })
+        result.delete(c.id)
+      }
+      if (mergers.length) {
+        const targetBleed = targetEntry.bleedPx ?? 0
+        const Bc = Math.max(targetBleed, ...mergers.map((m) => m.bleedPx))
+        let combined = targetEntry.canvas
+        if (Bc !== targetBleed) {
+          const cc = document.createElement('canvas')
+          cc.width = targetWidth + 2 * Bc
+          cc.height = targetHeight + 2 * Bc
+          const cx = cc.getContext('2d')!
+          cx.fillStyle = '#ffffff'
+          cx.fillRect(0, 0, cc.width, cc.height)
+          cx.drawImage(targetEntry.canvas, Bc - targetBleed, Bc - targetBleed)
+          combined = cc
+        }
+        const ccx = combined.getContext('2d')!
+        ccx.globalCompositeOperation = 'multiply'
+        for (const m of mergers) ccx.drawImage(m.canvas, Bc - m.bleedPx, Bc - m.bleedPx)
+        ccx.globalCompositeOperation = 'source-over'
+        result.set(mergeInto.id, { canvas: combined, label: mergeInto.name, bleedPx: Bc || undefined })
+      }
+    }
+  }
+
   // Mask boundary stroke: its own dedicated keyline plate (black on white).
   const stroke = await buildMaskStroke(
     options.mask ?? null, ms, targetWidth, targetHeight,

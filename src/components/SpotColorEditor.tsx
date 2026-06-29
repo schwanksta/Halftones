@@ -103,6 +103,8 @@ export function SpotColorEditor({
     update({ colors: settings.colors.map((c) => ({ ...c, renderMode: mode })) })
   }
 
+  const darkest = darkestSpotColor(settings.colors)
+
   return (
     <div className="control-section">
       <h3 className="section-title">Spot Colors</h3>
@@ -302,6 +304,9 @@ export function SpotColorEditor({
           globalTrap={settings.trap ?? 0}
           globalSmooth={settings.smoothFlat ?? false}
           buildup={settings.separationMode === 'buildup'}
+          isDarkest={darkest?.id === color.id}
+          darkestName={darkest?.name}
+          darkestHex={darkest?.hex}
           onChange={(partial) => updateColor(color.id, partial)}
           onRemove={() => removeColor(color.id)}
         />
@@ -652,6 +657,13 @@ export function SpotColorEditor({
 
 // ─── Per-color row ─────────────────────────────────────────────────────────────
 
+/** Simple RGB channel-sum distance between two #rrggbb hex colors (0–765). */
+function hexDistance(a: string, b: string): number {
+  const ra = parseInt(a.slice(1, 3), 16), ga = parseInt(a.slice(3, 5), 16), ba = parseInt(a.slice(5, 7), 16)
+  const rb = parseInt(b.slice(1, 3), 16), gb = parseInt(b.slice(3, 5), 16), bb = parseInt(b.slice(5, 7), 16)
+  return Math.abs(ra - rb) + Math.abs(ga - gb) + Math.abs(ba - bb)
+}
+
 interface RowProps {
   color: SpotColor
   index: number
@@ -659,11 +671,14 @@ interface RowProps {
   globalTrap: number
   globalSmooth: boolean
   buildup: boolean
+  isDarkest: boolean
+  darkestName?: string
+  darkestHex?: string
   onChange: (partial: Partial<SpotColor>) => void
   onRemove: () => void
 }
 
-function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, buildup, onChange, onRemove }: RowProps) {
+function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, buildup, isDarkest, darkestName, darkestHex, onChange, onRemove }: RowProps) {
   const [expanded, setExpanded] = useState(false)
   const [hexDraft, setHexDraft] = useState(color.hex)
 
@@ -952,6 +967,34 @@ function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, buildu
               disabled={disabled}
             />
           </div>
+
+          {/* Merge with darkest color — only offered when there's a separate, darker target */}
+          {!isDarkest && darkestName && (
+            <label className="control-row control-row--toggle" title="Print this plate on the darkest color's screen (one screen, that color's ink). Use for same-ink plates — e.g. a black background folded into your black layer.">
+              <span>
+                Merge with darkest color
+                {color.mergeWithDarkest && (
+                  <>
+                    {' '}
+                    <small style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>
+                      → {darkestName}
+                    </small>
+                  </>
+                )}
+              </span>
+              <input
+                type="checkbox"
+                checked={color.mergeWithDarkest ?? false}
+                onChange={(e) => onChange({ mergeWithDarkest: e.target.checked })}
+                disabled={disabled}
+              />
+            </label>
+          )}
+          {!isDarkest && darkestName && color.mergeWithDarkest && darkestHex && hexDistance(color.hex, darkestHex) > 150 && (
+            <div style={{ fontSize: 10, color: 'var(--warning, #d99a2b)', marginTop: -2 }}>
+              Will print in {darkestName}'s ink, not its own color
+            </div>
+          )}
 
           {/* Remove button */}
           <button
