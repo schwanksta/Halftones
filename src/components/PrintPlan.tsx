@@ -44,7 +44,7 @@ export function PrintPlan({
 
   const plan = useMemo(() => {
     const plates = derivePlates(halftoneSettings.colorMode, halftoneSettings, spotSettings, cmykSettings, maskSettings)
-    return planScreens(plates, outputSettings, profile)
+    return planScreens(plates, outputSettings, profile, profile.gangPerScreen ?? false)
   }, [halftoneSettings, spotSettings, cmykSettings, maskSettings, outputSettings, profile])
 
   // ── Editor mutations ──────────────────────────────────────────────────────
@@ -78,38 +78,48 @@ export function PrintPlan({
         </button>
       </div>
 
+      <label className="control-row control-row--toggle" title="Burn two different plates on one screen (side by side) to halve the screen count. Plates are paired so consecutive print colors are on different screens (1&3 on one, 2&4 on another) — each screen rests between runs. Underbase / mask-stroke stay on their own screens.">
+        <span>Gang 2 plates per screen</span>
+        <input
+          type="checkbox"
+          checked={profile.gangPerScreen ?? false}
+          onChange={(e) => update({ ...profile, gangPerScreen: e.target.checked })}
+          disabled={disabled}
+        />
+      </label>
+
       {disabled ? (
         <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '6px 0 0', lineHeight: 1.4 }}>
           Load an image to see the recommended screens and mesh.
         </p>
       ) : (
         <>
-          <div style={{ fontSize: 12, marginBottom: 4 }}>
-            <strong>{plan.plateCount}</strong> screen{plan.plateCount === 1 ? '' : 's'}
-            {plan.frame && (
-              <> · recommend <strong>{fmtIn(plan.frame.widthIn)}×{fmtIn(plan.frame.heightIn)}″</strong></>
+          <div style={{ fontSize: 12, margin: '4px 0' }}>
+            <strong>{plan.screenCount}</strong> screen{plan.screenCount === 1 ? '' : 's'}
+            {plan.screenCount !== plan.plateCount && (
+              <span style={{ color: 'var(--text-secondary)' }}> · {plan.plateCount} plates ganged</span>
             )}
           </div>
 
-          {plan.plates.map((pp, i) => (
-            <div key={i} style={{ fontSize: 11, lineHeight: 1.4, marginBottom: pp.warning ? 3 : 0 }}>
+          {plan.screens.map((sc, i) => (
+            <div key={i} style={{ fontSize: 11, lineHeight: 1.4, marginBottom: sc.warnings.length ? 3 : 0 }}>
               <div className="control-row" style={{ padding: 0 }}>
                 <span style={{ color: 'var(--text-secondary)' }}>
-                  {pp.plate.name} <span style={{ opacity: 0.6 }}>· {pp.plate.kind}{pp.plate.lpi != null ? ` ${pp.plate.lpi} LPI` : ''}</span>
+                  {sc.plates.map((p) => p.name).join(' + ')}
+                  {sc.plates.length === 1 && sc.plates[0].kind === 'halftone' && sc.plates[0].lpi != null && (
+                    <span style={{ opacity: 0.6 }}> · {sc.plates[0].lpi} LPI</span>
+                  )}
                 </span>
-                <strong>{pp.mesh ? `${pp.mesh} mesh` : '—'}</strong>
+                <strong style={{ whiteSpace: 'nowrap' }}>
+                  {sc.frame ? `${fmtIn(sc.frame.widthIn)}×${fmtIn(sc.frame.heightIn)}″ · ` : ''}
+                  {sc.mesh ? `${sc.mesh}` : '—'}
+                </strong>
               </div>
-              {pp.warning && (
-                <div style={{ color: 'var(--warning, #d99a2b)', fontSize: 10, paddingLeft: 2 }}>⚠ {pp.warning}</div>
-              )}
+              {sc.warnings.map((w, j) => (
+                <div key={j} style={{ color: 'var(--warning, #d99a2b)', fontSize: 10, paddingLeft: 2 }}>⚠ {w}</div>
+              ))}
             </div>
           ))}
-
-          {plan.twoUpFrame && (
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
-              Two-up: fits on <strong>{fmtIn(plan.twoUpFrame.widthIn)}×{fmtIn(plan.twoUpFrame.heightIn)}″</strong> (double output per pull)
-            </div>
-          )}
 
           {plan.notes.map((n, i) => (
             <div key={i} style={{ fontSize: 10, color: 'var(--warning, #d99a2b)', marginTop: 4 }}>⚠ {n}</div>

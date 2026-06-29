@@ -478,6 +478,13 @@ export interface ShopProfile {
    * buffer. Usable image area ≈ frame − 2 × this. Default 3.25.
    */
   edgeClearanceIn: number
+  /**
+   * Gang two different plates onto one screen (side by side) to halve the
+   * screen count. Plates are paired so consecutive print colors land on
+   * different screens (1&3 on one, 2&4 on another) — each screen rests between
+   * its two runs. Underbase / mask-stroke stay on their own screens.
+   */
+  gangPerScreen?: boolean
 }
 
 export const DEFAULT_SHOP_PROFILE: ShopProfile = {

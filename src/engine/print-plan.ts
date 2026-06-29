@@ -23,20 +23,21 @@ export interface Plate {
   minDot?: number
 }
 
-export interface PlatePlan {
-  plate: Plate
+/** One physical screen: 1 plate normally, or 2 when ganging. */
+export interface ScreenPlan {
+  plates: Plate[]
+  frame: ShopFrame | null
+  /** One mesh for the whole screen (finest its plates need, so all hold). */
   mesh: number
-  /** Set when the plate's min dot is finer than the suggested mesh can hold. */
-  warning?: string
+  /** True when the screen carries two images side-by-side (ganged). */
+  twoUp: boolean
+  warnings: string[]
 }
 
 export interface PrintPlan {
   plateCount: number
-  /** Smallest stocked frame that fits one-up AND stocks fine-enough mesh; null if none. */
-  frame: ShopFrame | null
-  /** Smallest frame that fits two copies side-by-side, or null. */
-  twoUpFrame: ShopFrame | null
-  plates: PlatePlan[]
+  screenCount: number
+  screens: ScreenPlan[]
   notes: string[]
 }
 
@@ -151,46 +152,93 @@ function meshCapable(f: ShopFrame, plates: Plate[]): boolean {
 
 const TWO_UP_GAP_IN = 1.5
 
-export function planScreens(plates: Plate[], output: OutputSettings, profile: ShopProfile): PrintPlan {
+function fitsOneUp(f: ShopFrame, pw: number, ph: number, clr: number): boolean {
+  const u = usable(f, clr)
+  return fitsRect(pw, ph, u.short, u.long)
+}
+
+function fitsTwoUp(f: ShopFrame, pw: number, ph: number, clr: number): boolean {
+  const u = usable(f, clr)
+  return (
+    (2 * pw + TWO_UP_GAP_IN <= u.long && ph <= u.short) ||
+    (2 * ph + TWO_UP_GAP_IN <= u.long && pw <= u.short)
+  )
+}
+
+/** The mesh a plate ideally wants (before snapping to a frame's stock). */
+function idealMesh(p: Plate): number {
+  if (p.kind === 'underbase') return 110
+  if (p.kind === 'halftone') return (p.lpi ?? 55) * MESH_TARGET_FACTOR
+  return 230
+}
+
+/** Build a screen for the given plates (1, or 2 when ganged). */
+function buildScreen(
+  sp: Plate[], frames: ShopFrame[], pw: number, ph: number, clr: number, twoUp: boolean,
+): ScreenPlan {
+  const frame = frames.find((f) =>
+    (twoUp ? fitsTwoUp(f, pw, ph, clr) : fitsOneUp(f, pw, ph, clr)) && meshCapable(f, sp),
+  ) ?? null
+  const meshFrame = frame ?? frames[frames.length - 1] ?? null
+  // One mesh per screen = the finest any of its plates needs, so all hold.
+  const mesh = meshFrame ? sp.reduce((mx, p) => Math.max(mx, suggestMesh(p, meshFrame.meshes)), 0) : 0
+
+  const warnings: string[] = []
+  for (const p of sp) {
+    if (p.kind === 'halftone' && p.minDot != null && mesh > 0) {
+      const floor = holdableMinDot(mesh)
+      if (p.minDot < floor) {
+        warnings.push(`${p.name}: Min Dot ${Math.round(p.minDot * 100)}% may not hold on ${mesh} — raise to ~${Math.round(floor * 100)}%`)
+      }
+    }
+  }
+  if (sp.length > 1) {
+    const ideals = sp.map(idealMesh)
+    if (Math.max(...ideals) / Math.min(...ideals) >= 1.6) {
+      warnings.push(`${sp.map((p) => p.name).join(' + ')} want different mesh — sharing ${mesh} is a compromise`)
+    }
+  }
+  if (!frame) {
+    warnings.push(twoUp
+      ? 'No screen fits two images side-by-side — turn off ganging or size up'
+      : 'Larger than any configured screen — size up or reduce output')
+  }
+  return { plates: sp, frame, mesh, twoUp, warnings }
+}
+
+export function planScreens(
+  plates: Plate[], output: OutputSettings, profile: ShopProfile, gang: boolean,
+): PrintPlan {
   const pw = output.widthInches
   const ph = output.heightInches
   const clr = profile.edgeClearanceIn
   const frames = [...profile.frames].sort((a, b) => frameArea(a) - frameArea(b))
 
-  const frame = frames.find((f) => {
-    const u = usable(f, clr)
-    return fitsRect(pw, ph, u.short, u.long) && meshCapable(f, plates)
-  }) ?? null
+  const screens: ScreenPlan[] = []
 
-  const twoUpFrame = frames.find((f) => {
-    const u = usable(f, clr)
-    const sideBySide =
-      (2 * pw + TWO_UP_GAP_IN <= u.long && ph <= u.short) ||
-      (2 * ph + TWO_UP_GAP_IN <= u.long && pw <= u.short)
-    return sideBySide && meshCapable(f, plates)
-  }) ?? null
-
-  // Mesh suggestions use the recommended frame's stock; if nothing fits, fall
-  // back to the largest frame so the user still sees sensible mesh numbers.
-  const meshFrame = frame ?? frames[frames.length - 1] ?? null
-
-  const platePlans: PlatePlan[] = plates.map((plate) => {
-    const mesh = meshFrame ? suggestMesh(plate, meshFrame.meshes) : 0
-    let warning: string | undefined
-    if (plate.kind === 'halftone' && plate.minDot != null && mesh > 0) {
-      const floor = holdableMinDot(mesh)
-      if (plate.minDot < floor) {
-        warning = `Min Dot ${Math.round(plate.minDot * 100)}% may not hold on ${mesh} mesh — raise to ~${Math.round(floor * 100)}% or use a finer mesh`
-      }
+  if (!gang) {
+    for (const p of plates) screens.push(buildScreen([p], frames, pw, ph, clr, false))
+  } else {
+    // Underbase / mask-stroke get their own screens (special ink & mesh).
+    const isSolo = (p: Plate) => p.kind === 'underbase' || p.kind === 'stroke'
+    const gangable = plates.filter((p) => !isSolo(p))
+    const S = Math.ceil(gangable.length / 2)
+    // Underbase first (prints first).
+    for (const p of plates.filter((p) => p.kind === 'underbase')) {
+      screens.push(buildScreen([p], frames, pw, ph, clr, false))
     }
-    return { plate, mesh, warning }
-  })
-
-  const notes: string[] = []
-  if (!frame) {
-    if (frames.length === 0) notes.push('No screens configured — add your frame sizes below.')
-    else notes.push('This print is larger than any configured screen (or needs a finer mesh than they stock) — size up or reduce the output.')
+    // Pair plate k with plate k+S so consecutive colors land on different screens.
+    for (let k = 0; k < S; k++) {
+      const pair = [gangable[k], gangable[k + S]].filter(Boolean) as Plate[]
+      screens.push(buildScreen(pair, frames, pw, ph, clr, pair.length > 1))
+    }
+    for (const p of plates.filter((p) => p.kind === 'stroke')) {
+      screens.push(buildScreen([p], frames, pw, ph, clr, false))
+    }
   }
 
-  return { plateCount: plates.length, frame, twoUpFrame, plates: platePlans, notes }
+  const notes: string[] = []
+  if (frames.length === 0) notes.push('No screens configured — add your frame sizes below.')
+
+  return { plateCount: plates.length, screenCount: screens.length, screens, notes }
 }
