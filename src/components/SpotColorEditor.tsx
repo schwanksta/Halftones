@@ -109,24 +109,19 @@ export function SpotColorEditor({
   const currentInks = settings.colors.filter(c => c.type !== 'background').map(c => ({ hex: c.hex, name: c.name }))
 
   const applyPaletteInks = (inks: { hex: string; name: string }[]) => {
-    const built = inks.map((ink, i) => {
-      const r = parseInt(ink.hex.slice(1, 3), 16)
-      const g = parseInt(ink.hex.slice(3, 5), 16)
-      const b = parseInt(ink.hex.slice(5, 7), 16)
-      return {
-        id: `spot-${Date.now()}-${i}`,
-        name: ink.name,
-        hex: ink.hex,
-        lab: rgbToLab(r, g, b),
-        angle: [45, 75, 15, 0, 60, 30][i % 6],
-        lpi: defaultLpi,
-        renderMode: 'flat' as const,
-        threshold: 0.5,
-        enabled: true,
-      }
+    // Recolor the existing layers in order — exactly like changing each layer's
+    // color swatch by hand: only the display ink (hex + name) changes. The
+    // separation seed (lab), threshold, render mode, angle, etc. stay put, so
+    // the print structure is identical. Background layers are left alone, and
+    // a shorter/longer palette just recolors as many layers as line up. Works
+    // with palettes saved from other prints.
+    let i = 0
+    const colors = settings.colors.map((c) => {
+      if (c.type === 'background') return c
+      const ink = inks[i++]
+      return ink ? { ...c, hex: ink.hex, name: ink.name } : c
     })
-    const bgColors = settings.colors.filter(c => c.type === 'background')
-    update({ colors: [...bgColors, ...built] })
+    update({ colors })
   }
 
   return (
