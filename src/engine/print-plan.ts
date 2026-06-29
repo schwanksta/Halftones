@@ -8,7 +8,7 @@
 
 import {
   ColorMode, HalftoneSettings, SpotSettings, CMYKSettings, MaskSettings,
-  OutputSettings, ShopFrame, ShopProfile,
+  OutputSettings, ShopFrame, ShopProfile, resolveMargins,
 } from '../types'
 import { darkestSpotColor } from './spot-separation'
 
@@ -209,8 +209,14 @@ function buildScreen(
 export function planScreens(
   plates: Plate[], output: OutputSettings, profile: ShopProfile, gang: boolean,
 ): PrintPlan {
-  const pw = output.widthInches
-  const ph = output.heightInches
+  // The screen must hold the whole film positive — image + margins + the
+  // crop/registration-mark strip — i.e. the full output page (the same total
+  // shown as "Output: W × H" in the Output panel), not just the image.
+  const m = resolveMargins(output)
+  const showM = output.showMargin !== false
+  const cropIn = output.cropMarks !== false ? 0.5 : 0
+  const pw = output.widthInches + (showM ? m.left + m.right : 0) + 2 * cropIn
+  const ph = output.heightInches + (showM ? m.top + m.bottom : 0) + 2 * cropIn
   const clr = profile.edgeClearanceIn
   const frames = [...profile.frames].sort((a, b) => frameArea(a) - frameArea(b))
 
