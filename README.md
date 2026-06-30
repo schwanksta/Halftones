@@ -28,7 +28,9 @@ Built with Claude for my own purposes, but perhaps it's useful to you as well.
 - **Vectorize flat edges** — optionally trace flat color plates into smooth vector outlines so diagonal/curved color boundaries aren't pixelated (staircased). A global default with a **per-color override** (e.g. smooth the flat masses but leave a fine line/hatch plate crisp) and a **Rounding** amount; applies to flat plates only
 - **Despeckle** — jointly cleans up the color separation so adjacent layers never erode apart and leave paper showing through; low values remove stray specks, higher values smooth jagged boundaries
 - **Treat white as paper** — reserve near-white as bare paper so every extracted color is a real ink (no wasted white plate) and white areas knock out to paper; turn off for white ink on colored stock
-- **Background layer** — for transparent/cutout images, add a color plate covering exactly the transparent area, rendered flat or halftoned, with an adjustable **bleed** (as a percentage of the margin) that extends it out toward the trim edge
+- **Background layer** — for transparent/cutout images, add a color plate covering exactly the transparent area, rendered flat or halftoned, with an adjustable **bleed** (as a percentage of the margin) that extends it out toward the trim edge (clipped at the trim so it never covers the crop marks)
+- **Merge plates onto one screen** — per-color (and key-plate) **merge with darkest color**, folding same-ink layers (e.g. a black background + black layer + key) onto a single screen instead of separate overprints
+- **Palette library** — save the current inks as a reusable palette and apply it later to recolor your layers in one click (separation untouched). Picked by **swatch preview**, names optional; palettes carry the background ink too. Stored in app prefs, so they're reusable across prints
 
 ### Dot & Tone Controls
 - Min/max dot, dot gain compensation, dot size multiplier
@@ -53,6 +55,13 @@ Load a mask that clips every plate at once — confine the artwork to a shape, k
 - Spot plates are labelled by **layer number** (One, Two, Three…), staggered across the page so the labels don't overlap when plates are stacked for registration, and clear of the alignment marks
 - **Color Proof** — WYSIWYG composite of all layers in their actual ink colors
 - Vector PDF paths for dot, hex, ellipse, diamond, line, euclidean, and radial-line patterns
+
+### Print Plan
+A live sidebar readout that turns the current job into a screen-room plan, using your shop's screen inventory:
+- **How many screens** (= plate count), **which frame size** (smallest that fits the full output page *and* stocks a fine-enough mesh), and a **suggested mesh per plate** (halftone ≈ 4.5× LPI, flat ~230, white underbase = lowest/heaviest)
+- **Min Dot vs mesh** warning when a halftone's highlight dot is too fine to hold on the suggested mesh
+- **Gang 2 plates per screen** — pairs plates so consecutive print colors land on different screens (1&3 on one, 2&4 on another), halving the screen count with a wash-and-dry rest between runs
+- **Editable shop profile** — your frame sizes, the mesh counts each comes in, and edge clearance; stored in app prefs
 
 ### Other
 - **Margins** — a single linked margin, or independent **Top/Bottom** and **Sides** values; crop marks and alignment marks live in the waste strip (removed on trim)
