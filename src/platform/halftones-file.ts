@@ -120,6 +120,11 @@ export async function packHalftonesFile(
     zip.file(`mask.${maskExt}`, project.mask.bytes)
   }
 
+  // Store thumbnail if present (purely additive; old readers ignore it)
+  if (project.thumbnail?.length) {
+    zip.file('thumbnail.png', project.thumbnail)
+  }
+
   return zip.generateAsync({
     type: 'uint8array',
     compression: 'DEFLATE',
@@ -183,6 +188,13 @@ export async function unpackHalftonesFile(bytes: Uint8Array): Promise<ProjectFil
     maskData = { bytes: maskBytes, fileName: migrated.maskFileName }
   }
 
+  // 5. Find thumbnail.png (optional — absent in older files)
+  let thumbnail: Uint8Array | undefined
+  const thumbFile = zip.file('thumbnail.png')
+  if (thumbFile) {
+    thumbnail = await thumbFile.async('uint8array')
+  }
+
   // Merge maskSettings back into the AllSettings object so callers get a
   // unified AllSettings that includes the mask toggle state.
   const settings: AllSettings = {
@@ -195,5 +207,6 @@ export async function unpackHalftonesFile(bytes: Uint8Array): Promise<ProjectFil
     settings,
     image: { bytes: imageBytes, fileName: imageFileName },
     mask: maskData,
+    thumbnail,
   }
 }

@@ -486,14 +486,16 @@ async function renderFullRes(options: ExportOptions): Promise<HTMLCanvasElement>
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Export a colour-accurate proof of exactly what will be printed:
- * the halftone (or flat) render composited in ink colours, surrounded
- * by a white margin. Grayscale uses the fg/bg colour pickers; CMYK uses
- * process colours (C/M/Y/K multiply-blended on white); spot uses each
- * colour's hex composited source-over on a white background.
+ * Renders a colour-accurate proof of exactly what will be printed into a canvas:
+ * the halftone (or flat) render composited in ink colours, surrounded by a white margin.
+ * Grayscale uses the fg/bg colour pickers; CMYK uses process colours (C/M/Y/K
+ * multiply-blended on white); spot uses each colour's hex composited source-over
+ * on a white background.
+ *
+ * Returns the proof canvas. Extracted so thumbnail generation can call it at low DPI.
  */
-export async function exportColorProof(options: ExportOptions): Promise<void> {
-  const { source, transformSettings, halftoneSettings, cmykSettings, spotSettings, outputSettings, projectName } = options
+export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCanvasElement> {
+  const { source, transformSettings, halftoneSettings, cmykSettings, spotSettings, outputSettings } = options
   const { widthInches, dpi } = outputSettings
   const m = resolveMargins(outputSettings)
   const mL = Math.round(m.left * dpi)
@@ -751,11 +753,59 @@ export async function exportColorProof(options: ExportOptions): Promise<void> {
   proofCtx.globalCompositeOperation = 'source-over'
   proofCtx.drawImage(imgCanvas, mL, mT)
 
+  return proofCanvas
+}
+
+/**
+ * Export a colour-accurate proof of exactly what will be printed:
+ * the halftone (or flat) render composited in ink colours, surrounded
+ * by a white margin. Grayscale uses the fg/bg colour pickers; CMYK uses
+ * process colours (C/M/Y/K multiply-blended on white); spot uses each
+ * colour's hex composited source-over on a white background.
+ */
+export async function exportColorProof(options: ExportOptions): Promise<void> {
+  const { outputSettings, projectName } = options
+  const proofCanvas = await renderProofCanvas(options)
   const blob = await new Promise<Blob>((resolve) => {
     proofCanvas.toBlob((b) => resolve(b!), 'image/png')
   })
-  const withDpi = await setPngDpi(blob, dpi)
+  const withDpi = await setPngDpi(blob, outputSettings.dpi)
   await platform.exportWithDialog(withDpi, `${toStem(projectName, 'proof')}.png`, [{ name: 'PNG', extensions: ['png'] }])
+}
+
+/**
+ * Small PNG of the processed print for the .halftones thumbnail / Finder icon.
+ * Renders the color proof at a tiny DPI so the whole pipeline (spot merges,
+ * bleed, key plate, vectorize) is reused at thumbnail scale. Never throws —
+ * returns null on any failure so saving is never blocked.
+ */
+export async function generateThumbnail(options: ExportOptions, maxPx = 512): Promise<Uint8Array | null> {
+  try {
+    const m = resolveMargins(options.outputSettings)
+    const showM = options.outputSettings.showMargin !== false
+    const totalW = options.outputSettings.widthInches + (showM ? m.left + m.right : 0)
+    const dpi = Math.max(8, Math.min(72, maxPx / Math.max(0.5, totalW)))
+    const thumbOptions: ExportOptions = {
+      ...options,
+      outputSettings: { ...options.outputSettings, dpi: Math.round(dpi) },
+    }
+    const canvas = await renderProofCanvas(thumbOptions)
+    // Clamp the longest edge to maxPx.
+    const scale = Math.min(1, maxPx / Math.max(canvas.width, canvas.height))
+    let out = canvas
+    if (scale < 1) {
+      out = document.createElement('canvas')
+      out.width = Math.round(canvas.width * scale)
+      out.height = Math.round(canvas.height * scale)
+      out.getContext('2d')!.drawImage(canvas, 0, 0, out.width, out.height)
+    }
+    const blob = await new Promise<Blob | null>((r) => out.toBlob(r, 'image/png'))
+    if (!blob) return null
+    return new Uint8Array(await blob.arrayBuffer())
+  } catch (e) {
+    console.warn('[halftones] thumbnail render failed:', e)
+    return null
+  }
 }
 
 export async function exportPNG(options: ExportOptions): Promise<void> {

@@ -83,6 +83,10 @@ export interface ProjectFile {
    * Callers are responsible for re-decoding the bytes into a MaskImage after unpack.
    */
   mask?: { bytes: Uint8Array; fileName: string }
+  /**
+   * Small PNG preview of the processed print. Optional; regenerated on every save.
+   */
+  thumbnail?: Uint8Array
 }
 
 export interface LoadedImage {

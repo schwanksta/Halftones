@@ -4,6 +4,34 @@ mod startup;
 use tauri::{Emitter, Manager};
 use startup::StartupFiles;
 
+/// Set a custom Finder icon on the saved .halftones file (macOS only).
+/// Best-effort: failures are logged, never surfaced to the caller.
+#[tauri::command]
+fn set_file_icon(app: tauri::AppHandle, path: String, png: Vec<u8>) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app.run_on_main_thread(move || {
+            use objc2::AnyThread;
+            use objc2_app_kit::{NSImage, NSWorkspace, NSWorkspaceIconCreationOptions};
+            use objc2_foundation::{NSData, NSString};
+            let data = NSData::with_bytes(&png);
+            if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
+                let ws = NSWorkspace::sharedWorkspace();
+                let ns_path = NSString::from_str(&path);
+                let _ = ws.setIcon_forFile_options(
+                    Some(&image),
+                    &ns_path,
+                    NSWorkspaceIconCreationOptions::empty(),
+                );
+            }
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, path, png);
+    }
+}
+
 #[tauri::command]
 fn confirm_close(app: tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
@@ -42,6 +70,7 @@ pub fn run() {
             menu::set_recent_menu,
             startup::take_startup_files,
             confirm_close,
+            set_file_icon,
         ])
         .build(tauri::generate_context!())
         .expect("error building tauri application");

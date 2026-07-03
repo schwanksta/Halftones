@@ -3,6 +3,7 @@ import { platform } from '../platform'
 import { AllSettings, ProjectFile } from '../platform/types'
 import { SourceImage, DEFAULT_TRANSFORM_SETTINGS, DEFAULT_OUTPUT_SETTINGS, MaskImage } from '../types'
 import { loadMaskFromBytes } from '../engine/mask'
+import { generateThumbnail } from '../engine/export'
 
 interface AppShellDeps {
   projectName: string
@@ -35,21 +36,36 @@ export function useAppShell(deps: AppShellDeps) {
     }))
   }, [deps.dirty])
 
-  const gatherProjectFile = useCallback((): ProjectFile | null => {
+  const gatherProjectFile = useCallback(async (): Promise<ProjectFile | null> => {
     if (!deps.source) return null
+    const settings = deps.gatherSettings()
     const pf: ProjectFile = {
       name: deps.projectName,
-      settings: deps.gatherSettings(),
+      settings,
       image: { bytes: deps.source.rawBytes, fileName: deps.source.fileName },
     }
     if (deps.mask?.rawBytes?.length) {
       pf.mask = { bytes: deps.mask.rawBytes, fileName: deps.mask.fileName }
     }
+    // Generate thumbnail for the saved file (Finder icon + zip preview).
+    // Never blocks the save — generateThumbnail returns null on failure.
+    const thumbnail = await generateThumbnail({
+      source: deps.source.imageData,
+      transformSettings: settings.transform,
+      halftoneSettings: settings.halftone,
+      cmykSettings: settings.cmyk,
+      spotSettings: settings.spot,
+      outputSettings: settings.output,
+      projectName: deps.projectName,
+      mask: deps.mask ?? null,
+      maskSettings: settings.mask,
+    })
+    if (thumbnail) pf.thumbnail = thumbnail
     return pf
   }, [deps.source, deps.projectName, deps.gatherSettings, deps.mask])
 
   const saveAs = useCallback(async () => {
-    const pf = gatherProjectFile()
+    const pf = await gatherProjectFile()
     if (!pf) return false
     const path = await platform.saveProjectAsDialog(pf)
     if (!path) return false
@@ -62,7 +78,7 @@ export function useAppShell(deps: AppShellDeps) {
 
   const save = useCallback(async () => {
     if (!currentPath) return saveAs()
-    const pf = gatherProjectFile()
+    const pf = await gatherProjectFile()
     if (!pf) return false
     try {
       await platform.saveProject(pf, currentPath)

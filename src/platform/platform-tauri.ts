@@ -173,6 +173,11 @@ export function createPlatform(): PlatformAPI {
         throw err
       }
 
+      // Set the Finder icon to the thumbnail (fire-and-forget — never blocks save).
+      if (project.thumbnail?.length) {
+        invoke('set_file_icon', { path, png: Array.from(project.thumbnail) }).catch(() => {})
+      }
+
       const prefs = await readPrefs()
       prefs.lastDirs.save = await dirname(path)
       prefs.recent = prefs.recent.filter((r) => r.path !== path)
