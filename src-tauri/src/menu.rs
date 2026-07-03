@@ -2,7 +2,7 @@ use std::sync::Mutex;
 
 use tauri::{
     menu::{
-        Menu, MenuBuilder, MenuItem, PredefinedMenuItem, Submenu, SubmenuBuilder,
+        IconMenuItem, Menu, MenuBuilder, MenuItem, PredefinedMenuItem, Submenu, SubmenuBuilder,
     },
     AppHandle, Emitter, Manager, Runtime,
 };
@@ -140,6 +140,25 @@ pub fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEve
     }
 }
 
+// ─── Thumbnail loader for recent-project menu icons ──────────────────────────
+
+/// Read the embedded `thumbnail.png` from a `.halftones` zip and scale it for a
+/// menu icon. Best-effort: any failure (old file without a thumbnail, missing
+/// file, bad zip) returns `None` and the item renders without an icon.
+fn recent_thumbnail(path: &str) -> Option<tauri::image::Image<'static>> {
+    const ICON_PX: u32 = 24;
+    let file = std::fs::File::open(path).ok()?;
+    let mut archive =
+        zip::ZipArchive::new(std::io::BufReader::new(file)).ok()?;
+    let mut entry = archive.by_name("thumbnail.png").ok()?;
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut entry, &mut bytes).ok()?;
+    let img = image::load_from_memory(&bytes).ok()?;
+    let small = img.thumbnail(ICON_PX, ICON_PX).to_rgba8();
+    let (w, h) = small.dimensions();
+    Some(tauri::image::Image::new_owned(small.into_raw(), w, h))
+}
+
 // ─── Tauri command: rebuild the Open Recent submenu ──────────────────────────
 
 #[tauri::command]
@@ -173,12 +192,19 @@ pub fn set_recent_menu(
             .append(&placeholder)
             .map_err(|e| e.to_string())?;
     } else {
-        // Add one menu item per recent entry
+        // Add one menu item per recent entry (with thumbnail icon if available)
         for entry in &items {
             let id = format!("openRecent:{}", entry.path);
-            let item =
-                MenuItem::with_id(&app, id, &entry.name, true, None::<&str>)
-                    .map_err(|e| e.to_string())?;
+            let icon = recent_thumbnail(&entry.path);
+            let item = IconMenuItem::with_id(
+                &app,
+                id,
+                &entry.name,
+                true,
+                icon,
+                None::<&str>,
+            )
+            .map_err(|e| e.to_string())?;
             submenu.append(&item).map_err(|e| e.to_string())?;
         }
 
