@@ -42,6 +42,14 @@ function downsampleFactor(width: number, height: number): number {
  */
 const SIMPLIFY_EPSILON = 1.0
 
+/**
+ * Max turn angle (radians) at a vertex for the path renderer to treat it as
+ * part of a smooth curve and spline through it. Circle-like boundaries that
+ * DP reduced to chords turn ~10–25° per vertex and get re-curved; deliberate
+ * corners (45°+, e.g. octagon bevels and sharper) stay exact hard vertices.
+ */
+const SPLINE_MAX_TURN = (35 * Math.PI) / 180
+
 
 /** A single marching-squares segment: two grid-corner endpoints (in corner-grid units). */
 interface Segment {
@@ -114,14 +122,73 @@ export function traceBinaryMask(mask: ImageData, opts: VectorizeOptions): Polygo
   return result
 }
 
-/** Build one Path2D (mask-pixel coords) containing all polygons as closed subpaths. */
+/**
+ * Build one Path2D (mask-pixel coords) containing all polygons as closed subpaths.
+ *
+ * Each closed ring is drawn as an interpolating Catmull-Rom spline through
+ * "shallow turn" vertices (turnAngle <= SPLINE_MAX_TURN) — this re-curves
+ * circle-like boundaries that Douglas-Peucker reduced to visibly faceted
+ * chords — while vertices with a sharper turn (deliberate corners) stay hard
+ * lineTo vertices with no curvature. The spline is position-exact: it always
+ * passes exactly through every original vertex, so there's no drift, and
+ * this behavior is always-on regardless of the Chaikin "Rounding" strength.
+ * Consumed with even-odd fill as before.
+ */
 export function polygonsToPath2D(polys: Polygon[]): Path2D {
   const path = new Path2D()
   for (const poly of polys) {
-    if (poly.length < 2) continue
+    const n = poly.length
+    if (n < 2) continue
+
+    if (n < 4) {
+      path.moveTo(poly[0].x, poly[0].y)
+      for (let i = 1; i < n; i++) {
+        path.lineTo(poly[i].x, poly[i].y)
+      }
+      path.closePath()
+      continue
+    }
+
+    const smooth = new Array<boolean>(n)
+    for (let i = 0; i < n; i++) {
+      const prev = poly[(i - 1 + n) % n]
+      const cur = poly[i]
+      const next = poly[(i + 1) % n]
+      smooth[i] = turnAngle(prev, cur, next) <= SPLINE_MAX_TURN
+    }
+
     path.moveTo(poly[0].x, poly[0].y)
-    for (let i = 1; i < poly.length; i++) {
-      path.lineTo(poly[i].x, poly[i].y)
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n
+      const pi = poly[i]
+      const pj = poly[j]
+
+      if (!smooth[i] && !smooth[j]) {
+        path.lineTo(pj.x, pj.y)
+        continue
+      }
+
+      let c1x: number, c1y: number
+      if (smooth[i]) {
+        const pPrev = poly[(i - 1 + n) % n]
+        c1x = pi.x + (pj.x - pPrev.x) / 6
+        c1y = pi.y + (pj.y - pPrev.y) / 6
+      } else {
+        c1x = pi.x + (pj.x - pi.x) / 3
+        c1y = pi.y + (pj.y - pi.y) / 3
+      }
+
+      let c2x: number, c2y: number
+      if (smooth[j]) {
+        const pNext = poly[(j + 1) % n]
+        c2x = pj.x - (pNext.x - pi.x) / 6
+        c2y = pj.y - (pNext.y - pi.y) / 6
+      } else {
+        c2x = pj.x - (pj.x - pi.x) / 3
+        c2y = pj.y - (pj.y - pi.y) / 3
+      }
+
+      path.bezierCurveTo(c1x, c1y, c2x, c2y, pj.x, pj.y)
     }
     path.closePath()
   }
