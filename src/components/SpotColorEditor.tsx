@@ -328,7 +328,6 @@ export function SpotColorEditor({
           disabled={disabled}
           globalTrap={settings.trap ?? 0}
           globalSmooth={settings.smoothFlat ?? false}
-          buildup={settings.separationMode === 'buildup'}
           isDarkest={darkest?.id === color.id}
           darkestName={darkest?.name}
           darkestHex={darkest?.hex}
@@ -727,7 +726,6 @@ interface RowProps {
   disabled: boolean
   globalTrap: number
   globalSmooth: boolean
-  buildup: boolean
   isDarkest: boolean
   darkestName?: string
   darkestHex?: string
@@ -737,7 +735,7 @@ interface RowProps {
   onRemove: () => void
 }
 
-function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, buildup, isDarkest, darkestName, darkestHex, keyEnabled, keyStrokeEnabled, onChange, onRemove }: RowProps) {
+function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, isDarkest, darkestName, darkestHex, keyEnabled, keyStrokeEnabled, onChange, onRemove }: RowProps) {
   const [expanded, setExpanded] = useState(false)
   const [hexDraft, setHexDraft] = useState(color.hex)
 
@@ -926,8 +924,9 @@ function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, buildu
             </div>
           )}
 
-          {/* Smooth edges override — flat plates only (incl. build-up). */}
-          {(buildup || color.renderMode === 'flat') && (
+          {/* Smooth edges override — flat plates only. Build-up halftone-mode
+              colors now actually halftone (carry tone), so vectorize doesn't apply. */}
+          {color.renderMode === 'flat' && (
             <label className="control-row control-row--toggle" title="Trace this plate's edges into vector outlines. Defaults to the global 'Vectorize flat edges' setting — toggle to override for this color (e.g. keep fine line/hatch art as crisp raster).">
               <span>Vectorize edges</span>
               <input

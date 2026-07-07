@@ -750,9 +750,14 @@ function smoothLabelField(
  * joint smoothing first.  Channel value encodes ink coverage:
  *   black (0) = full ink   white (255) = no ink (light pixel or owned by another color)
  *
- * In 'buildup' mode the partition becomes nested solid plates: a pixel assigned
- * to a tone inks that plate AND every lighter plate beneath it, so on press the
- * inks stack (darkest opaque ink on top wins) instead of abutting.
+ * In 'buildup' mode the partition becomes nested plates: a pixel assigned to a
+ * tone inks that plate AND every lighter plate beneath it, so on press the
+ * inks stack (darkest opaque ink on top wins) instead of abutting. Plates for
+ * colors in `halftoneToneIds` carry the pixel's actual tone (`values[i]`) so
+ * `renderHalftone` can screen them — including in the reach/flood region
+ * beneath darker inks, which comes out dense (dark tone) there, preserving the
+ * solid-ink misregistration protection. Plates for flat-mode colors stay
+ * solid black (0), unchanged from before.
  *
  * `buildupReachPx` (build-up mode only): when > 0, a lighter plate extends
  * under darker inks only within this many pixels of its OWN region, instead of
@@ -763,6 +768,7 @@ export function buildSpotChannels(
   smoothing: number,
   mode: SeparationMode = 'knockout',
   buildupReachPx = 0,
+  halftoneToneIds: ReadonlySet<string> = new Set(),
 ): Map<string, ImageData> {
   const { width, height, values, labColorIds, labColorL, backgroundChannels } = ld
   const n = width * height
@@ -773,10 +779,11 @@ export function buildSpotChannels(
 
   if (mode === 'buildup' && nc > 1) {
     // Rank colors by lightness (lightest = rank 0). A pixel assigned to a tone
-    // inks its plate plus every lighter plate (lower-or-equal rank), all solid.
+    // inks its plate plus every lighter plate (lower-or-equal rank).
     const order = labColorIds.map((_, i) => i).sort((a, b) => labColorL[b] - labColorL[a])
     const rank = new Array<number>(nc)
     order.forEach((idx, pos) => { rank[idx] = pos })
+    const inkValue = (k: number, i: number) => halftoneToneIds.has(labColorIds[k]) ? values[i] : 0
 
     if (buildupReachPx <= 0) {
       // Classic full flood: every lighter plate inks under every darker pixel.
@@ -786,7 +793,7 @@ export function buildSpotChannels(
         const ar = rank[lab]
         const p = i * 4
         for (let k = 0; k < nc; k++) {
-          if (rank[k] <= ar) { const b = bufs[k]; b[p] = 0; b[p + 1] = 0; b[p + 2] = 0 }  // solid ink
+          if (rank[k] <= ar) { const v = inkValue(k, i); const b = bufs[k]; b[p] = v; b[p + 1] = v; b[p + 2] = v }
         }
       }
     } else {
@@ -798,8 +805,9 @@ export function buildSpotChannels(
         const lab = labels[i]
         if (lab < 0) continue
         const p = i * 4
+        const v = inkValue(lab, i)
         const b = bufs[lab]
-        b[p] = 0; b[p + 1] = 0; b[p + 2] = 0
+        b[p] = v; b[p + 1] = v; b[p + 2] = v
       }
       for (let k = 0; k < nc; k++) {
         // Darkest-rank plate has nothing darker beneath it to reach under.
@@ -826,7 +834,8 @@ export function buildSpotChannels(
           const lab = labels[i]
           if (lab < 0) continue                         // never into paper/unowned
           if (rank[lab] <= rk) continue                  // never under lighter/same-rank ink
-          bk[p] = 0; bk[p + 1] = 0; bk[p + 2] = 0
+          const v = inkValue(k, i)
+          bk[p] = v; bk[p + 1] = v; bk[p + 2] = v
         }
       }
     }
@@ -981,8 +990,9 @@ export function separateSpotChannels(
   paper?: PaperWhiteOptions,
   mode: SeparationMode = 'knockout',
   buildupReachPx = 0,
+  halftoneToneIds: ReadonlySet<string> = new Set(),
 ): Map<string, ImageData> {
-  return buildSpotChannels(computeSpotLabels(source, colors, paper), smoothing, mode, buildupReachPx)
+  return buildSpotChannels(computeSpotLabels(source, colors, paper), smoothing, mode, buildupReachPx, halftoneToneIds)
 }
 
 // ─── Flat rendering ───────────────────────────────────────────────────────────

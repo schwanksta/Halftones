@@ -175,14 +175,25 @@ export function useHalftonePreview(
 
   // Build per-color channels from the partition, applying joint smoothing.
   // Cheap relative to classification, so retuning smoothing doesn't re-run LAB.
+  // Signature of only the render-mode field (mirrors spotSeparationKey above) —
+  // spotSettings.colors is deliberately excluded from the memo deps for perf
+  // (see spotSeparationKey comment), so renderMode toggles need their own key.
+  const spotRenderModeSig = spotSettings.colors.map(c => `${c.id}:${c.renderMode}`).join('|')
+
   const spotChannels = useMemo(() => {
     if (!spotLabels) return null
     const reachPx = (spotSettings.buildupReachInches ?? 0) > 0 && transformed
       ? Math.max(1, Math.round(spotSettings.buildupReachInches! * (transformed.width / Math.max(0.01, outputSettings.widthInches))))
       : 0
-    return buildSpotChannels(spotLabels, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', reachPx)
+    const halftoneIds = new Set(
+      spotSettings.colors.filter(c => c.renderMode === 'halftone' && c.type !== 'background').map(c => c.id),
+    )
+    return buildSpotChannels(spotLabels, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', reachPx, halftoneIds)
+    // spotRenderModeSig stands in for spotSettings.colors' renderMode field —
+    // full spotSettings.colors is not a dep (see spotSeparationKey comment).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spotLabels, spotSettings.smoothing, spotSettings.separationMode, spotSettings.buildupReachInches,
-      transformed, outputSettings.widthInches])
+      transformed, outputSettings.widthInches, spotRenderModeSig])
 
   // Underbase plate (source resolution) — union of inked area, choked. Extracted
   // per frame and composited under the colors.
@@ -280,12 +291,11 @@ export function useHalftonePreview(
 
   const flatVectorPaths = useMemo(() => {
     if (halftoneSettings.colorMode !== 'spot' || !spotChannels) return null
-    const buildup = spotSettings.separationMode === 'buildup'
     const strength = spotSettings.smoothFlatStrength ?? 50
     const map = new Map<string, Path2D>()
     for (const color of spotSettings.colors) {
       if (!color.enabled) continue
-      if (!(buildup || color.renderMode === 'flat')) continue
+      if (color.renderMode !== 'flat') continue
       // per-color smooth override; undefined follows the global toggle
       if (!(color.smooth ?? spotSettings.smoothFlat ?? false)) continue
       const channel = spotChannels.get(color.id)
@@ -591,7 +601,7 @@ export function useHalftonePreview(
           const bwCanvas = document.createElement('canvas')
           bwCanvas.width = canvasW; bwCanvas.height = canvasH
           const bwCtx = bwCanvas.getContext('2d')!
-          const isFlat = buildup || color.renderMode === 'flat'
+          const isFlat = color.renderMode === 'flat'
           const vec = flatVectorPaths?.get(color.id)
           if (isFlat && vec && bleedSourcePx === 0) {
             // Fill pre-traced smooth polygons (source coords) under the viewport

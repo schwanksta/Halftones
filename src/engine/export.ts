@@ -175,13 +175,15 @@ async function renderSpotChannelCanvases(
 
   // Separate ALL colors so disabled ones claim their own pixels — preventing
   // redistribution to enabled neighbors.  Only enabled colors get rendered/exported.
-  const buildup = spotSettings.separationMode === 'buildup'
   const labelData = computeSpotLabels(scaled, spotSettings.colors,
       spotSettings.paperWhite ? { enabled: true, threshold: spotSettings.paperWhiteThreshold ?? 92 } : undefined)
   const reachPx = (spotSettings.buildupReachInches ?? 0) > 0
     ? Math.max(1, Math.round(spotSettings.buildupReachInches! * outputSettings.dpi))
     : 0
-  const channels = buildSpotChannels(labelData, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', reachPx)
+  const halftoneIds = new Set(
+    spotSettings.colors.filter(c => c.renderMode === 'halftone' && c.type !== 'background').map(c => c.id),
+  )
+  const channels = buildSpotChannels(labelData, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', reachPx, halftoneIds)
   const enabledColors = spotSettings.colors.filter((c) => c.enabled)
 
   const radialCenter = {
@@ -288,7 +290,7 @@ async function renderSpotChannelCanvases(
     canvas.height = renderH
     const ctx = canvas.getContext('2d')!
 
-    const isFlat = buildup || color.renderMode === 'flat'
+    const isFlat = color.renderMode === 'flat'
     if (isFlat && smoothFor(color, spotSettings) && bleedPx === 0) {
       // Vectorize the flat mask for smooth (non-staircased) edges. Bleed plates
       // fall back to raster fill (their edge runs off into the trimmed margin).
@@ -591,7 +593,10 @@ export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCan
     const proofReachPx = (spotSettings.buildupReachInches ?? 0) > 0
       ? Math.max(1, Math.round(spotSettings.buildupReachInches! * dpi))
       : 0
-    const channels = buildSpotChannels(proofLabelData, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', proofReachPx)
+    const halftoneIds = new Set(
+      spotSettings.colors.filter(c => c.renderMode === 'halftone' && c.type !== 'background').map(c => c.id),
+    )
+    const channels = buildSpotChannels(proofLabelData, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', proofReachPx, halftoneIds)
     // Build-up overprints, so paint light→dark (darkest opaque ink ends up on top).
     const enabledColors = spotSettings.colors.filter((c) => c.enabled)
       .sort((a, b) => (buildup ? b.lab[0] - a.lab[0] : 0))
@@ -689,7 +694,7 @@ export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCan
       offCanvas.height = offH
       const offCtx = offCanvas.getContext('2d')!
 
-      const isFlat = buildup || color.renderMode === 'flat'
+      const isFlat = color.renderMode === 'flat'
       if (isFlat && smoothFor(color, spotSettings) && bleedPx === 0) {
         fillFlatVector(offCtx, offW, offH, channelData, color.threshold, spotSettings.smoothFlatStrength ?? 50)
       } else if (isFlat) {
