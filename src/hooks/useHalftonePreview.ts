@@ -200,26 +200,44 @@ export function useHalftonePreview(
   // (mirrors underbaseCanvas), extracted to the viewport per frame.
 
   const keyDotsKnockoutCanvas = useMemo(() => {
-    if (halftoneSettings.colorMode !== 'spot' || !spotSettings.key?.enabled || !spotLabels) return null
-    const ids = spotSettings.colors.filter(c => c.enabled && c.keyDots === false).map(c => c.id)
-    const mask = buildOwnershipMask(spotLabels, ids)
+    if (halftoneSettings.colorMode !== 'spot' || !spotSettings.key?.enabled || !spotLabels || !transformed) return null
+    const excluded = spotSettings.colors.filter(c => c.enabled && c.keyDots === false)
+    const ids = excluded.map(c => c.id)
+    const smoothing = (spotSettings.smoothing ?? 0) / 100
+    const maxTrap = excluded.reduce((m, c) => Math.max(m, c.trap ?? spotSettings.trap ?? 0), 0)
+    // Pad (in output px) covers the AA rim + vectorize deviation (~3px) plus trap;
+    // converted to source-resolution px since spotLabels is at source resolution.
+    const padOut = excluded.length ? 3 + maxTrap : 0
+    const scale = (transformed.width / outputSettings.widthInches) / outputSettings.dpi
+    const padSrc = padOut > 0 ? Math.max(1, Math.round(padOut * scale)) : 0
+    const mask = buildOwnershipMask(spotLabels, ids, { smoothing, padPx: padSrc })
     if (!mask) return null
     const c = document.createElement('canvas')
     c.width = mask.width; c.height = mask.height
     c.getContext('2d')!.putImageData(mask, 0, 0)
     return c
-  }, [spotLabels, spotSettings.colors, spotSettings.key, halftoneSettings.colorMode])
+  }, [spotLabels, transformed, spotSettings.colors, spotSettings.key, spotSettings.smoothing, spotSettings.trap,
+      halftoneSettings.colorMode, outputSettings.widthInches, outputSettings.dpi])
 
   const keyStrokeKnockoutCanvas = useMemo(() => {
-    if (halftoneSettings.colorMode !== 'spot' || !spotSettings.key?.enabled || !spotLabels) return null
-    const ids = spotSettings.colors.filter(c => c.enabled && c.keyStroke === false).map(c => c.id)
-    const mask = buildOwnershipMask(spotLabels, ids)
+    if (halftoneSettings.colorMode !== 'spot' || !spotSettings.key?.enabled || !spotLabels || !transformed) return null
+    const excluded = spotSettings.colors.filter(c => c.enabled && c.keyStroke === false)
+    const ids = excluded.map(c => c.id)
+    const smoothing = (spotSettings.smoothing ?? 0) / 100
+    const maxTrap = excluded.reduce((m, c) => Math.max(m, c.trap ?? spotSettings.trap ?? 0), 0)
+    // Pad (in output px) covers the AA rim + vectorize deviation (~3px) plus trap,
+    // plus the dilated stroke width; converted to source-resolution px.
+    const padOut = excluded.length ? 3 + maxTrap + (spotSettings.key?.strokeWidth ?? 2) + 1 : 0
+    const scale = (transformed.width / outputSettings.widthInches) / outputSettings.dpi
+    const padSrc = padOut > 0 ? Math.max(1, Math.round(padOut * scale)) : 0
+    const mask = buildOwnershipMask(spotLabels, ids, { smoothing, padPx: padSrc })
     if (!mask) return null
     const c = document.createElement('canvas')
     c.width = mask.width; c.height = mask.height
     c.getContext('2d')!.putImageData(mask, 0, 0)
     return c
-  }, [spotLabels, spotSettings.colors, spotSettings.key, halftoneSettings.colorMode])
+  }, [spotLabels, transformed, spotSettings.colors, spotSettings.key, spotSettings.smoothing, spotSettings.trap,
+      halftoneSettings.colorMode, outputSettings.widthInches, outputSettings.dpi])
 
   // ── Spot channel canvases ──────────────────────────────────────────────────
   //

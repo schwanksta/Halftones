@@ -216,8 +216,16 @@ async function renderSpotChannelCanvases(
     const outlineMask = key.outlineEnabled
       ? computeAlphaBoundaryMask(scaled, key.outlineWidth ?? 3)
       : null
-    const dotsKo = buildOwnershipMask(labelData, spotSettings.colors.filter(c => c.enabled && c.keyDots === false).map(c => c.id))
-    const strokeKo = buildOwnershipMask(labelData, spotSettings.colors.filter(c => c.enabled && c.keyStroke === false).map(c => c.id))
+    const smoothing = (spotSettings.smoothing ?? 0) / 100
+    const dotsExcluded = spotSettings.colors.filter(c => c.enabled && c.keyDots === false)
+    const strokeExcluded = spotSettings.colors.filter(c => c.enabled && c.keyStroke === false)
+    const maxTrap = (cs: SpotColor[]) => cs.reduce((m, c) => Math.max(m, trapFor(c, spotSettings)), 0)
+    // Pad covers AA rim + vectorize deviation (~3px) plus the excluded colors' trap;
+    // the stroke knockout additionally covers the dilated stroke width.
+    const dotsPad = dotsExcluded.length ? 3 + maxTrap(dotsExcluded) : 0
+    const strokePad = strokeExcluded.length ? 3 + maxTrap(strokeExcluded) + (spotSettings.key?.strokeWidth ?? 2) + 1 : 0
+    const dotsKo = buildOwnershipMask(labelData, dotsExcluded.map(c => c.id), { smoothing, padPx: dotsPad })
+    const strokeKo = buildOwnershipMask(labelData, strokeExcluded.map(c => c.id), { smoothing, padPx: strokePad })
     keyCanvas = buildKeyPlateCanvas({
       width: targetWidth,
       height: targetHeight,
@@ -609,8 +617,16 @@ export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCan
       const outlineMask = key.outlineEnabled
         ? computeAlphaBoundaryMask(scaled, key.outlineWidth ?? 3)
         : null
-      const dotsKo = buildOwnershipMask(proofLabelData, spotSettings.colors.filter(c => c.enabled && c.keyDots === false).map(c => c.id))
-      const strokeKo = buildOwnershipMask(proofLabelData, spotSettings.colors.filter(c => c.enabled && c.keyStroke === false).map(c => c.id))
+      const smoothing = (spotSettings.smoothing ?? 0) / 100
+      const dotsExcluded = spotSettings.colors.filter(c => c.enabled && c.keyDots === false)
+      const strokeExcluded = spotSettings.colors.filter(c => c.enabled && c.keyStroke === false)
+      const maxTrap = (cs: SpotColor[]) => cs.reduce((m, c) => Math.max(m, trapFor(c, spotSettings)), 0)
+      // Pad covers AA rim + vectorize deviation (~3px) plus the excluded colors' trap;
+      // the stroke knockout additionally covers the dilated stroke width.
+      const dotsPad = dotsExcluded.length ? 3 + maxTrap(dotsExcluded) : 0
+      const strokePad = strokeExcluded.length ? 3 + maxTrap(strokeExcluded) + (spotSettings.key?.strokeWidth ?? 2) + 1 : 0
+      const dotsKo = buildOwnershipMask(proofLabelData, dotsExcluded.map(c => c.id), { smoothing, padPx: dotsPad })
+      const strokeKo = buildOwnershipMask(proofLabelData, strokeExcluded.map(c => c.id), { smoothing, padPx: strokePad })
       keyCanvas = buildKeyPlateCanvas({
         width: targetW,
         height: targetH,

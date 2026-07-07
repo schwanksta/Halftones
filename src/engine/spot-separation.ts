@@ -11,6 +11,7 @@
  */
 
 import { SpotColor, SeparationMode } from '../types'
+import { dilateMask } from './dilate'
 
 // ─── CIELAB conversion ────────────────────────────────────────────────────────
 
@@ -832,10 +833,31 @@ function erodeBinary(src: Uint8Array, w: number, h: number, r: number): Uint8Arr
  * from the exclusive ownership labels — regular colors via the label map,
  * background-type colors via their alpha-derived channel. Returns null when
  * colorIds is empty. Used to knock key-plate content out of specific colors.
+ *
+ * `opts.smoothing` re-runs the same joint label smoothing `buildSpotChannels`
+ * applies, so the knockout region matches the printed plate's boundaries
+ * rather than the raw (pre-smoothing) partition.
+ *
+ * `opts.padPx` dilates the black knockout region outward by that many pixels
+ * afterward. The printed plates never line up exactly with the raw ownership
+ * partition — anti-aliased edge pixels are often claimed by the neighboring
+ * color, "Vectorize flat edges" traces deviate a px or two from the pixel
+ * mask, per-color trap dilates the printed ink outward, and despeckle
+ * (smoothing) shifts the partition boundary. Padding makes the knockout
+ * overshoot the owned region slightly so those boundary slivers don't leave a
+ * rim of key dots/stroke visible at the excluded color's edge; over-erasing a
+ * few px into a neighbor's interior is invisible for an overprint.
  */
-export function buildOwnershipMask(ld: SpotLabelData, colorIds: string[]): ImageData | null {
+export function buildOwnershipMask(
+  ld: SpotLabelData,
+  colorIds: string[],
+  opts?: { smoothing?: number; padPx?: number },
+): ImageData | null {
   if (colorIds.length === 0) return null
-  const { width, height, labels, labColorIds, backgroundChannels } = ld
+  const { width, height, labColorIds, backgroundChannels } = ld
+  const labels = opts?.smoothing
+    ? smoothLabelField(ld.labels, width, height, labColorIds.length, opts.smoothing)
+    : ld.labels
   const n = width * height
   const buf = new Uint8ClampedArray(n * 4).fill(255)
   for (let i = 0; i < n * 4; i += 4) buf[i + 3] = 255
@@ -867,7 +889,17 @@ export function buildOwnershipMask(ld: SpotLabelData, colorIds: string[]): Image
     }
   }
 
-  return new ImageData(buf, width, height)
+  let result = new ImageData(buf, width, height)
+  const padPx = opts?.padPx ?? 0
+  if (padPx >= 1) {
+    const canvas = document.createElement('canvas')
+    canvas.width = width; canvas.height = height
+    canvas.getContext('2d')!.putImageData(result, 0, 0)
+    const dilated = dilateMask(canvas, padPx)
+    result = dilated.getContext('2d')!.getImageData(0, 0, width, height)
+  }
+
+  return result
 }
 
 /**
