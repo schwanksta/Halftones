@@ -58,3 +58,64 @@ export function dilateMask(srcCanvas: HTMLCanvasElement, trapPx: number): HTMLCa
 
   return current
 }
+
+/** One dilation pass at a fixed offset `s` — same 8-compass darken composite
+ *  as `dilateMask`'s inner loop, but at distance `s` instead of 1. */
+function dilatePass(srcCanvas: HTMLCanvasElement, s: number): HTMLCanvasElement {
+  const w = srcCanvas.width
+  const h = srcCanvas.height
+  const next = document.createElement('canvas')
+  next.width = w
+  next.height = h
+  const ctx = next.getContext('2d')!
+
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, w, h)
+  ctx.drawImage(srcCanvas, 0, 0)
+
+  ctx.globalCompositeOperation = 'darken'
+  ctx.drawImage(srcCanvas,  s,  0)
+  ctx.drawImage(srcCanvas, -s,  0)
+  ctx.drawImage(srcCanvas,  0,  s)
+  ctx.drawImage(srcCanvas,  0, -s)
+  ctx.drawImage(srcCanvas,  s,  s)
+  ctx.drawImage(srcCanvas, -s,  s)
+  ctx.drawImage(srcCanvas,  s, -s)
+  ctx.drawImage(srcCanvas, -s, -s)
+  ctx.globalCompositeOperation = 'source-over'
+
+  return next
+}
+
+/**
+ * Chebyshev dilation by `radiusPx` using a doubling schedule — O(log r) passes
+ * instead of O(r). Each pass darken-composites the mask at the 8 compass
+ * offsets of distance s (plus center); offsets {−s,0,s}² Minkowski-compose, so
+ * s = 1,2,4,… then a remainder step reaches any radius exactly. Returns a new
+ * canvas; source untouched. For radii ≤ 4 just delegates to dilateMask.
+ *
+ * Schedule invariant: after `covered` px are guaranteed reached, the next step
+ * `s` must satisfy `s <= 2*covered + 1` so the {−s,0,s} offsets, composed with
+ * everything already covered, keep the reached interval contiguous (no gaps).
+ * The classic doubling schedule s = covered+1 (1, 2, 4, 8, …) satisfies this
+ * with equality and covers `radius` in O(log radius) passes; the final step is
+ * simply whatever remains.
+ */
+export function dilateMaskBy(srcCanvas: HTMLCanvasElement, radiusPx: number): HTMLCanvasElement {
+  const radius = Math.max(0, Math.min(2000, Math.round(radiusPx)))
+  if (radius <= 0) return srcCanvas
+  if (radius <= 4) return dilateMask(srcCanvas, radius)
+
+  let current = srcCanvas
+  let covered = 0
+  while (covered < radius) {
+    // Next step must be <= 2*covered+1 to keep contiguous coverage; the
+    // doubling schedule (s = covered+1) hits that bound exactly, except the
+    // final step which is clamped to the remaining distance.
+    const s = Math.min(covered + 1, radius - covered)
+    current = dilatePass(current, s)
+    covered += s
+  }
+
+  return current
+}

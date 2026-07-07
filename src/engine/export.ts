@@ -178,7 +178,10 @@ async function renderSpotChannelCanvases(
   const buildup = spotSettings.separationMode === 'buildup'
   const labelData = computeSpotLabels(scaled, spotSettings.colors,
       spotSettings.paperWhite ? { enabled: true, threshold: spotSettings.paperWhiteThreshold ?? 92 } : undefined)
-  const channels = buildSpotChannels(labelData, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout')
+  const reachPx = (spotSettings.buildupReachInches ?? 0) > 0
+    ? Math.max(1, Math.round(spotSettings.buildupReachInches! * outputSettings.dpi))
+    : 0
+  const channels = buildSpotChannels(labelData, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', reachPx)
   const enabledColors = spotSettings.colors.filter((c) => c.enabled)
 
   const radialCenter = {
@@ -585,7 +588,10 @@ export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCan
     const buildup = spotSettings.separationMode === 'buildup'
     const proofLabelData = computeSpotLabels(scaled, spotSettings.colors,
       spotSettings.paperWhite ? { enabled: true, threshold: spotSettings.paperWhiteThreshold ?? 92 } : undefined)
-    const channels = buildSpotChannels(proofLabelData, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout')
+    const proofReachPx = (spotSettings.buildupReachInches ?? 0) > 0
+      ? Math.max(1, Math.round(spotSettings.buildupReachInches! * dpi))
+      : 0
+    const channels = buildSpotChannels(proofLabelData, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', proofReachPx)
     // Build-up overprints, so paint light→dark (darkest opaque ink ends up on top).
     const enabledColors = spotSettings.colors.filter((c) => c.enabled)
       .sort((a, b) => (buildup ? b.lab[0] - a.lab[0] : 0))

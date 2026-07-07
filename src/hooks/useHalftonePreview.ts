@@ -177,8 +177,12 @@ export function useHalftonePreview(
   // Cheap relative to classification, so retuning smoothing doesn't re-run LAB.
   const spotChannels = useMemo(() => {
     if (!spotLabels) return null
-    return buildSpotChannels(spotLabels, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout')
-  }, [spotLabels, spotSettings.smoothing, spotSettings.separationMode])
+    const reachPx = (spotSettings.buildupReachInches ?? 0) > 0 && transformed
+      ? Math.max(1, Math.round(spotSettings.buildupReachInches! * (transformed.width / Math.max(0.01, outputSettings.widthInches))))
+      : 0
+    return buildSpotChannels(spotLabels, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', reachPx)
+  }, [spotLabels, spotSettings.smoothing, spotSettings.separationMode, spotSettings.buildupReachInches,
+      transformed, outputSettings.widthInches])
 
   // Underbase plate (source resolution) — union of inked area, choked. Extracted
   // per frame and composited under the colors.

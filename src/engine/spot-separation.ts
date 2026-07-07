@@ -11,7 +11,7 @@
  */
 
 import { SpotColor, SeparationMode } from '../types'
-import { dilateMask } from './dilate'
+import { dilateMask, dilateMaskBy } from './dilate'
 
 // ─── CIELAB conversion ────────────────────────────────────────────────────────
 
@@ -753,11 +753,16 @@ function smoothLabelField(
  * In 'buildup' mode the partition becomes nested solid plates: a pixel assigned
  * to a tone inks that plate AND every lighter plate beneath it, so on press the
  * inks stack (darkest opaque ink on top wins) instead of abutting.
+ *
+ * `buildupReachPx` (build-up mode only): when > 0, a lighter plate extends
+ * under darker inks only within this many pixels of its OWN region, instead of
+ * flooding under every darker pixel globally. 0 (default) = classic full flood.
  */
 export function buildSpotChannels(
   ld: SpotLabelData,
   smoothing: number,
   mode: SeparationMode = 'knockout',
+  buildupReachPx = 0,
 ): Map<string, ImageData> {
   const { width, height, values, labColorIds, labColorL, backgroundChannels } = ld
   const n = width * height
@@ -772,13 +777,57 @@ export function buildSpotChannels(
     const order = labColorIds.map((_, i) => i).sort((a, b) => labColorL[b] - labColorL[a])
     const rank = new Array<number>(nc)
     order.forEach((idx, pos) => { rank[idx] = pos })
-    for (let i = 0; i < n; i++) {
-      const lab = labels[i]
-      if (lab < 0) continue
-      const ar = rank[lab]
-      const p = i * 4
+
+    if (buildupReachPx <= 0) {
+      // Classic full flood: every lighter plate inks under every darker pixel.
+      for (let i = 0; i < n; i++) {
+        const lab = labels[i]
+        if (lab < 0) continue
+        const ar = rank[lab]
+        const p = i * 4
+        for (let k = 0; k < nc; k++) {
+          if (rank[k] <= ar) { const b = bufs[k]; b[p] = 0; b[p + 1] = 0; b[p + 2] = 0 }  // solid ink
+        }
+      }
+    } else {
+      // Reach-limited: first ink each plate's own region, then extend each
+      // lighter plate under strictly darker ink only within buildupReachPx of
+      // its own boundary — full misregistration protection at real edges,
+      // without a global flood.
+      for (let i = 0; i < n; i++) {
+        const lab = labels[i]
+        if (lab < 0) continue
+        const p = i * 4
+        const b = bufs[lab]
+        b[p] = 0; b[p + 1] = 0; b[p + 2] = 0
+      }
       for (let k = 0; k < nc; k++) {
-        if (rank[k] <= ar) { const b = bufs[k]; b[p] = 0; b[p + 1] = 0; b[p + 2] = 0 }  // solid ink
+        // Darkest-rank plate has nothing darker beneath it to reach under.
+        if (rank[k] === nc - 1) continue
+        // Build a black-on-white canvas of color k's own region.
+        const ownBuf = new Uint8ClampedArray(n * 4).fill(255)
+        for (let i = 0; i < n; i++) {
+          if (labels[i] === k) {
+            const p = i * 4
+            ownBuf[p] = 0; ownBuf[p + 1] = 0; ownBuf[p + 2] = 0
+          }
+        }
+        const ownCanvas = document.createElement('canvas')
+        ownCanvas.width = width; ownCanvas.height = height
+        ownCanvas.getContext('2d')!.putImageData(new ImageData(ownBuf, width, height), 0, 0)
+        const dilated = dilateMaskBy(ownCanvas, buildupReachPx)
+        const dilatedData = dilated.getContext('2d')!.getImageData(0, 0, width, height).data
+
+        const bk = bufs[k]
+        const rk = rank[k]
+        for (let i = 0; i < n; i++) {
+          const p = i * 4
+          if (dilatedData[p] >= 128) continue           // outside reach
+          const lab = labels[i]
+          if (lab < 0) continue                         // never into paper/unowned
+          if (rank[lab] <= rk) continue                  // never under lighter/same-rank ink
+          bk[p] = 0; bk[p + 1] = 0; bk[p + 2] = 0
+        }
       }
     }
   } else {
@@ -931,8 +980,9 @@ export function separateSpotChannels(
   smoothing = 0,
   paper?: PaperWhiteOptions,
   mode: SeparationMode = 'knockout',
+  buildupReachPx = 0,
 ): Map<string, ImageData> {
-  return buildSpotChannels(computeSpotLabels(source, colors, paper), smoothing, mode)
+  return buildSpotChannels(computeSpotLabels(source, colors, paper), smoothing, mode, buildupReachPx)
 }
 
 // ─── Flat rendering ───────────────────────────────────────────────────────────

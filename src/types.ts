@@ -188,6 +188,13 @@ export interface SpotSettings {
    *   forgiving; best for tonal / duotone palettes.
    */
   separationMode?: SeparationMode
+  /**
+   * Build-up only: how far (inches) a lighter plate extends under darker inks
+   * beyond its own region. Absent or 0 = classic full overprint (every lighter
+   * plate under every darker pixel). A distance keeps full misregistration
+   * protection at real ink boundaries while eliminating the global flood.
+   */
+  buildupReachInches?: number
   /** Optional underbase plate: union of all inked area, choked, printed first. */
   underbase?: UnderbaseSettings
   /** Substrate (paper/garment) color the proof and preview composite onto. Default white. */

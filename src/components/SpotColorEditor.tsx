@@ -364,6 +364,36 @@ export function SpotColorEditor({
             disabled={disabled}
           />
         </div>
+
+        {settings.separationMode === 'buildup' && (
+          <>
+            <label className="control-row control-row--toggle" title="Classic build-up prints every lighter plate under ALL darker ink. Limiting the reach extends each lighter plate only a set distance past its own region — same misregistration protection at boundaries, without flooding ink under the whole design.">
+              <span>Limit overprint reach</span>
+              <input
+                type="checkbox"
+                checked={(settings.buildupReachInches ?? 0) > 0}
+                onChange={(e) => update({ buildupReachInches: e.target.checked ? 0.1 : 0 })}
+                disabled={disabled}
+              />
+            </label>
+
+            {(settings.buildupReachInches ?? 0) > 0 && (
+              <div className="control-row" title="How far a lighter plate extends under darker inks beyond its own region.">
+                <span>Reach <EditableValue
+                  value={settings.buildupReachInches ?? 0.1}
+                  min={0.02} max={0.5} step={0.01} suffix='"'
+                  onChange={(v) => update({ buildupReachInches: v })}
+                /></span>
+                <input
+                  type="range" min={0.02} max={0.5} step={0.01}
+                  value={settings.buildupReachInches ?? 0.1}
+                  onChange={(e) => update({ buildupReachInches: Number(e.target.value) })}
+                  disabled={disabled}
+                />
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* Trapping & edges — global plate-rendering defaults (overridable per color) */}
