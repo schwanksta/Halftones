@@ -23,6 +23,10 @@ export interface KeyPlateCanvasOptions {
   edgeMask?: ImageData | null
   /** Alpha-boundary outline mask, already scaled/cropped to width×height. */
   outlineMask?: ImageData | null
+  /** Black-on-white mask (black = erase): removes key DOTS in that region. */
+  dotsKnockout?: ImageData | null
+  /** Black-on-white mask (black = erase): removes the edge STROKE in that region. */
+  strokeKnockout?: ImageData | null
 }
 
 /**
@@ -67,10 +71,59 @@ export function buildKeyPlateCanvas(opts: KeyPlateCanvasOptions): HTMLCanvasElem
     ctx.fillRect(0, 0, opts.width, opts.height)
   }
 
-  if (opts.edgeMask) applyEdgeMaskToCanvas(canvas, opts.edgeMask)
+  // Dots knockout: erase key dots (paint white) wherever the mask is black,
+  // via a 'lighten' composite of the INVERTED mask (white where erased).
+  if (opts.dotsKnockout) {
+    const inverted = invertMask(opts.dotsKnockout)
+    const invCanvas = document.createElement('canvas')
+    invCanvas.width = opts.width
+    invCanvas.height = opts.height
+    invCanvas.getContext('2d')!.putImageData(inverted, 0, 0)
+    const prevOp = ctx.globalCompositeOperation
+    ctx.globalCompositeOperation = 'lighten'
+    ctx.drawImage(invCanvas, 0, 0)
+    ctx.globalCompositeOperation = prevOp
+  }
+
+  let effectiveEdgeMask = opts.edgeMask ?? null
+  if (effectiveEdgeMask && opts.strokeKnockout) {
+    effectiveEdgeMask = eraseWhereMaskBlack(effectiveEdgeMask, opts.strokeKnockout)
+  }
+
+  if (effectiveEdgeMask) applyEdgeMaskToCanvas(canvas, effectiveEdgeMask)
   if (opts.outlineMask) applyEdgeMaskToCanvas(canvas, opts.outlineMask)
 
   return canvas
+}
+
+/** Invert a black-on-white mask: black ↔ white (alpha untouched). */
+function invertMask(mask: ImageData): ImageData {
+  const { data, width, height } = mask
+  const out = new Uint8ClampedArray(data.length)
+  for (let i = 0; i < width * height; i++) {
+    const p = i * 4
+    const v = 255 - data[p]
+    out[p] = v; out[p + 1] = v; out[p + 2] = v; out[p + 3] = 255
+  }
+  return new ImageData(out, width, height)
+}
+
+/**
+ * Return a COPY of `mask` with pixels set to white (255) wherever `knockout`
+ * is black (< 128) — i.e. erases the edge/content in the knockout region
+ * without mutating the caller's ImageData.
+ */
+function eraseWhereMaskBlack(mask: ImageData, knockout: ImageData): ImageData {
+  const { data, width, height } = mask
+  const kd = knockout.data
+  const out = new Uint8ClampedArray(data)
+  for (let i = 0; i < width * height; i++) {
+    const p = i * 4
+    if (kd[p] < 128) {
+      out[p] = 255; out[p + 1] = 255; out[p + 2] = 255
+    }
+  }
+  return new ImageData(out, width, height)
 }
 
 /**

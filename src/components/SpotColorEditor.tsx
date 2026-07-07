@@ -332,6 +332,8 @@ export function SpotColorEditor({
           isDarkest={darkest?.id === color.id}
           darkestName={darkest?.name}
           darkestHex={darkest?.hex}
+          keyEnabled={settings.key?.enabled ?? false}
+          keyStrokeEnabled={(settings.key?.enabled && settings.key?.strokeEnabled) ?? false}
           onChange={(partial) => updateColor(color.id, partial)}
           onRemove={() => removeColor(color.id)}
         />
@@ -699,11 +701,13 @@ interface RowProps {
   isDarkest: boolean
   darkestName?: string
   darkestHex?: string
+  keyEnabled: boolean
+  keyStrokeEnabled: boolean
   onChange: (partial: Partial<SpotColor>) => void
   onRemove: () => void
 }
 
-function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, buildup, isDarkest, darkestName, darkestHex, onChange, onRemove }: RowProps) {
+function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, buildup, isDarkest, darkestName, darkestHex, keyEnabled, keyStrokeEnabled, onChange, onRemove }: RowProps) {
   const [expanded, setExpanded] = useState(false)
   const [hexDraft, setHexDraft] = useState(color.hex)
 
@@ -1019,6 +1023,30 @@ function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, buildu
             <div style={{ fontSize: 10, color: 'var(--warning, #d99a2b)', marginTop: -2 }}>
               Will print in {darkestName}'s ink, not its own color
             </div>
+          )}
+
+          {/* Key plate knockout toggles */}
+          {keyEnabled && (
+            <label className="control-row control-row--toggle" title="Print the key plate's halftone dots over this color. Uncheck to keep this ink clean — key dots are erased wherever this color owns the separation.">
+              <span>Key dots</span>
+              <input
+                type="checkbox"
+                checked={color.keyDots !== false}
+                onChange={(e) => onChange({ keyDots: e.target.checked })}
+                disabled={disabled}
+              />
+            </label>
+          )}
+          {keyStrokeEnabled && (
+            <label className="control-row control-row--toggle" title="Print the key plate's edge stroke over this color. Uncheck to erase the stroke in this color's region.">
+              <span>Key stroke</span>
+              <input
+                type="checkbox"
+                checked={color.keyStroke !== false}
+                onChange={(e) => onChange({ keyStroke: e.target.checked })}
+                disabled={disabled}
+              />
+            </label>
           )}
 
           {/* Remove button */}

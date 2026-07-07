@@ -828,6 +828,49 @@ function erodeBinary(src: Uint8Array, w: number, h: number, r: number): Uint8Arr
 }
 
 /**
+ * Black-on-white mask (black = pixel owned by any of the given colors) built
+ * from the exclusive ownership labels — regular colors via the label map,
+ * background-type colors via their alpha-derived channel. Returns null when
+ * colorIds is empty. Used to knock key-plate content out of specific colors.
+ */
+export function buildOwnershipMask(ld: SpotLabelData, colorIds: string[]): ImageData | null {
+  if (colorIds.length === 0) return null
+  const { width, height, labels, labColorIds, backgroundChannels } = ld
+  const n = width * height
+  const buf = new Uint8ClampedArray(n * 4).fill(255)
+  for (let i = 0; i < n * 4; i += 4) buf[i + 3] = 255
+
+  const labIndices = new Set<number>()
+  for (const id of colorIds) {
+    const idx = labColorIds.indexOf(id)
+    if (idx >= 0) labIndices.add(idx)
+  }
+
+  if (labIndices.size > 0) {
+    for (let i = 0; i < n; i++) {
+      if (labels[i] >= 0 && labIndices.has(labels[i])) {
+        const p = i * 4
+        buf[p] = 0; buf[p + 1] = 0; buf[p + 2] = 0
+      }
+    }
+  }
+
+  for (const id of colorIds) {
+    const bgChannel = backgroundChannels.get(id)
+    if (!bgChannel) continue
+    const bd = bgChannel.data
+    for (let i = 0; i < n; i++) {
+      if (bd[i * 4] < 128) {
+        const p = i * 4
+        buf[p] = 0; buf[p + 1] = 0; buf[p + 2] = 0
+      }
+    }
+  }
+
+  return new ImageData(buf, width, height)
+}
+
+/**
  * Build the underbase channel: union of all inked area (every assigned pixel),
  * choked inward by `chokePx`, as a black-on-white plate (0 = ink, 255 = paper).
  */

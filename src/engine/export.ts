@@ -2,7 +2,7 @@ import { HalftoneSettings, CMYKSettings, OutputSettings, ImageTransformSettings,
 import { computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from './edge'
 import { renderHalftone } from './halftone'
 import { separateChannels } from './cmyk'
-import { computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, renderFlat, boostSaturation, darkestSpotColor } from './spot-separation'
+import { computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, renderFlat, boostSaturation, darkestSpotColor, buildOwnershipMask } from './spot-separation'
 import { setPngDpi } from './png-metadata'
 import { applyTransforms } from './transform'
 import { dilateMask } from './dilate'
@@ -216,6 +216,8 @@ async function renderSpotChannelCanvases(
     const outlineMask = key.outlineEnabled
       ? computeAlphaBoundaryMask(scaled, key.outlineWidth ?? 3)
       : null
+    const dotsKo = buildOwnershipMask(labelData, spotSettings.colors.filter(c => c.enabled && c.keyDots === false).map(c => c.id))
+    const strokeKo = buildOwnershipMask(labelData, spotSettings.colors.filter(c => c.enabled && c.keyStroke === false).map(c => c.id))
     keyCanvas = buildKeyPlateCanvas({
       width: targetWidth,
       height: targetHeight,
@@ -227,6 +229,8 @@ async function renderSpotChannelCanvases(
       radialCenter,
       edgeMask,
       outlineMask,
+      dotsKnockout: dotsKo,
+      strokeKnockout: strokeKo,
     })
   }
 
@@ -605,6 +609,8 @@ export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCan
       const outlineMask = key.outlineEnabled
         ? computeAlphaBoundaryMask(scaled, key.outlineWidth ?? 3)
         : null
+      const dotsKo = buildOwnershipMask(proofLabelData, spotSettings.colors.filter(c => c.enabled && c.keyDots === false).map(c => c.id))
+      const strokeKo = buildOwnershipMask(proofLabelData, spotSettings.colors.filter(c => c.enabled && c.keyStroke === false).map(c => c.id))
       keyCanvas = buildKeyPlateCanvas({
         width: targetW,
         height: targetH,
@@ -617,6 +623,8 @@ export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCan
         radialCenter,
         edgeMask,
         outlineMask,
+        dotsKnockout: dotsKo,
+        strokeKnockout: strokeKo,
       })
     }
 

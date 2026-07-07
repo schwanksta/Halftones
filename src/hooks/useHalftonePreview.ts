@@ -6,7 +6,7 @@ import {
 } from '../types'
 import { renderHalftone } from '../engine/halftone'
 import { renderStipple } from '../engine/stipple'
-import { renderFlat, computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, boostSaturation, darkestSpotColor } from '../engine/spot-separation'
+import { renderFlat, computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, boostSaturation, darkestSpotColor, buildOwnershipMask } from '../engine/spot-separation'
 import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from '../engine/edge'
 import { buildKeyPlateCanvas } from '../engine/key-plate'
 import { traceBinaryMask, polygonsToPath2D } from '../engine/vectorize'
@@ -192,6 +192,34 @@ export function useHalftonePreview(
     c.getContext('2d')!.putImageData(data, 0, 0)
     return c
   }, [spotLabels, transformed, spotSettings.underbase?.enabled, spotSettings.underbase?.chokeInches, outputSettings.widthInches])
+
+  // ── Key-plate knockout masks ───────────────────────────────────────────────
+  //
+  // Per-color toggles let specific colors opt out of the key plate's dots
+  // and/or edge stroke over the region they own. Built at source resolution
+  // (mirrors underbaseCanvas), extracted to the viewport per frame.
+
+  const keyDotsKnockoutCanvas = useMemo(() => {
+    if (halftoneSettings.colorMode !== 'spot' || !spotSettings.key?.enabled || !spotLabels) return null
+    const ids = spotSettings.colors.filter(c => c.enabled && c.keyDots === false).map(c => c.id)
+    const mask = buildOwnershipMask(spotLabels, ids)
+    if (!mask) return null
+    const c = document.createElement('canvas')
+    c.width = mask.width; c.height = mask.height
+    c.getContext('2d')!.putImageData(mask, 0, 0)
+    return c
+  }, [spotLabels, spotSettings.colors, spotSettings.key, halftoneSettings.colorMode])
+
+  const keyStrokeKnockoutCanvas = useMemo(() => {
+    if (halftoneSettings.colorMode !== 'spot' || !spotSettings.key?.enabled || !spotLabels) return null
+    const ids = spotSettings.colors.filter(c => c.enabled && c.keyStroke === false).map(c => c.id)
+    const mask = buildOwnershipMask(spotLabels, ids)
+    if (!mask) return null
+    const c = document.createElement('canvas')
+    c.width = mask.width; c.height = mask.height
+    c.getContext('2d')!.putImageData(mask, 0, 0)
+    return c
+  }, [spotLabels, spotSettings.colors, spotSettings.key, halftoneSettings.colorMode])
 
   // ── Spot channel canvases ──────────────────────────────────────────────────
   //
@@ -459,6 +487,15 @@ export function useHalftonePreview(
           )
         }
 
+        // Per-color key knockouts: source-resolution masks (memoized) cropped
+        // to the same viewport region as keyRegion above.
+        const dotsKnockout = keyDotsKnockoutCanvas
+          ? extractRegionFromCanvas(keyDotsKnockoutCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff')
+          : null
+        const strokeKnockout = keyStrokeKnockoutCanvas
+          ? extractRegionFromCanvas(keyStrokeKnockoutCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff')
+          : null
+
         keyBwCanvas = buildKeyPlateCanvas({
           width: canvasW,
           height: canvasH,
@@ -470,6 +507,8 @@ export function useHalftonePreview(
           radialCenter,
           edgeMask,
           outlineMask,
+          dotsKnockout,
+          strokeKnockout,
         })
       }
 
@@ -666,6 +705,7 @@ export function useHalftonePreview(
     spotSettings.colors, spotSettings.vibrancy, spotSettings.trap, spotSettings.key,
     spotSettings.separationMode, spotSettings.substrate, spotSettings.underbase,
     spotChannelCanvases, flatVectorPaths, alphaOutlineCanvas, keyEdgeCanvas, underbaseCanvas,
+    keyDotsKnockoutCanvas, keyStrokeKnockoutCanvas,
     maskOverlayCanvas, maskStrokeCanvas,
     halftoneSettings, cmykSettings, channelView, outputSettings, viewport,
   ])

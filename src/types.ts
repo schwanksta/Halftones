@@ -61,6 +61,14 @@ export interface SpotColor {
    * and the Print Plan screen count.
    */
   mergeWithDarkest?: boolean
+  /**
+   * Whether the key plate's halftone dots print over this color's region.
+   * Default true (absent = on); false erases key dots wherever this color
+   * owns pixels in the separation, so the ink prints clean.
+   */
+  keyDots?: boolean
+  /** Same as keyDots, for the key plate's Sobel edge stroke. Default true. */
+  keyStroke?: boolean
 }
 
 /**
