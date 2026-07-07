@@ -608,6 +608,22 @@ export function SpotColorEditor({
                 disabled={disabled || keySettings.dotsEnabled === false}
               />
             </label>
+            <label className="control-row" style={{ opacity: keySettings.dotsEnabled === false ? 0.4 : 1 }}>
+              <span>
+                Max Dot{' '}
+                <EditableValue
+                  value={Math.round(keySettings.maxDot * 100)}
+                  min={50} max={100} step={1} suffix="%"
+                  onChange={(v) => updateKey({ maxDot: v / 100 })}
+                />
+              </span>
+              <input
+                type="range" min={0.5} max={1} step={0.01}
+                value={keySettings.maxDot}
+                onChange={(e) => updateKey({ maxDot: Number(e.target.value) })}
+                disabled={disabled || keySettings.dotsEnabled === false}
+              />
+            </label>
 
             {/* Edge stroke */}
             <label className="control-row control-row--toggle" style={{ marginTop: 4 }}>
