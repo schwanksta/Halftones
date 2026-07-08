@@ -69,7 +69,7 @@ export interface PlatformAPI {
 }
 
 export type MenuEvent =
-  | 'new' | 'open' | 'save' | 'saveAs' | 'close'
+  | 'new' | 'open' | 'save' | 'saveAs' | 'close' | 'replaceImage'
   | 'exportPng' | 'exportChannels' | 'exportPdf' | 'exportProof'
   | 'zoomIn' | 'zoomOut' | 'zoomFit' | 'zoomActual'
   | 'clearRecent' | 'openRecent'

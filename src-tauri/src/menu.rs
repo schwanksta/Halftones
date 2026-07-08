@@ -53,6 +53,13 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .item(&MenuItem::with_id(app, "new", "New", true, Some("CmdOrCtrl+N"))?)
         .item(&MenuItem::with_id(app, "open", "Open\u{2026}", true, Some("CmdOrCtrl+O"))?)
         .item(&open_recent_submenu)
+        .item(&MenuItem::with_id(
+            app,
+            "replaceImage",
+            "Replace Image\u{2026}",
+            true,
+            None::<&str>,
+        )?)
         .item(&MenuItem::with_id(app, "close", "Close", true, Some("CmdOrCtrl+W"))?)
         .separator()
         .item(&MenuItem::with_id(app, "save", "Save", true, Some("CmdOrCtrl+S"))?)

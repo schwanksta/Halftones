@@ -234,6 +234,15 @@ function App() {
   const showToast = useCallback((msg: string) => setToastMessage(msg), [])
 
   // ── App shell (Tauri menu handlers) ──────────────────────────────────────
+  // File → Replace Image…: swap the source pixels, keep every setting.
+  // Suppress the dimension-recalc effect that fires on source changes — its
+  // skip branch also re-syncs prevTransformRef to the current transforms, so
+  // the next user crop delta is computed from the right baseline.
+  const handleReplaceSource = useCallback((image: SourceImage) => {
+    skipDimensionRecalcRef.current = true
+    setSource(image)
+  }, [])
+
   const { prompt } = useAppShell({
     projectName, setProjectName,
     source, setSource,
@@ -243,6 +252,7 @@ function App() {
     showToast,
     mask,
     setMask,
+    replaceSource: handleReplaceSource,
   })
 
   // ── Window title sync ────────────────────────────────────────────────────

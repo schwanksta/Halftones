@@ -5,6 +5,29 @@ import { SourceImage, DEFAULT_TRANSFORM_SETTINGS, DEFAULT_OUTPUT_SETTINGS, MaskI
 import { loadMaskFromBytes } from '../engine/mask'
 import { generateThumbnail } from '../engine/export'
 
+/** Decode raw image bytes (from a dialog or drop) into a SourceImage. */
+async function decodeImageBytes(loaded: { bytes: Uint8Array; fileName: string }): Promise<SourceImage> {
+  const blob = new Blob([loaded.bytes])
+  const url = URL.createObjectURL(blob)
+  try {
+    const img = new Image()
+    await new Promise<void>((res, rej) => {
+      img.onload = () => res()
+      img.onerror = () => rej(new Error('decode failed'))
+      img.src = url
+    })
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(img, 0, 0)
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    return { imageData, width: canvas.width, height: canvas.height, fileName: loaded.fileName, rawBytes: loaded.bytes }
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 interface AppShellDeps {
   projectName: string
   setProjectName: (n: string) => void
@@ -22,6 +45,12 @@ interface AppShellDeps {
   mask: MaskImage | null
   /** Called after loading a .halftones file that contains a mask image. */
   setMask: (m: MaskImage | null) => void
+  /**
+   * Swap the source image in place, keeping all settings (File → Replace
+   * Image…). Unlike setSource via a normal load, the implementation must
+   * suppress the output-dimension recalc that fires on source changes.
+   */
+  replaceSource: (img: SourceImage) => void
 }
 
 export function useAppShell(deps: AppShellDeps) {
@@ -189,6 +218,24 @@ export function useAppShell(deps: AppShellDeps) {
     }
   }, [confirmIfDirty, save, loadProjectFile])
 
+  const replaceImage = useCallback(async () => {
+    // Swap the source image, keeping every setting (transforms, output size,
+    // colors, key plate, mask) untouched — unlike a normal image load, which
+    // resets transforms and re-fits the output to paper.
+    if (!deps.source) {
+      deps.showToast('No image to replace — open an image first.')
+      return
+    }
+    try {
+      const loaded = await platform.openImageDialog()
+      if (!loaded) return
+      deps.replaceSource(await decodeImageBytes(loaded))
+      deps.markDirty()
+    } catch (e) {
+      alert(`Couldn't replace image: ${(e as Error).message}`)
+    }
+  }, [deps])
+
   const handleDroppedPaths = useCallback(async (paths: string[]) => {
     if (paths.length !== 1) return  // multi-file drop → no-op per spec
     const p = paths[0]
@@ -210,21 +257,7 @@ export function useAppShell(deps: AppShellDeps) {
       if (choice === 'save') { const ok = await save(); if (!ok) return }
       try {
         const loaded = await platform.loadImageFromPath(p)
-        const blob = new Blob([loaded.bytes])
-        const url = URL.createObjectURL(blob)
-        const img = new Image()
-        await new Promise<void>((res, rej) => {
-          img.onload = () => res()
-          img.onerror = () => rej(new Error('decode failed'))
-          img.src = url
-        })
-        const canvas = document.createElement('canvas')
-        canvas.width = img.naturalWidth
-        canvas.height = img.naturalHeight
-        const ctx = canvas.getContext('2d')!
-        ctx.drawImage(img, 0, 0)
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-        URL.revokeObjectURL(url)
+        const decoded = await decodeImageBytes(loaded)
         // Keep current halftone/color/spot settings (same as Open Image button).
         // Only reset transform and re-fit output dimensions to the current
         // paper size (preserving the image's aspect ratio).  This prevents a
@@ -236,7 +269,7 @@ export function useAppShell(deps: AppShellDeps) {
         // output dimensions from a previous session never carry over.
         const paperW = DEFAULT_OUTPUT_SETTINGS.widthInches
         const paperH = DEFAULT_OUTPUT_SETTINGS.heightInches
-        const imgAR   = canvas.width / canvas.height
+        const imgAR   = decoded.width / decoded.height
         const paperAR = paperW / paperH
         const fitW = imgAR > paperAR ? paperW  : paperH * imgAR
         const fitH = imgAR > paperAR ? paperW / imgAR : paperH
@@ -251,7 +284,7 @@ export function useAppShell(deps: AppShellDeps) {
         })
         deps.setProjectName('untitled')
         setCurrentPath(null)
-        deps.setSource({ imageData, width: canvas.width, height: canvas.height, fileName: loaded.fileName, rawBytes: loaded.bytes })
+        deps.setSource(decoded)
         deps.markDirty()
       } catch (e) {
         alert(`Couldn't read dropped file: ${(e as Error).message}`)
@@ -299,6 +332,7 @@ export function useAppShell(deps: AppShellDeps) {
       platform.onMenuEvent('save', save),
       platform.onMenuEvent('saveAs', saveAs),
       platform.onMenuEvent('close', closeProject),
+      platform.onMenuEvent('replaceImage', replaceImage),
       platform.onMenuEvent('clearRecent', async () => {
         await platform.clearRecent()
         await platform.refreshRecentMenu([])
@@ -307,7 +341,7 @@ export function useAppShell(deps: AppShellDeps) {
       platform.onFileDropped(handleDroppedPaths),
     ]
     return () => unsubs.forEach(u => u())
-  }, [deps.isTauri, newProject, openProject, save, saveAs, closeProject, openRecent, handleDroppedPaths])
+  }, [deps.isTauri, newProject, openProject, save, saveAs, closeProject, openRecent, handleDroppedPaths, replaceImage])
 
   // Quit handler — use a ref so the listen closure always sees the freshest
   // confirmIfDirty/save callbacks without re-registering the listener.
