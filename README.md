@@ -21,11 +21,11 @@ Built with Claude for my own purposes, but perhaps it's useful to you as well.
 ### Color Modes
 - **Grayscale** — single halftone layer with ink/paper color preview
 - **CMYK** — four-channel process separation with per-channel angle/LPI and composite preview
-- **Spot Color** — LAB k-means palette extraction, per-color flat or halftone rendering, click-to-seed palette colors from the image, per-color and global trap, and a **key plate** (halftone of the full image overprinted on top of all color layers for tonal depth — with optional edge stroke, silhouette outline, a toggle to use the strokes without the halftone dots, and a **merge with darkest color** option to fold the key into the darkest separation plate as one screen instead of a separate overprint)
-- **Separation mode** — **knockout** (default: exclusive regions, one ink per pixel) or **build-up** (nested cumulative overprint — each tone inks its plate plus every lighter plate beneath it; registration-forgiving, suited to tonal/duotone palettes)
+- **Spot Color** — LAB k-means palette extraction, per-color flat or halftone rendering, click-to-seed palette colors from the image, per-color and global trap, and a **key plate** (halftone of the full image overprinted on top of all color layers for tonal depth — with min/max dot, optional edge stroke, silhouette outline, a toggle to use the strokes without the halftone dots, a **merge with darkest color** option to fold the key into the darkest separation plate as one screen, and **per-color knockout** to keep the key's dots and/or stroke off specific inks so a flat color prints clean)
+- **Separation mode** — **knockout** (default: exclusive regions, one ink per pixel) or **build-up** (nested cumulative overprint — each tone inks its plate plus every lighter plate beneath it; registration-forgiving, suited to tonal/duotone palettes). Build-up honors each layer's flat/halftone choice, and an optional **overprint reach** limits how far a lighter plate extends under darker ink — full misregistration protection at boundaries without flooding ink under the whole design
 - **Underbase** — an optional base plate (union of all inked area, choked inward) printed first, e.g. white or silver under the full design
 - **Substrate color** — set the paper/garment color the proof and preview composite onto, for previewing ink on colored stock
-- **Vectorize flat edges** — optionally trace flat color plates into smooth vector outlines so diagonal/curved color boundaries aren't pixelated (staircased). A global default with a **per-color override** (e.g. smooth the flat masses but leave a fine line/hatch plate crisp) and a **Rounding** amount; applies to flat plates only
+- **Vectorize flat edges** — optionally trace flat color plates into smooth vector outlines so diagonal/curved color boundaries aren't pixelated (staircased). A global default with a **per-color override** (e.g. smooth the flat masses but leave a fine line/hatch plate crisp) and a **Rounding** amount; applies to flat plates only. Curves are re-curved through an interpolating spline so circles render round even when the trace reduced them to facets — while genuine corners stay sharp, so angular art keeps its edges with no rounding needed
 - **Despeckle** — jointly cleans up the color separation so adjacent layers never erode apart and leave paper showing through; low values remove stray specks, higher values smooth jagged boundaries
 - **Treat white as paper** — reserve near-white as bare paper so every extracted color is a real ink (no wasted white plate) and white areas knock out to paper; turn off for white ink on colored stock
 - **Background layer** — for transparent/cutout images, add a color plate covering exactly the transparent area, rendered flat or halftoned, with an adjustable **bleed** (as a percentage of the margin) that extends it out toward the trim edge (clipped at the trim so it never covers the crop marks)
@@ -63,12 +63,16 @@ A live sidebar readout that turns the current job into a screen-room plan, using
 - **Gang 2 plates per screen** — pairs plates so consecutive print colors land on different screens (1&3 on one, 2&4 on another), halving the screen count with a wash-and-dry rest between runs
 - **Editable shop profile** — your frame sizes, the mesh counts each comes in, and edge clearance; stored in app prefs
 
+### Projects & files
+- **`.halftones` project files** — a zip of the settings + source image, with named projects and auto-save
+- **Replace Image…** (File menu) — swap the source image while keeping every setting (colors, key plate, transforms, output size, margins, mask), so a finished separation setup can be reused on new art
+- **Finder previews** — saved projects embed a thumbnail of the processed print and set it as the file's Finder icon (no QuickLook extension), and the **Open Recent** menu shows each project's thumbnail
+- **macOS Share Sheet**: registered as an image opener — share directly from Photos ("Share Subject" etc.) or Finder → Open With → Halftones
+
 ### Other
 - **Margins** — a single linked margin, or independent **Top/Bottom** and **Sides** values; crop marks and alignment marks live in the waste strip (removed on trim)
 - Pan/zoom viewport with Fit and 100% (output-accurate) presets
 - Transparent PNG source: transparent areas produce no ink on any plate
-- Project persistence: named projects with auto-save; `.halftones` file format (zip of JSON + source image)
-- **macOS Share Sheet**: registered as an image opener — share directly from Photos ("Share Subject" etc.) or Finder → Open With → Halftones
 
 ## Download
 
