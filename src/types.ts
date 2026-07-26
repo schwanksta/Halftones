@@ -54,13 +54,20 @@ export interface SpotColor {
    */
   type?: 'background'
   /**
-   * Merge this color's plate into the darkest enabled color's plate on export
-   * (one screen, the darkest color's ink) instead of its own screen. Use for
-   * same-ink plates (e.g. a black background folded into the black top layer).
-   * No visual effect on preview/proof; only changes the exported separation
-   * and the Print Plan screen count.
+   * @deprecated legacy; read as mergeTarget === 'darkest'. Merge this color's
+   * plate into the darkest enabled color's plate on export (one screen, the
+   * darkest color's ink) instead of its own screen. Use for same-ink plates
+   * (e.g. a black background folded into the black top layer). No visual
+   * effect on preview/proof; only changes the exported separation and the
+   * Print Plan screen count. Nothing writes this field anymore — superseded
+   * by `mergeTarget`.
    */
   mergeWithDarkest?: boolean
+  /**
+   * Merge target: a spot color id, the literal 'darkest' (auto-pick the darkest
+   * enabled color), or absent/'' to not merge. Supersedes mergeWithDarkest.
+   */
+  mergeTarget?: string
   /**
    * Whether the key plate's halftone dots print over this color's region.
    * Default true (absent = on); false erases key dots wherever this color
@@ -118,12 +125,17 @@ export interface KeyPlateSettings {
    */
   dotsEnabled?: boolean
   /**
-   * Merge the key plate into the darkest enabled spot color's plate instead of
-   * exporting/rendering it as its own overprinted layer. Useful when the key
-   * detail is meant to print in the same ink as the darkest separation color
-   * (one screen instead of two). The merged content uses that color's ink hue.
+   * @deprecated legacy; read as mergeTarget === 'darkest'. Merge the key plate
+   * into the darkest enabled spot color's plate instead of exporting/rendering
+   * it as its own overprinted layer. The merged content uses that color's ink
+   * hue. Nothing writes this field anymore — superseded by `mergeTarget`.
    */
   mergeWithDarkest?: boolean
+  /**
+   * Merge target: a spot color id, the literal 'darkest' (auto-pick the darkest
+   * enabled color), or absent/'' to not merge. Supersedes mergeWithDarkest.
+   */
+  mergeTarget?: string
 }
 
 export const DEFAULT_KEY_PLATE: KeyPlateSettings = {

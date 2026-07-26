@@ -2,7 +2,7 @@ import { HalftoneSettings, CMYKSettings, OutputSettings, ImageTransformSettings,
 import { computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from './edge'
 import { renderHalftone } from './halftone'
 import { separateChannels } from './cmyk'
-import { computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, renderFlat, boostSaturation, darkestSpotColor, buildOwnershipMask } from './spot-separation'
+import { computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, renderFlat, boostSaturation, resolveMergeTarget, resolveMergeChains, buildOwnershipMask } from './spot-separation'
 import { setPngDpi } from './png-metadata'
 import { applyTransforms } from './transform'
 import { dilateMask } from './dilate'
@@ -251,8 +251,8 @@ async function renderSpotChannelCanvases(
   // color's plate (one screen, that color's ink) instead of exporting it as a
   // separate overprinted layer. Falls back to a standalone key plate if there's
   // no enabled spot color to merge into.
-  const keyMergeTarget = spotSettings.key?.enabled && spotSettings.key.mergeWithDarkest
-    ? darkestSpotColor(spotSettings.colors)
+  const keyMergeTarget = spotSettings.key?.enabled
+    ? resolveMergeTarget(spotSettings.colors, spotSettings.key)
     : null
 
   for (const color of enabledColors) {
@@ -308,7 +308,7 @@ async function renderSpotChannelCanvases(
     }
 
     // Merge the key plate's ink into this color's plate (one screen) when
-    // mergeWithDarkest targets this color — masked/trapped together below.
+    // The key's merge target resolves to this color — masked/trapped together below.
     if (keyMergeTarget && color.id === keyMergeTarget.id && keyCanvas) {
       applyEdgeMaskToCanvas(canvas, keyCanvas.getContext('2d')!.getImageData(0, 0, targetWidth, targetHeight))
     }
@@ -335,42 +335,48 @@ async function renderSpotChannelCanvases(
     result.set('__key__', { canvas: keyCanvas, label: 'Key' })
   }
 
-  // Merge plates flagged mergeWithDarkest into the darkest color's plate (one
-  // screen). Union is a multiply/darken composite (black ink wins); the combined
-  // plate inherits the largest bleed so a bleed background survives the merge.
-  const mergeInto = darkestSpotColor(spotSettings.colors)
-  if (mergeInto) {
-    const targetEntry = result.get(mergeInto.id)
-    if (targetEntry) {
-      const mergers: { canvas: HTMLCanvasElement; bleedPx: number }[] = []
-      for (const c of enabledColors) {
-        if (c.id === mergeInto.id || !c.mergeWithDarkest) continue
-        const e = result.get(c.id)
-        if (!e) continue
-        mergers.push({ canvas: e.canvas, bleedPx: e.bleedPx ?? 0 })
-        result.delete(c.id)
-      }
-      if (mergers.length) {
-        const targetBleed = targetEntry.bleedPx ?? 0
-        const Bc = Math.max(targetBleed, ...mergers.map((m) => m.bleedPx))
-        let combined = targetEntry.canvas
-        if (Bc !== targetBleed) {
-          const cc = document.createElement('canvas')
-          cc.width = targetWidth + 2 * Bc
-          cc.height = targetHeight + 2 * Bc
-          const cx = cc.getContext('2d')!
-          cx.fillStyle = '#ffffff'
-          cx.fillRect(0, 0, cc.width, cc.height)
-          cx.drawImage(targetEntry.canvas, Bc - targetBleed, Bc - targetBleed)
-          combined = cc
-        }
-        const ccx = combined.getContext('2d')!
-        ccx.globalCompositeOperation = 'multiply'
-        for (const m of mergers) ccx.drawImage(m.canvas, Bc - m.bleedPx, Bc - m.bleedPx)
-        ccx.globalCompositeOperation = 'source-over'
-        result.set(mergeInto.id, { canvas: combined, label: mergeInto.name, bleedPx: Bc || undefined })
-      }
+  // Merge plates whose merge target resolves to another plate (one screen per
+  // group). resolveMergeChains follows chains (A→B while B→C lands A on C
+  // too — this runs AFTER the key was composited into its target above, so a
+  // key targeting B while B merges into C lands correctly on C with no extra
+  // handling needed) and omits any colors caught in a cycle. Union is a
+  // multiply/darken composite (black ink wins); the combined plate inherits
+  // the largest bleed so a bleed background survives the merge.
+  const mergeChains = resolveMergeChains(spotSettings.colors)
+  const mergeGroups = new Map<string, string[]>()   // destId -> [sourceIds]
+  for (const [sourceId, destId] of mergeChains) {
+    if (!mergeGroups.has(destId)) mergeGroups.set(destId, [])
+    mergeGroups.get(destId)!.push(sourceId)
+  }
+  for (const [destId, sourceIds] of mergeGroups) {
+    const targetEntry = result.get(destId)
+    if (!targetEntry) continue
+    const mergers: { canvas: HTMLCanvasElement; bleedPx: number }[] = []
+    for (const sourceId of sourceIds) {
+      const e = result.get(sourceId)
+      if (!e) continue
+      mergers.push({ canvas: e.canvas, bleedPx: e.bleedPx ?? 0 })
+      result.delete(sourceId)
     }
+    if (!mergers.length) continue
+    const targetBleed = targetEntry.bleedPx ?? 0
+    const Bc = Math.max(targetBleed, ...mergers.map((m) => m.bleedPx))
+    let combined = targetEntry.canvas
+    if (Bc !== targetBleed) {
+      const cc = document.createElement('canvas')
+      cc.width = targetWidth + 2 * Bc
+      cc.height = targetHeight + 2 * Bc
+      const cx = cc.getContext('2d')!
+      cx.fillStyle = '#ffffff'
+      cx.fillRect(0, 0, cc.width, cc.height)
+      cx.drawImage(targetEntry.canvas, Bc - targetBleed, Bc - targetBleed)
+      combined = cc
+    }
+    const ccx = combined.getContext('2d')!
+    ccx.globalCompositeOperation = 'multiply'
+    for (const m of mergers) ccx.drawImage(m.canvas, Bc - m.bleedPx, Bc - m.bleedPx)
+    ccx.globalCompositeOperation = 'source-over'
+    result.set(destId, { canvas: combined, label: targetEntry.label, bleedPx: Bc || undefined })
   }
 
   // Mask boundary stroke: its own dedicated keyline plate (black on white).
@@ -659,8 +665,8 @@ export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCan
     // color's plate (one screen, that color's hue) instead of compositing it as
     // a separate overprinted layer. Falls back to a standalone key layer if
     // there's no enabled spot color to merge into.
-    const keyMergeTarget = spotSettings.key?.enabled && spotSettings.key.mergeWithDarkest
-      ? darkestSpotColor(spotSettings.colors)
+    const keyMergeTarget = spotSettings.key?.enabled
+      ? resolveMergeTarget(spotSettings.colors, spotSettings.key)
       : null
 
     for (const color of enabledColors) {
@@ -711,7 +717,7 @@ export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCan
       }
 
       // Merge the key plate's ink into this color's plate (one screen) when
-      // mergeWithDarkest targets this color — trapped/colorized together below.
+      // The key's merge target resolves to this color — trapped/colorized together below.
       if (keyMergeTarget && color.id === keyMergeTarget.id && keyCanvas) {
         applyEdgeMaskToCanvas(offCanvas, keyCanvas.getContext('2d')!.getImageData(0, 0, targetW, targetH))
       }

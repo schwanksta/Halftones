@@ -6,7 +6,7 @@ import {
 } from '../types'
 import { renderHalftone } from '../engine/halftone'
 import { renderStipple } from '../engine/stipple'
-import { renderFlat, computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, boostSaturation, darkestSpotColor, buildOwnershipMask } from '../engine/spot-separation'
+import { renderFlat, computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, boostSaturation, resolveMergeTarget, buildOwnershipMask } from '../engine/spot-separation'
 import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from '../engine/edge'
 import { buildKeyPlateCanvas } from '../engine/key-plate'
 import { traceBinaryMask, polygonsToPath2D } from '../engine/vectorize'
@@ -547,8 +547,8 @@ export function useHalftonePreview(
       // When merging, the key's ink is folded directly into the darkest enabled
       // color's plate (same screen, that color's hue) instead of overprinted as
       // its own layer. Falls back to a standalone key layer if no spot color exists.
-      const keyMergeTarget = spotSettings.key?.enabled && spotSettings.key.mergeWithDarkest
-        ? darkestSpotColor(spotSettings.colors)
+      const keyMergeTarget = spotSettings.key?.enabled
+        ? resolveMergeTarget(spotSettings.colors, spotSettings.key)
         : null
 
       // Spot color channels — only when separation is available.
@@ -625,7 +625,7 @@ export function useHalftonePreview(
           }
 
           // Merge the key plate's ink into this color's plate (one screen) when
-          // mergeWithDarkest targets this color — trapped/colorized together below.
+          // The key's merge target resolves to this color — trapped/colorized together below.
           if (keyMergeTarget && color.id === keyMergeTarget.id && keyBwCanvas) {
             const keyImgData = keyBwCanvas.getContext('2d')!.getImageData(0, 0, canvasW, canvasH)
             applyEdgeMaskToCanvas(bwCanvas, keyImgData)

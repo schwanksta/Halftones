@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { SpotColor, SpotSettings, KeyPlateSettings, DEFAULT_KEY_PLATE, SeparationMode, DEFAULT_UNDERBASE, SavedPalette } from '../types'
-import { extractPalette, mergeSimilarColors, labToHex, rgbToLab, guessColorName, darkestSpotColor } from '../engine/spot-separation'
+import { extractPalette, mergeSimilarColors, labToHex, rgbToLab, guessColorName, resolveMergeTarget } from '../engine/spot-separation'
 import { EditableValue } from './EditableValue'
 import { PaletteBar } from './PaletteBar'
 
@@ -104,7 +104,10 @@ export function SpotColorEditor({
     update({ colors: settings.colors.map((c) => ({ ...c, renderMode: mode })) })
   }
 
-  const darkest = darkestSpotColor(settings.colors)
+  /** Selectable merge targets: enabled, non-background colors, numbered to match their row. */
+  const mergeOptions = settings.colors
+    .map((c, i) => ({ id: c.id, label: `${i + 1}. ${c.name}`, color: c }))
+    .filter(o => o.color.enabled && o.color.type !== 'background')
 
   const currentInks = settings.colors.filter(c => c.type !== 'background').map(c => ({ hex: c.hex, name: c.name }))
   const bgLayer = settings.colors.find(c => c.type === 'background')
@@ -328,9 +331,8 @@ export function SpotColorEditor({
           disabled={disabled}
           globalTrap={settings.trap ?? 0}
           globalSmooth={settings.smoothFlat ?? false}
-          isDarkest={darkest?.id === color.id}
-          darkestName={darkest?.name}
-          darkestHex={darkest?.hex}
+          allColors={settings.colors}
+          mergeOptions={mergeOptions}
           keyEnabled={settings.key?.enabled ?? false}
           keyStrokeEnabled={(settings.key?.enabled && settings.key?.strokeEnabled) ?? false}
           onChange={(partial) => updateColor(color.id, partial)}
@@ -524,42 +526,52 @@ export function SpotColorEditor({
                 disabled={disabled}
               />
             </label>
-            <label className="control-row control-row--toggle">
-              <span title="Print the key plate's dots/strokes on the same screen as the darkest separation color, instead of as its own overprinted plate">
-                Merge with Darkest Color
-                {keySettings.mergeWithDarkest && (
-                  <>
-                    {' '}
-                    <small style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>
-                      {(() => {
-                        const target = darkestSpotColor(settings.colors)
-                        return target ? `→ ${target.name}` : '(no enabled color)'
-                      })()}
-                    </small>
-                  </>
-                )}
-              </span>
-              <input
-                type="checkbox"
-                checked={keySettings.mergeWithDarkest ?? false}
-                onChange={(e) => updateKey({ mergeWithDarkest: e.target.checked })}
-                disabled={disabled}
-              />
-            </label>
-            <div className="control-row control-row--colors" style={{ opacity: keySettings.mergeWithDarkest ? 0.4 : 1 }}>
-              <span>Ink</span>
-              <div className="color-pair">
-                <label className="color-swatch-label" title={keySettings.mergeWithDarkest ? 'Unused while merged — uses the darkest color\'s ink' : 'Key plate ink color'}>
-                  <span className="color-swatch-hint">Key</span>
-                  <input
-                    type="color"
-                    value={keySettings.color}
-                    onChange={(e) => updateKey({ color: e.target.value })}
-                    disabled={disabled || keySettings.mergeWithDarkest}
-                  />
-                </label>
-              </div>
-            </div>
+            {(() => {
+              const keyMergeSel = keySettings.mergeTarget ?? (keySettings.mergeWithDarkest ? 'darkest' : '')
+              const keyMergeResolved = resolveMergeTarget(settings.colors, keySettings)
+              return (
+                <>
+                  <label className="control-row" title="Print the key plate on another color's screen (one screen, that color's ink) instead of its own. Useful when the key is meant to print in the same ink as one of your separation colors.">
+                    <span>
+                      Merge into
+                      {keyMergeSel === 'darkest' && (
+                        <>
+                          {' '}
+                          <small style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>
+                            {keyMergeResolved ? `→ ${keyMergeResolved.name}` : '(no enabled color)'}
+                          </small>
+                        </>
+                      )}
+                    </span>
+                    <select
+                      value={keyMergeSel}
+                      onChange={(e) => updateKey({ mergeTarget: e.target.value, mergeWithDarkest: undefined })}
+                      disabled={disabled}
+                    >
+                      <option value="">Don't merge (own screen)</option>
+                      <option value="darkest">Darkest color (auto)</option>
+                      {mergeOptions.map((o) => (
+                        <option key={o.id} value={o.id}>{o.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="control-row control-row--colors" style={{ opacity: keyMergeResolved ? 0.4 : 1 }}>
+                    <span>Ink</span>
+                    <div className="color-pair">
+                      <label className="color-swatch-label" title={keyMergeResolved ? `Unused while merged — uses ${keyMergeResolved.name}'s ink` : 'Key plate ink color'}>
+                        <span className="color-swatch-hint">Key</span>
+                        <input
+                          type="color"
+                          value={keySettings.color}
+                          onChange={(e) => updateKey({ color: e.target.value })}
+                          disabled={disabled || !!keyMergeResolved}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </>
+              )
+            })()}
             <label className="control-row" style={{ opacity: keySettings.dotsEnabled === false ? 0.4 : 1 }}>
               <span>
                 LPI{' '}
@@ -742,16 +754,17 @@ interface RowProps {
   disabled: boolean
   globalTrap: number
   globalSmooth: boolean
-  isDarkest: boolean
-  darkestName?: string
-  darkestHex?: string
+  /** All spot colors in the settings — needed to resolve this color's merge target. */
+  allColors: SpotColor[]
+  /** Selectable merge targets (enabled, non-background colors), numbered to match their row. */
+  mergeOptions: { id: string; label: string; color: SpotColor }[]
   keyEnabled: boolean
   keyStrokeEnabled: boolean
   onChange: (partial: Partial<SpotColor>) => void
   onRemove: () => void
 }
 
-function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, isDarkest, darkestName, darkestHex, keyEnabled, keyStrokeEnabled, onChange, onRemove }: RowProps) {
+function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, allColors, mergeOptions, keyEnabled, keyStrokeEnabled, onChange, onRemove }: RowProps) {
   const [expanded, setExpanded] = useState(false)
   const [hexDraft, setHexDraft] = useState(color.hex)
 
@@ -1042,33 +1055,45 @@ function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, isDark
             />
           </div>
 
-          {/* Merge with darkest color — only offered when there's a separate, darker target */}
-          {!isDarkest && darkestName && (
-            <label className="control-row control-row--toggle" title="Print this plate on the darkest color's screen (one screen, that color's ink). Use for same-ink plates — e.g. a black background folded into your black layer.">
-              <span>
-                Merge with darkest color
-                {color.mergeWithDarkest && (
-                  <>
-                    {' '}
-                    <small style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>
-                      → {darkestName}
-                    </small>
-                  </>
+          {/* Merge target — folds this plate onto another color's screen instead of its own */}
+          {(() => {
+            const rowMergeSel = color.mergeTarget ?? (color.mergeWithDarkest ? 'darkest' : '')
+            const rowMergeResolved = resolveMergeTarget(allColors, color, color.id)
+            const rowMergeOptions = mergeOptions.filter((o) => o.id !== color.id)
+            return (
+              <>
+                <label className="control-row" title="Print this plate on another color's screen (one screen, that color's ink) instead of its own. Use for same-ink plates — e.g. a black background folded into your black layer.">
+                  <span>
+                    Merge into
+                    {rowMergeSel === 'darkest' && (
+                      <>
+                        {' '}
+                        <small style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>
+                          {rowMergeResolved ? `→ ${rowMergeResolved.name}` : '(no enabled color)'}
+                        </small>
+                      </>
+                    )}
+                  </span>
+                  <select
+                    value={rowMergeSel}
+                    onChange={(e) => onChange({ mergeTarget: e.target.value, mergeWithDarkest: undefined })}
+                    disabled={disabled}
+                  >
+                    <option value="">Don't merge (own screen)</option>
+                    <option value="darkest">Darkest color (auto)</option>
+                    {rowMergeOptions.map((o) => (
+                      <option key={o.id} value={o.id}>{o.label}</option>
+                    ))}
+                  </select>
+                </label>
+                {rowMergeResolved && hexDistance(color.hex, rowMergeResolved.hex) > 150 && (
+                  <div style={{ fontSize: 10, color: 'var(--warning, #d99a2b)', marginTop: -2 }}>
+                    Will print in {rowMergeResolved.name}'s ink, not its own color
+                  </div>
                 )}
-              </span>
-              <input
-                type="checkbox"
-                checked={color.mergeWithDarkest ?? false}
-                onChange={(e) => onChange({ mergeWithDarkest: e.target.checked })}
-                disabled={disabled}
-              />
-            </label>
-          )}
-          {!isDarkest && darkestName && color.mergeWithDarkest && darkestHex && hexDistance(color.hex, darkestHex) > 150 && (
-            <div style={{ fontSize: 10, color: 'var(--warning, #d99a2b)', marginTop: -2 }}>
-              Will print in {darkestName}'s ink, not its own color
-            </div>
-          )}
+              </>
+            )
+          })()}
 
           {/* Key plate knockout toggles */}
           {keyEnabled && (

@@ -295,6 +295,59 @@ export function darkestSpotColor(colors: SpotColor[]): SpotColor | null {
   return best
 }
 
+/** A settings object carrying a merge target (KeyPlateSettings or SpotColor). */
+export interface MergeSpec { mergeTarget?: string; mergeWithDarkest?: boolean }
+
+/**
+ * Resolve a merge spec to its DIRECT target color, or null for "don't merge".
+ * absent/'' → null; 'darkest' → darkestSpotColor(colors); an id → that color
+ * if it's enabled and non-background, else null (target deleted/disabled →
+ * fall back to not merging rather than silently retargeting). Never returns
+ * `selfId`.
+ */
+export function resolveMergeTarget(colors: SpotColor[], spec: MergeSpec, selfId?: string): SpotColor | null {
+  const target = spec.mergeTarget ?? (spec.mergeWithDarkest ? 'darkest' : '')
+  if (!target) return null
+  if (target === selfId) return null
+  if (target === 'darkest') return darkestSpotColor(colors)
+  const found = colors.find(c => c.id === target)
+  if (!found || !found.enabled || found.type === 'background') return null
+  return found
+}
+
+/**
+ * Final merge destination for every color that merges, following chains
+ * (A→B→C means A and B both land on C) and skipping cycles (colors in a
+ * cycle don't merge). Returns Map<sourceColorId, destinationColorId>;
+ * destinations are never themselves sources.
+ */
+export function resolveMergeChains(colors: SpotColor[]): Map<string, string> {
+  const result = new Map<string, string>()
+  for (const color of colors) {
+    if (!color.enabled || color.type === 'background') continue
+    const direct = resolveMergeTarget(colors, color, color.id)
+    if (!direct) continue
+
+    // Walk the chain from `color`, tracking visited source ids to detect cycles.
+    const visited = new Set<string>([color.id])
+    let cur: SpotColor | null = direct
+    let cycle = false
+    while (cur) {
+      if (visited.has(cur.id)) { cycle = true; break }
+      visited.add(cur.id)
+      const next = resolveMergeTarget(colors, cur, cur.id)
+      if (!next) break
+      cur = next
+    }
+    if (cycle) continue
+    // `cur` is the terminal (last color in the chain with no further target),
+    // or the direct target itself if it has no target of its own.
+    const terminal = cur ?? direct
+    result.set(color.id, terminal.id)
+  }
+  return result
+}
+
 // ─── Named color lookup ───────────────────────────────────────────────────────
 
 /**

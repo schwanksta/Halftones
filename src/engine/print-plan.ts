@@ -10,7 +10,7 @@ import {
   ColorMode, HalftoneSettings, SpotSettings, CMYKSettings, MaskSettings,
   OutputSettings, ShopFrame, ShopProfile, resolveMargins,
 } from '../types'
-import { darkestSpotColor } from './spot-separation'
+import { resolveMergeTarget, resolveMergeChains } from './spot-separation'
 
 export type PlateKind = 'halftone' | 'flat' | 'underbase' | 'stroke'
 
@@ -107,18 +107,18 @@ export function derivePlates(
 
   // spot
   if (spot.underbase?.enabled) plates.push({ name: 'Underbase', kind: 'underbase' })
-  const mt = darkestSpotColor(spot.colors)
+  const chains = resolveMergeChains(spot.colors)
   for (const c of spot.colors) {
     if (!c.enabled) continue
-    if (c.mergeWithDarkest && mt && c.id !== mt.id) continue
+    if (chains.has(c.id)) continue
     const flat = c.renderMode === 'flat'
     plates.push(flat
       ? { name: c.name, kind: 'flat' }
       : { name: c.name, kind: 'halftone', lpi: c.lpi, minDot: halftone.minDot })
   }
   if (spot.key?.enabled) {
-    // A key merged into the darkest color is NOT its own screen.
-    const merged = spot.key.mergeWithDarkest && darkestSpotColor(spot.colors)
+    // A key merged into another color is NOT its own screen.
+    const merged = resolveMergeTarget(spot.colors, spot.key)
     if (!merged) plates.push({ name: 'Key', kind: 'halftone', lpi: spot.key.lpi, minDot: spot.key.minDot })
   }
   if (mask?.enabled && mask?.strokeEnabled) plates.push({ name: 'Mask stroke', kind: 'stroke' })
