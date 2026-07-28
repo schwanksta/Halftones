@@ -5,6 +5,7 @@ import {
   MaskSettings, MaskImage,
 } from '../types'
 import { exportPNG, exportChannelPNGs, exportPDF, exportColorProof } from '../engine/export'
+import { EditMasks } from '../engine/layer-edits'
 
 interface Props {
   source: SourceImage | null
@@ -16,12 +17,16 @@ interface Props {
   projectName: string
   mask?: MaskImage | null
   maskSettings?: MaskSettings
+  /** Layer edit masks (layer edit mode) — read at click time so exports match the preview. */
+  editMasks?: EditMasks
+  /** transformKeyOf() geometry the masks were painted at. */
+  editMasksKey?: string | null
 }
 
 export function ExportBar({
   source, transformSettings, halftoneSettings,
   cmykSettings, spotSettings, outputSettings, projectName,
-  mask, maskSettings,
+  mask, maskSettings, editMasks, editMasksKey,
 }: Props) {
   const [exporting, setExporting] = useState<string | null>(null)
 
@@ -37,6 +42,8 @@ export function ExportBar({
     projectName,
     mask: mask ?? null,
     maskSettings,
+    editMasks,
+    editMasksKey,
   }
 
   const handleExport = async (format: string, fn: () => Promise<void>) => {

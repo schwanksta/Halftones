@@ -3,6 +3,7 @@ import { SpotColor, SpotSettings, KeyPlateSettings, DEFAULT_KEY_PLATE, Separatio
 import { extractPalette, mergeSimilarColors, labToHex, rgbToLab, guessColorName, resolveMergeTarget, lastPrintedSpotColor } from '../engine/spot-separation'
 import { EditableValue } from './EditableValue'
 import { PaletteBar } from './PaletteBar'
+import { KEY_EDIT_ID } from '../engine/layer-edits'
 
 interface Props {
   settings: SpotSettings
@@ -217,10 +218,12 @@ export function SpotColorEditor({
       <h3 className="section-title">Spot Colors</h3>
 
       {editingColorId && (() => {
-        const editingColor = settings.colors.find(c => c.id === editingColorId)
-        return editingColor ? (
+        const editingName = editingColorId === KEY_EDIT_ID
+          ? 'Key plate'
+          : settings.colors.find(c => c.id === editingColorId)?.name
+        return editingName ? (
           <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '0 0 8px', fontStyle: 'italic' }}>
-            Editing {editingColor.name} — other layers hidden
+            Editing {editingName} — other layers hidden
           </p>
         ) : null
       })()}
@@ -861,6 +864,73 @@ export function SpotColorEditor({
                 />
               </label>
             )}
+
+            {/* Key plate erase brush — the key has no ownership to paint, so
+                unlike per-color layer edit this is erase-only: one brush wipes
+                dots, stroke, and outline uniformly wherever painted. */}
+            <div style={{ marginTop: 4, borderTop: '1px solid var(--border)', paddingTop: 4 }}>
+              <div className="control-row" style={{ gap: 8 }}>
+                <button
+                  onClick={() => onToggleEdit(KEY_EDIT_ID)}
+                  disabled={disabled}
+                  title="Brush erase on the key plate — isolates the plate while editing"
+                  style={{
+                    flex: 1,
+                    padding: '3px 8px',
+                    fontSize: 11,
+                    borderRadius: 4,
+                    border: '1px solid var(--border)',
+                    background: editingColorId === KEY_EDIT_ID ? 'var(--accent)' : 'var(--bg-primary)',
+                    color: editingColorId === KEY_EDIT_ID ? '#fff' : 'var(--text-primary)',
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    fontWeight: editingColorId === KEY_EDIT_ID ? 600 : 400,
+                  }}
+                >
+                  {editingColorId === KEY_EDIT_ID ? '✎ Editing…' : '✎ Erase on key plate'}
+                </button>
+                {hasEdits(KEY_EDIT_ID) && (
+                  <button
+                    onClick={() => onClearEdits(KEY_EDIT_ID)}
+                    disabled={disabled}
+                    title="Discard all erase edits on the key plate"
+                    style={{
+                      padding: '3px 8px',
+                      fontSize: 11,
+                      borderRadius: 4,
+                      border: '1px solid var(--border)',
+                      background: 'none',
+                      color: 'var(--text-secondary)',
+                      cursor: disabled ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    Clear edits
+                  </button>
+                )}
+              </div>
+
+              {editingColorId === KEY_EDIT_ID && (
+                <>
+                  <p style={{ fontSize: 10, color: 'var(--text-secondary)', margin: '4px 0 0', fontStyle: 'italic' }}>
+                    Erases dots, stroke and outline
+                  </p>
+                  <div className="control-row">
+                    <span>Brush <EditableValue value={editBrushPx} min={4} max={200} step={1} suffix="px" onChange={onBrushPxChange} /></span>
+                    <input
+                      type="range" min={4} max={200} step={1}
+                      value={editBrushPx}
+                      onChange={(e) => onBrushPxChange(Number(e.target.value))}
+                      disabled={disabled}
+                    />
+                  </div>
+                </>
+              )}
+
+              {hasEdits(KEY_EDIT_ID) && editsStale && (
+                <div style={{ fontSize: 10, color: 'var(--warning, #d99a2b)', marginTop: 2 }}>
+                  ⚠ Painted at a different crop/rotation — edits are inactive. Restore the previous crop, or clear them.
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>

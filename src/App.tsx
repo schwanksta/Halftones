@@ -12,7 +12,7 @@ import { useAppShell } from './hooks/useAppShell'
 import { useUndoHistory } from './hooks/useUndoHistory'
 import { platform, isTauri } from './platform'
 import { applyTransforms } from './engine/transform'
-import { EditMasks, transformKeyOf } from './engine/layer-edits'
+import { EditMasks, transformKeyOf, KEY_EDIT_ID } from './engine/layer-edits'
 import {
   SourceImage,
   HalftoneSettings,
@@ -417,10 +417,13 @@ function App() {
     const ctx = canvas.getContext('2d')!
     // IMPORTANT: erase must write OPAQUE WHITE (force paper), not clear to
     // transparent — transparent means "untouched" and falls through to the
-    // underlying separation, not "no ink".
+    // underlying separation, not "no ink". The key plate has no ownership to
+    // paint (it composites on top of everything), so its brush is erase-only —
+    // ignore editErase and always write white when editing the key.
+    const effectiveErase = editingColorId === KEY_EDIT_ID ? true : erase
     ctx.globalCompositeOperation = 'source-over'
-    ctx.strokeStyle = erase ? '#ffffff' : '#000000'
-    ctx.fillStyle = erase ? '#ffffff' : '#000000'
+    ctx.strokeStyle = effectiveErase ? '#ffffff' : '#000000'
+    ctx.fillStyle = effectiveErase ? '#ffffff' : '#000000'
     ctx.lineWidth = brushPx
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
@@ -494,6 +497,8 @@ function App() {
           projectName={projectName}
           mask={mask}
           maskSettings={maskSettings}
+          editMasks={editMasksRef.current}
+          editMasksKey={editMasksKey}
         />
       </TopBar>
       <div className="main-area">

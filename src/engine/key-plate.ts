@@ -27,6 +27,14 @@ export interface KeyPlateCanvasOptions {
   dotsKnockout?: ImageData | null
   /** Black-on-white mask (black = erase): removes the edge STROKE in that region. */
   strokeKnockout?: ImageData | null
+  /**
+   * Black-on-white mask (black = erase) from the key plate's own brush-erase
+   * edit mode. Applied LAST — after dots, edge stroke, and outline are all
+   * composited — so one brush stroke erases everything at once ("nothing
+   * prints here"), unlike dotsKnockout/strokeKnockout which target only one
+   * sub-layer.
+   */
+  eraseMask?: ImageData | null
 }
 
 /**
@@ -92,6 +100,20 @@ export function buildKeyPlateCanvas(opts: KeyPlateCanvasOptions): HTMLCanvasElem
 
   if (effectiveEdgeMask) applyEdgeMaskToCanvas(canvas, effectiveEdgeMask)
   if (opts.outlineMask) applyEdgeMaskToCanvas(canvas, opts.outlineMask)
+
+  // Erase pass: applied LAST, after dots/stroke/outline are all composited,
+  // so one brush stroke wipes everything uniformly in that region.
+  if (opts.eraseMask) {
+    const inverted = invertMask(opts.eraseMask)
+    const invCanvas = document.createElement('canvas')
+    invCanvas.width = opts.width
+    invCanvas.height = opts.height
+    invCanvas.getContext('2d')!.putImageData(inverted, 0, 0)
+    const prevOp = ctx.globalCompositeOperation
+    ctx.globalCompositeOperation = 'lighten'
+    ctx.drawImage(invCanvas, 0, 0)
+    ctx.globalCompositeOperation = prevOp
+  }
 
   return canvas
 }

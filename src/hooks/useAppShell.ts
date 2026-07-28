@@ -131,6 +131,8 @@ export function useAppShell(deps: AppShellDeps) {
       projectName: deps.projectName,
       mask: deps.mask ?? null,
       maskSettings: settings.mask,
+      editMasks: deps.editMasks,
+      editMasksKey: deps.editMasksKey,
     })
     if (thumbnail) pf.thumbnail = thumbnail
     return pf

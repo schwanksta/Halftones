@@ -12,6 +12,7 @@ import { precomputeGrayscale, sampleGray } from './sampling'
 import { applyDotSettings } from './dot-settings'
 import { buildKeyPlateCanvas, buildExportEdgeMask } from './key-plate'
 import { traceBinaryMask, polygonsToPath2D } from './vectorize'
+import { EditMasks, applyLabelEdits, transformKeyOf, scaleEditMasks, keyEraseKnockoutCanvas } from './layer-edits'
 
 /** Whether a color's flat plate should be vectorized: per-color override wins
  *  over the global toggle. */
@@ -64,6 +65,12 @@ interface ExportOptions {
   /** Optional global layer mask. When enabled, cut areas become paper (white) on all plates. */
   mask?: MaskImage | null
   maskSettings?: MaskSettings
+  /** Layer edit masks (layer edit mode). Applied to the label partition so
+   *  exported plates match the preview. */
+  editMasks?: EditMasks
+  /** transformKeyOf() geometry the masks were painted at — edits are skipped
+   *  when it no longer matches the current transform (they'd be misaligned). */
+  editMasksKey?: string | null
 }
 
 /** Convert a project name to a safe filename stem. */
@@ -177,13 +184,26 @@ async function renderSpotChannelCanvases(
   // redistribution to enabled neighbors.  Only enabled colors get rendered/exported.
   const labelData = computeSpotLabels(scaled, spotSettings.colors,
       spotSettings.paperWhite ? { enabled: true, threshold: spotSettings.paperWhiteThreshold ?? 92 } : undefined)
+
+  // Layer edit mode: apply painted ownership overrides on top of the classified
+  // partition, mirroring useHalftonePreview.ts's editedLabels memo exactly —
+  // same gating (skip when the masks' geometry no longer matches the current
+  // transform) — so exported plates match the preview. Masks are painted at
+  // transformed-source dims; the label field here is at OUTPUT resolution, so
+  // scale them first (nearest-neighbour) or applyLabelEdits would silently
+  // drop them on a dimension mismatch.
+  const editMasksActive = !!(options.editMasks && options.editMasks.size > 0
+    && (!options.editMasksKey || options.editMasksKey === transformKeyOf(transformSettings)))
+  const scaledEditMasks = editMasksActive ? scaleEditMasks(options.editMasks!, targetWidth, targetHeight) : null
+  const edited = scaledEditMasks ? applyLabelEdits(labelData, scaledEditMasks, spotSettings.colors) : labelData
+
   const reachPx = (spotSettings.buildupReachInches ?? 0) > 0
     ? Math.max(1, Math.round(spotSettings.buildupReachInches! * outputSettings.dpi))
     : 0
   const halftoneIds = new Set(
     spotSettings.colors.filter(c => c.renderMode === 'halftone' && c.type !== 'background').map(c => c.id),
   )
-  const channels = buildSpotChannels(labelData, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', reachPx, halftoneIds, spotSettings.manualOrder ?? false)
+  const channels = buildSpotChannels(edited, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', reachPx, halftoneIds, spotSettings.manualOrder ?? false)
   const enabledColors = spotSettings.colors.filter((c) => c.enabled)
 
   const radialCenter = {
@@ -204,7 +224,7 @@ async function renderSpotChannelCanvases(
     const chokePx = Math.round((spotSettings.underbase.chokeInches ?? 0) * outputSettings.dpi)
     const ubCanvas = document.createElement('canvas')
     ubCanvas.width = targetWidth; ubCanvas.height = targetHeight
-    ubCanvas.getContext('2d')!.putImageData(buildUnderbaseChannel(labelData, chokePx), 0, 0)
+    ubCanvas.getContext('2d')!.putImageData(buildUnderbaseChannel(edited, chokePx), 0, 0)
     if (maskOverlay) applyCutOverlayToCanvas(ubCanvas, maskOverlay)
     result.set('__underbase__', { canvas: ubCanvas, label: 'Underbase' })
   }
@@ -229,8 +249,16 @@ async function renderSpotChannelCanvases(
     // the stroke knockout additionally covers the dilated stroke width.
     const dotsPad = dotsExcluded.length ? 3 + maxTrap(dotsExcluded) : 0
     const strokePad = strokeExcluded.length ? 3 + maxTrap(strokeExcluded) + (spotSettings.key?.strokeWidth ?? 2) + 1 : 0
-    const dotsKo = buildOwnershipMask(labelData, dotsExcluded.map(c => c.id), { smoothing, padPx: dotsPad })
-    const strokeKo = buildOwnershipMask(labelData, strokeExcluded.map(c => c.id), { smoothing, padPx: strokePad })
+    const dotsKo = buildOwnershipMask(edited, dotsExcluded.map(c => c.id), { smoothing, padPx: dotsPad })
+    const strokeKo = buildOwnershipMask(edited, strokeExcluded.map(c => c.id), { smoothing, padPx: strokePad })
+    // Key plate erase brush: reserved KEY_EDIT_ID entry in the same edit-masks
+    // map, converted to a black-on-white knockout and applied last inside
+    // buildKeyPlateCanvas (after dots/stroke/outline) so one brush wipes all
+    // of them uniformly. Uses the same scaled/gated masks as the label edits above.
+    const keyEraseKo = scaledEditMasks ? keyEraseKnockoutCanvas(scaledEditMasks) : null
+    const eraseMask = keyEraseKo
+      ? keyEraseKo.getContext('2d')!.getImageData(0, 0, targetWidth, targetHeight)
+      : null
     keyCanvas = buildKeyPlateCanvas({
       width: targetWidth,
       height: targetHeight,
@@ -244,6 +272,7 @@ async function renderSpotChannelCanvases(
       outlineMask,
       dotsKnockout: dotsKo,
       strokeKnockout: strokeKo,
+      eraseMask,
     })
   }
 
@@ -596,6 +625,17 @@ export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCan
     const buildup = spotSettings.separationMode === 'buildup'
     const proofLabelData = computeSpotLabels(scaled, spotSettings.colors,
       spotSettings.paperWhite ? { enabled: true, threshold: spotSettings.paperWhiteThreshold ?? 92 } : undefined)
+
+    // Layer edit mode: same gating/scaling as renderSpotChannelCanvases above —
+    // mirrors useHalftonePreview.ts's editedLabels memo so the proof matches
+    // the preview. Label field here is at proof resolution (targetW×targetH).
+    const proofEditMasksActive = !!(options.editMasks && options.editMasks.size > 0
+      && (!options.editMasksKey || options.editMasksKey === transformKeyOf(transformSettings)))
+    const proofScaledEditMasks = proofEditMasksActive ? scaleEditMasks(options.editMasks!, targetW, targetH) : null
+    const editedProofLabels = proofScaledEditMasks
+      ? applyLabelEdits(proofLabelData, proofScaledEditMasks, spotSettings.colors)
+      : proofLabelData
+
     const proofReachPx = (spotSettings.buildupReachInches ?? 0) > 0
       ? Math.max(1, Math.round(spotSettings.buildupReachInches! * dpi))
       : 0
@@ -603,7 +643,7 @@ export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCan
       spotSettings.colors.filter(c => c.renderMode === 'halftone' && c.type !== 'background').map(c => c.id),
     )
     const manualOrder = spotSettings.manualOrder ?? false
-    const channels = buildSpotChannels(proofLabelData, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', proofReachPx, halftoneIds, manualOrder)
+    const channels = buildSpotChannels(editedProofLabels, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', proofReachPx, halftoneIds, manualOrder)
     // Build-up overprints, so paint light→dark (darkest opaque ink ends up on top).
     // Manual order: the array order IS the print order, so no re-sort.
     const enabledColors = spotSettings.colors.filter((c) => c.enabled)
@@ -617,7 +657,7 @@ export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCan
     // Underbase (bottom layer): union of inked area, choked, in its ink colour.
     if (spotSettings.underbase?.enabled) {
       const chokePx = Math.round((spotSettings.underbase.chokeInches ?? 0) * dpi)
-      const ubColored = colorizeForOverlay(buildUnderbaseChannel(proofLabelData, chokePx), spotSettings.underbase.color || '#c0c0c0')
+      const ubColored = colorizeForOverlay(buildUnderbaseChannel(editedProofLabels, chokePx), spotSettings.underbase.color || '#c0c0c0')
       const ubCanvas = document.createElement('canvas')
       ubCanvas.width = targetW; ubCanvas.height = targetH
       ubCanvas.getContext('2d')!.putImageData(ubColored, 0, 0)
@@ -644,8 +684,13 @@ export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCan
       // the stroke knockout additionally covers the dilated stroke width.
       const dotsPad = dotsExcluded.length ? 3 + maxTrap(dotsExcluded) : 0
       const strokePad = strokeExcluded.length ? 3 + maxTrap(strokeExcluded) + (spotSettings.key?.strokeWidth ?? 2) + 1 : 0
-      const dotsKo = buildOwnershipMask(proofLabelData, dotsExcluded.map(c => c.id), { smoothing, padPx: dotsPad })
-      const strokeKo = buildOwnershipMask(proofLabelData, strokeExcluded.map(c => c.id), { smoothing, padPx: strokePad })
+      const dotsKo = buildOwnershipMask(editedProofLabels, dotsExcluded.map(c => c.id), { smoothing, padPx: dotsPad })
+      const strokeKo = buildOwnershipMask(editedProofLabels, strokeExcluded.map(c => c.id), { smoothing, padPx: strokePad })
+      // Key plate erase brush — see renderSpotChannelCanvases for details.
+      const keyEraseKo = proofScaledEditMasks ? keyEraseKnockoutCanvas(proofScaledEditMasks) : null
+      const eraseMask = keyEraseKo
+        ? keyEraseKo.getContext('2d')!.getImageData(0, 0, targetW, targetH)
+        : null
       keyCanvas = buildKeyPlateCanvas({
         width: targetW,
         height: targetH,
@@ -660,6 +705,7 @@ export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCan
         outlineMask,
         dotsKnockout: dotsKo,
         strokeKnockout: strokeKo,
+        eraseMask,
       })
     }
 

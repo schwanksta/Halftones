@@ -9,7 +9,7 @@ import { renderStipple } from '../engine/stipple'
 import { renderFlat, computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, boostSaturation, resolveMergeTarget, buildOwnershipMask } from '../engine/spot-separation'
 import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from '../engine/edge'
 import { buildKeyPlateCanvas } from '../engine/key-plate'
-import { EditMasks, applyLabelEdits, transformKeyOf } from '../engine/layer-edits'
+import { EditMasks, applyLabelEdits, transformKeyOf, KEY_EDIT_ID, keyEraseKnockoutCanvas } from '../engine/layer-edits'
 import { traceBinaryMask, polygonsToPath2D } from '../engine/vectorize'
 import { separateChannels, compositeChannels } from '../engine/cmyk'
 import { applyTransforms } from '../engine/transform'
@@ -278,6 +278,21 @@ export function useHalftonePreview(
   }, [editedLabels, transformed, spotSettings.colors, spotSettings.key, spotSettings.smoothing, spotSettings.trap,
       halftoneSettings.colorMode, outputSettings.widthInches, outputSettings.dpi])
 
+  // Key plate erase brush: the key has no ownership, so the label-edit model
+  // above doesn't apply to it — instead its edit mask (stored under the
+  // reserved KEY_EDIT_ID key in the same EditMasks map) is converted to a
+  // black-on-white knockout and applied LAST inside buildKeyPlateCanvas
+  // (after dots/stroke/outline), wiping everything uniformly. Same staleness
+  // gate as editedLabels: skip (not clear) when the crop/rotation changed
+  // since the mask was painted.
+  const keyEraseCanvas = useMemo(() => {
+    if (halftoneSettings.colorMode !== 'spot' || !spotSettings.key?.enabled) return null
+    if (!editMasks || editMasks.size === 0) return null
+    if (editMasksKey && editMasksKey !== transformKeyOf(transformSettings)) return null
+    return keyEraseKnockoutCanvas(editMasks)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [halftoneSettings.colorMode, spotSettings.key, editMasks, editsVersion, editMasksKey, transformSettings])
+
   // ── Spot channel canvases ──────────────────────────────────────────────────
   //
   // Convert per-color ImageData separations into HTMLCanvasElements so the
@@ -457,6 +472,83 @@ export function useHalftonePreview(
     offscreen.width = canvasW; offscreen.height = canvasH
     const offCtx = offscreen.getContext('2d')!
 
+    // Build the key plate's black-on-white content (dots + edge stroke +
+    // outline + erase brush) for the current viewport frame. Shared by the
+    // normal spot-mode render (composited as its own layer or merged into a
+    // color) and the layer-edit isolation view (KEY_EDIT_ID renders this
+    // alone) — extracted here so both branches acquire the exact same masks
+    // instead of duplicating the per-frame cropping logic.
+    const buildKeyCanvasForFrame = (): HTMLCanvasElement | null => {
+      if (!spotSettings.key?.enabled) return null
+      const key = spotSettings.key
+      const keyRegion = extractRegionFromCanvas(
+        transformedCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff',
+      )
+
+      // Edge stroke: edges are detected at source res (keyEdgeCanvas, memoized)
+      // and cropped to the viewport here, so the edge set is stable across zoom
+      // and matches export.
+      let edgeMask: ImageData | null = null
+      if (key.strokeEnabled && keyEdgeCanvas) {
+        const edgeRegion = extractRegionFromCanvas(
+          keyEdgeCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff',
+        )
+        // strokeWidth is in output-DPI pixels; scale to viewport pixels, min 1
+        const outStrokePx = key.strokeWidth ?? 2
+        const previewStrokePx = outStrokePx > 0
+          ? Math.max(1, Math.round(outStrokePx * renderDpi / outputSettings.dpi))
+          : 0
+        if (previewStrokePx > 1) {
+          const edgeTmp = document.createElement('canvas')
+          edgeTmp.width = canvasW; edgeTmp.height = canvasH
+          edgeTmp.getContext('2d')!.putImageData(edgeRegion, 0, 0)
+          const dilated = dilateMask(edgeTmp, previewStrokePx)
+          edgeMask = dilated.getContext('2d')!.getImageData(0, 0, canvasW, canvasH)
+        } else {
+          edgeMask = edgeRegion
+        }
+      }
+
+      // Alpha boundary outline: computed at source resolution (memoized),
+      // cropped to the viewport here.
+      let outlineMask: ImageData | null = null
+      if (key.outlineEnabled && alphaOutlineCanvas) {
+        outlineMask = extractRegionFromCanvas(
+          alphaOutlineCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff',
+        )
+      }
+
+      // Per-color key knockouts: source-resolution masks (memoized) cropped
+      // to the same viewport region as keyRegion above.
+      const dotsKnockout = keyDotsKnockoutCanvas
+        ? extractRegionFromCanvas(keyDotsKnockoutCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff')
+        : null
+      const strokeKnockout = keyStrokeKnockoutCanvas
+        ? extractRegionFromCanvas(keyStrokeKnockoutCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff')
+        : null
+      // Key plate erase brush: applied LAST inside buildKeyPlateCanvas so it
+      // wipes dots/stroke/outline uniformly.
+      const eraseMask = keyEraseCanvas
+        ? extractRegionFromCanvas(keyEraseCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff')
+        : null
+
+      return buildKeyPlateCanvas({
+        width: canvasW,
+        height: canvasH,
+        dotsSource: keyRegion,
+        key,
+        baseSettings: halftoneSettings,
+        renderDpi,
+        outputDpi: outputSettings.dpi,
+        radialCenter,
+        edgeMask,
+        outlineMask,
+        dotsKnockout,
+        strokeKnockout,
+        eraseMask,
+      })
+    }
+
     if (halftoneSettings.colorMode === 'cmyk') {
       const channels = separateChannels(regionData)
       const channelKeys = ['c', 'm', 'y', 'k'] as const
@@ -489,26 +581,34 @@ export function useHalftonePreview(
       // black-on-white, matching how it normally renders so what's painted is
       // what exports. Substrate, underbase, other colors, and the key plate
       // are all hidden while editing so paint/erase feedback is unambiguous.
-      const buildup = spotSettings.separationMode === 'buildup'
-      const chCanvas = spotChannelCanvases?.get(editingColorId)
       offCtx.fillStyle = '#ffffff'
       offCtx.fillRect(0, 0, canvasW, canvasH)
-      if (chCanvas) {
-        const color = spotSettings.colors.find(c => c.id === editingColorId)
-        const region = extractRegionFromCanvas(chCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff')
-        const bw = document.createElement('canvas')
-        bw.width = canvasW; bw.height = canvasH
-        const bwCtx = bw.getContext('2d')!
-        if (color && color.renderMode !== 'flat' && !buildup) {
-          renderHalftone(bwCtx, {
-            source: region,
-            settings: { ...halftoneSettings, angle: color.angle, lpi: color.lpi, fgColor: '#000000', bgColor: '#ffffff' },
-            renderDpi, radialCenter, outputDpi: outputSettings.dpi,
-          })
-        } else {
-          renderFlat(bwCtx, region, color?.threshold ?? 0.5)
+      if (editingColorId === KEY_EDIT_ID) {
+        // The key plate has no ownership — isolate it by building it exactly
+        // as the main spot branch does (same dots/stroke/outline/knockouts/
+        // erase inputs) via the shared closure above.
+        const keyCanvas = buildKeyCanvasForFrame()
+        if (keyCanvas) offCtx.drawImage(keyCanvas, 0, 0)
+      } else {
+        const buildup = spotSettings.separationMode === 'buildup'
+        const chCanvas = spotChannelCanvases?.get(editingColorId)
+        if (chCanvas) {
+          const color = spotSettings.colors.find(c => c.id === editingColorId)
+          const region = extractRegionFromCanvas(chCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff')
+          const bw = document.createElement('canvas')
+          bw.width = canvasW; bw.height = canvasH
+          const bwCtx = bw.getContext('2d')!
+          if (color && color.renderMode !== 'flat' && !buildup) {
+            renderHalftone(bwCtx, {
+              source: region,
+              settings: { ...halftoneSettings, angle: color.angle, lpi: color.lpi, fgColor: '#000000', bgColor: '#ffffff' },
+              renderDpi, radialCenter, outputDpi: outputSettings.dpi,
+            })
+          } else {
+            renderFlat(bwCtx, region, color?.threshold ?? 0.5)
+          }
+          offCtx.drawImage(bw, 0, 0)
         }
-        offCtx.drawImage(bw, 0, 0)
       }
 
     } else if (halftoneSettings.colorMode === 'spot') {
@@ -527,73 +627,11 @@ export function useHalftonePreview(
         offCtx.drawImage(ubc, 0, 0)
       }
 
-      // Key plate content (dots + edge stroke + outline), rendered black-on-white.
-      // Built before the color loop so it can optionally be merged directly into
+      // Key plate content (dots + edge stroke + outline + erase brush),
+      // rendered black-on-white via the shared per-frame closure above. Built
+      // before the color loop so it can optionally be merged directly into
       // the darkest color's plate instead of overprinted as its own layer.
-      let keyBwCanvas: HTMLCanvasElement | null = null
-      if (spotSettings.key?.enabled) {
-        const key = spotSettings.key
-        const keyRegion = extractRegionFromCanvas(
-          transformedCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff',
-        )
-
-        // Edge stroke: edges are detected at source res (keyEdgeCanvas, memoized)
-        // and cropped to the viewport here, so the edge set is stable across zoom
-        // and matches export.
-        let edgeMask: ImageData | null = null
-        if (key.strokeEnabled && keyEdgeCanvas) {
-          const edgeRegion = extractRegionFromCanvas(
-            keyEdgeCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff',
-          )
-          // strokeWidth is in output-DPI pixels; scale to viewport pixels, min 1
-          const outStrokePx = key.strokeWidth ?? 2
-          const previewStrokePx = outStrokePx > 0
-            ? Math.max(1, Math.round(outStrokePx * renderDpi / outputSettings.dpi))
-            : 0
-          if (previewStrokePx > 1) {
-            const edgeTmp = document.createElement('canvas')
-            edgeTmp.width = canvasW; edgeTmp.height = canvasH
-            edgeTmp.getContext('2d')!.putImageData(edgeRegion, 0, 0)
-            const dilated = dilateMask(edgeTmp, previewStrokePx)
-            edgeMask = dilated.getContext('2d')!.getImageData(0, 0, canvasW, canvasH)
-          } else {
-            edgeMask = edgeRegion
-          }
-        }
-
-        // Alpha boundary outline: computed at source resolution (memoized),
-        // cropped to the viewport here.
-        let outlineMask: ImageData | null = null
-        if (key.outlineEnabled && alphaOutlineCanvas) {
-          outlineMask = extractRegionFromCanvas(
-            alphaOutlineCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff',
-          )
-        }
-
-        // Per-color key knockouts: source-resolution masks (memoized) cropped
-        // to the same viewport region as keyRegion above.
-        const dotsKnockout = keyDotsKnockoutCanvas
-          ? extractRegionFromCanvas(keyDotsKnockoutCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff')
-          : null
-        const strokeKnockout = keyStrokeKnockoutCanvas
-          ? extractRegionFromCanvas(keyStrokeKnockoutCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff')
-          : null
-
-        keyBwCanvas = buildKeyPlateCanvas({
-          width: canvasW,
-          height: canvasH,
-          dotsSource: keyRegion,
-          key,
-          baseSettings: halftoneSettings,
-          renderDpi,
-          outputDpi: outputSettings.dpi,
-          radialCenter,
-          edgeMask,
-          outlineMask,
-          dotsKnockout,
-          strokeKnockout,
-        })
-      }
+      const keyBwCanvas = buildKeyCanvasForFrame()
 
       // When merging, the key's ink is folded directly into the darkest enabled
       // color's plate (same screen, that color's hue) instead of overprinted as
@@ -788,7 +826,7 @@ export function useHalftonePreview(
     spotSettings.colors, spotSettings.vibrancy, spotSettings.trap, spotSettings.key,
     spotSettings.separationMode, spotSettings.substrate, spotSettings.underbase,
     spotChannelCanvases, flatVectorPaths, alphaOutlineCanvas, keyEdgeCanvas, underbaseCanvas,
-    keyDotsKnockoutCanvas, keyStrokeKnockoutCanvas,
+    keyDotsKnockoutCanvas, keyStrokeKnockoutCanvas, keyEraseCanvas,
     maskOverlayCanvas, maskStrokeCanvas,
     editingColorId, editMasks, editMasksKey, editsVersion,
     halftoneSettings, cmykSettings, channelView, outputSettings, viewport,
