@@ -853,8 +853,15 @@ export async function exportPNG(options: ExportOptions): Promise<void> {
   const canvas = await renderFullRes(options)
   const stem = toStem(options.projectName, exportSuffix(options.halftoneSettings))
 
+  // Lay out on the full print page (margin, crop marks, alignment marks) like
+  // the channel/PDF exports — a grayscale halftone PNG *is* the plate you burn,
+  // so it needs the same registration furniture. composeChannelPage honours the
+  // margin/crop-mark toggles, so with both off this is still the bare image.
+  // No plate label: a single-plate export has nothing to sort against.
+  const page = composeChannelPage(canvas, 0, options.outputSettings, '', 0)
+
   const blob = await new Promise<Blob>((resolve) => {
-    canvas.toBlob((b) => resolve(b!), 'image/png')
+    page.toBlob((b) => resolve(b!), 'image/png')
   })
 
   const withDpi = await setPngDpi(blob, options.outputSettings.dpi)
@@ -1012,6 +1019,9 @@ export async function exportChannelPNGs(options: ExportOptions): Promise<void> {
   if (options.halftoneSettings.colorMode === 'spot') {
     const spotEntries = [...(await renderSpotChannelCanvases(options)).entries()]
     const layerCount = spotEntries.length
+    // Plate labels exist to sort a physical stack of films — pointless when
+    // there's only one plate (the filename already identifies it).
+    const single = layerCount === 1
     let colorN = 0
     for (let i = 0; i < spotEntries.length; i++) {
       const [id, { canvas, bleedPx }] = spotEntries[i]
@@ -1022,16 +1032,17 @@ export async function exportChannelPNGs(options: ExportOptions): Promise<void> {
       else if (id === '__key__')       { label = 'Key';         slug = 'key' }
       else if (id === '__maskstroke__'){ label = 'Mask Stroke'; slug = 'mask-stroke' }
       else { colorN++; label = layerWord(colorN); slug = label.toLowerCase() }
-      const page = composeChannelPage(canvas, bleedPx ?? 0, options.outputSettings, label, i / layerCount)
+      const page = composeChannelPage(canvas, bleedPx ?? 0, options.outputSettings, single ? '' : label, i / layerCount)
       await pushCanvas(page, `${stem}-${slug}.png`)
     }
   } else {
     const channelCanvases = [...(await renderChannelCanvases(options)).entries()]
     const channelNames: Record<string, string> = { c: 'cyan', m: 'magenta', y: 'yellow', k: 'black' }
     const channelLabels: Record<string, string> = { c: 'Cyan', m: 'Magenta', y: 'Yellow', k: 'Black' }
+    const single = channelCanvases.length === 1
     for (let i = 0; i < channelCanvases.length; i++) {
       const [ch, canvas] = channelCanvases[i]
-      const page = composeChannelPage(canvas, 0, options.outputSettings, channelLabels[ch], i / channelCanvases.length)
+      const page = composeChannelPage(canvas, 0, options.outputSettings, single ? '' : channelLabels[ch], i / channelCanvases.length)
       await pushCanvas(page, `${stem}-${channelNames[ch]}.png`)
     }
   }
@@ -1309,12 +1320,14 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
       pdf.setTextColor(0)
       // Special plates keep their own labels; color plates get layer numbers
       // counted independently so underbase/key/stroke don't shift them.
-      const plateLabel = id === '__underbase__' ? 'Underbase'
+      // A lone plate gets no label — there's nothing to sort it against.
+      const plateLabel = spotEntries.length === 1 ? ''
+        : id === '__underbase__' ? 'Underbase'
         : id === '__key__' ? 'Key'
         : id === '__maskstroke__' ? 'Mask Stroke'
         : layerWord(++colorN)
       const labelX = imgOffX + labelStep * layerIdx
-      if (cropMarkPts > 0) {
+      if (plateLabel && cropMarkPts > 0) {
         // Fill ~55% of the crop-mark waste strip and centre it vertically.
         pdf.setFontSize(Math.round(cropMarkPts * 0.55))
         let tx = labelX
@@ -1326,7 +1339,7 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
           tx = clearCenterMark(labelX, w, imgOffX + imageWPts / 2, armLen + 4)
         }
         pdf.text(plateLabel, tx, cropMarkPts / 2, { baseline: 'middle' })
-      } else {
+      } else if (plateLabel) {
         pdf.setFontSize(8)
         pdf.text(plateLabel, labelX, Math.max(8, mTpt / 2), { baseline: 'middle' })
       }
