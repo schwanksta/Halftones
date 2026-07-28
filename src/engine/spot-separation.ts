@@ -295,21 +295,28 @@ export function darkestSpotColor(colors: SpotColor[]): SpotColor | null {
   return best
 }
 
+/** The last-printed enabled, non-background color (end of the layer order), or null. */
+export function lastPrintedSpotColor(colors: SpotColor[]): SpotColor | null {
+  const printed = colors.filter(c => c.enabled && c.type !== 'background')
+  return printed.length ? printed[printed.length - 1] : null
+}
+
 /** A settings object carrying a merge target (KeyPlateSettings or SpotColor). */
 export interface MergeSpec { mergeTarget?: string; mergeWithDarkest?: boolean }
 
 /**
  * Resolve a merge spec to its DIRECT target color, or null for "don't merge".
- * absent/'' → null; 'darkest' → darkestSpotColor(colors); an id → that color
- * if it's enabled and non-background, else null (target deleted/disabled →
- * fall back to not merging rather than silently retargeting). Never returns
- * `selfId`.
+ * absent/'' → null; 'darkest' → darkestSpotColor(colors); 'last' →
+ * lastPrintedSpotColor(colors); an id → that color if it's enabled and
+ * non-background, else null (target deleted/disabled → fall back to not
+ * merging rather than silently retargeting). Never returns `selfId`.
  */
 export function resolveMergeTarget(colors: SpotColor[], spec: MergeSpec, selfId?: string): SpotColor | null {
   const target = spec.mergeTarget ?? (spec.mergeWithDarkest ? 'darkest' : '')
   if (!target) return null
   if (target === selfId) return null
   if (target === 'darkest') return darkestSpotColor(colors)
+  if (target === 'last') return lastPrintedSpotColor(colors)
   const found = colors.find(c => c.id === target)
   if (!found || !found.enabled || found.type === 'background') return null
   return found
@@ -815,6 +822,9 @@ function smoothLabelField(
  * `buildupReachPx` (build-up mode only): when > 0, a lighter plate extends
  * under darker inks only within this many pixels of its OWN region, instead of
  * flooding under every darker pixel globally. 0 (default) = classic full flood.
+ *
+ * `manualOrder` (build-up mode only): use the color array order (rank[k] = k)
+ * as the print order instead of auto-sorting light→dark by lightness.
  */
 export function buildSpotChannels(
   ld: SpotLabelData,
@@ -822,6 +832,7 @@ export function buildSpotChannels(
   mode: SeparationMode = 'knockout',
   buildupReachPx = 0,
   halftoneToneIds: ReadonlySet<string> = new Set(),
+  manualOrder = false,
 ): Map<string, ImageData> {
   const { width, height, values, labColorIds, labColorL, backgroundChannels } = ld
   const n = width * height
@@ -831,11 +842,16 @@ export function buildSpotChannels(
   const bufs = labColorIds.map(() => new Uint8ClampedArray(n * 4).fill(255))
 
   if (mode === 'buildup' && nc > 1) {
-    // Rank colors by lightness (lightest = rank 0). A pixel assigned to a tone
-    // inks its plate plus every lighter plate (lower-or-equal rank).
-    const order = labColorIds.map((_, i) => i).sort((a, b) => labColorL[b] - labColorL[a])
+    // Rank colors by lightness (lightest = rank 0), unless manualOrder is set —
+    // then the array order IS the print order (rank[k] = k). A pixel assigned
+    // to a tone inks its plate plus every lighter plate (lower-or-equal rank).
     const rank = new Array<number>(nc)
-    order.forEach((idx, pos) => { rank[idx] = pos })
+    if (manualOrder) {
+      for (let k = 0; k < nc; k++) rank[k] = k
+    } else {
+      const order = labColorIds.map((_, i) => i).sort((a, b) => labColorL[b] - labColorL[a])
+      order.forEach((idx, pos) => { rank[idx] = pos })
+    }
     const inkValue = (k: number, i: number) => halftoneToneIds.has(labColorIds[k]) ? values[i] : 0
 
     if (buildupReachPx <= 0) {
@@ -1044,8 +1060,9 @@ export function separateSpotChannels(
   mode: SeparationMode = 'knockout',
   buildupReachPx = 0,
   halftoneToneIds: ReadonlySet<string> = new Set(),
+  manualOrder = false,
 ): Map<string, ImageData> {
-  return buildSpotChannels(computeSpotLabels(source, colors, paper), smoothing, mode, buildupReachPx, halftoneToneIds)
+  return buildSpotChannels(computeSpotLabels(source, colors, paper), smoothing, mode, buildupReachPx, halftoneToneIds, manualOrder)
 }
 
 // ─── Flat rendering ───────────────────────────────────────────────────────────

@@ -225,6 +225,13 @@ export interface SpotSettings {
    * spot color layers (overprint).  Undefined / absent = no key plate.
    */
   key?: KeyPlateSettings
+  /**
+   * Build-up only: use the layer order as the print order instead of
+   * auto-sorting light→dark. Absent/false = auto-sort (the historical
+   * behavior, so existing projects separate identically). Set automatically
+   * when the user drags a layer while in build-up mode.
+   */
+  manualOrder?: boolean
 }
 
 export const DEFAULT_SPOT_SETTINGS: SpotSettings = {

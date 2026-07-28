@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { SpotColor, SpotSettings, KeyPlateSettings, DEFAULT_KEY_PLATE, SeparationMode, DEFAULT_UNDERBASE, SavedPalette } from '../types'
-import { extractPalette, mergeSimilarColors, labToHex, rgbToLab, guessColorName, resolveMergeTarget } from '../engine/spot-separation'
+import { extractPalette, mergeSimilarColors, labToHex, rgbToLab, guessColorName, resolveMergeTarget, lastPrintedSpotColor } from '../engine/spot-separation'
 import { EditableValue } from './EditableValue'
 import { PaletteBar } from './PaletteBar'
 
@@ -23,8 +23,33 @@ export function SpotColorEditor({
   seedColors, onClearSeeds, seedPickingActive, onToggleSeedPicking,
 }: Props) {
   const [extracting, setExtracting] = useState(false)
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [overIdx, setOverIdx] = useState<number | null>(null)
 
   const update = (partial: Partial<SpotSettings>) => onChange({ ...settings, ...partial })
+
+  /** Reorder a layer by drag-and-drop. Background layers always stay pinned
+   * to the front; dragging in build-up mode switches to manual print order. */
+  const reorder = (from: number, to: number) => {
+    if (from === to) return
+    const next = [...settings.colors]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    // Background layers are the backdrop — always keep them at the front,
+    // preserving the new relative order of everything else.
+    const bg = next.filter(c => c.type === 'background')
+    const rest = next.filter(c => c.type !== 'background')
+    const patch: Partial<SpotSettings> = { colors: [...bg, ...rest] }
+    // Dragging in build-up means the user wants their order, not the auto sort.
+    if (settings.separationMode === 'buildup') patch.manualOrder = true
+    update(patch)
+  }
+
+  const sortLightToDark = () => {
+    const bg = settings.colors.filter(c => c.type === 'background')
+    const rest = [...settings.colors.filter(c => c.type !== 'background')].sort((a, b) => b.lab[0] - a.lab[0])
+    update({ colors: [...bg, ...rest], manualOrder: false })
+  }
 
   const updateKey = (partial: Partial<KeyPlateSettings>) => {
     const current = settings.key ?? { ...DEFAULT_KEY_PLATE, lpi: defaultLpi }
@@ -337,6 +362,11 @@ export function SpotColorEditor({
           keyStrokeEnabled={(settings.key?.enabled && settings.key?.strokeEnabled) ?? false}
           onChange={(partial) => updateColor(color.id, partial)}
           onRemove={() => removeColor(color.id)}
+          onDragStart={() => setDragIdx(idx)}
+          onDragOver={() => setOverIdx(idx)}
+          onDrop={() => { if (dragIdx !== null) reorder(dragIdx, idx); setDragIdx(null); setOverIdx(null) }}
+          onDragEnd={() => { setDragIdx(null); setOverIdx(null) }}
+          isDropTarget={overIdx === idx && dragIdx !== null && dragIdx !== idx}
         />
       ))}
 
@@ -355,6 +385,31 @@ export function SpotColorEditor({
             <option value="buildup">Build-up (overprint)</option>
           </select>
         </label>
+
+        {settings.separationMode === 'buildup' && (
+          <div className="control-row" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
+              {settings.manualOrder ? 'Manual layer order' : 'Auto order: light→dark'}
+            </span>
+            {settings.manualOrder && (
+              <button
+                onClick={sortLightToDark}
+                disabled={disabled}
+                style={{
+                  padding: '2px 6px',
+                  fontSize: 10,
+                  borderRadius: 4,
+                  border: '1px solid var(--border)',
+                  background: 'none',
+                  color: 'var(--text-secondary)',
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Sort light→dark
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="control-row" title="Clean up the color separation — jointly tidies which color owns each pixel so layers never erode apart and leave paper showing through. Low = remove stray specks; high = smooth ragged boundaries more.">
           <span>Despeckle <EditableValue value={settings.smoothing ?? 0} min={0} max={100} step={5} suffix="%" onChange={(v) => update({ smoothing: v })} /></span>
@@ -529,12 +584,22 @@ export function SpotColorEditor({
             {(() => {
               const keyMergeSel = keySettings.mergeTarget ?? (keySettings.mergeWithDarkest ? 'darkest' : '')
               const keyMergeResolved = resolveMergeTarget(settings.colors, keySettings)
+              const isAutoSentinel = keyMergeSel === 'darkest' || keyMergeSel === 'last'
+              const lastPrinted = lastPrintedSpotColor(settings.colors)
+              const notLast = !!keyMergeResolved && !!lastPrinted && keyMergeResolved.id !== lastPrinted.id
+              // Colors printed after the resolved target — if all of them already
+              // knock the key out, nothing gets buried and the warning is moot.
+              const printedOrder = settings.colors.filter(c => c.enabled && c.type !== 'background')
+              const targetIdx = keyMergeResolved ? printedOrder.findIndex(c => c.id === keyMergeResolved!.id) : -1
+              const afterTarget = targetIdx >= 0 ? printedOrder.slice(targetIdx + 1) : []
+              const suppressKeyWarning = afterTarget.length > 0 && afterTarget.every(c => c.keyDots === false && c.keyStroke === false)
+              const showKeyWarning = notLast && !suppressKeyWarning
               return (
                 <>
                   <label className="control-row" title="Print the key plate on another color's screen (one screen, that color's ink) instead of its own. Useful when the key is meant to print in the same ink as one of your separation colors.">
                     <span>
                       Merge into
-                      {keyMergeSel === 'darkest' && (
+                      {isAutoSentinel && (
                         <>
                           {' '}
                           <small style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>
@@ -549,12 +614,18 @@ export function SpotColorEditor({
                       disabled={disabled}
                     >
                       <option value="">Don't merge (own screen)</option>
-                      <option value="darkest">Darkest color (auto)</option>
+                      <option value="last">Last printed color (auto)</option>
+                      {keyMergeSel === 'darkest' && <option value="darkest">Darkest color (auto, legacy)</option>}
                       {mergeOptions.map((o) => (
                         <option key={o.id} value={o.id}>{o.label}</option>
                       ))}
                     </select>
                   </label>
+                  {showKeyWarning && keyMergeResolved && (
+                    <div style={{ fontSize: 10, color: 'var(--warning, #d99a2b)', marginTop: -2 }}>
+                      ⚠ Colors printed after {keyMergeResolved.name} will cover the key detail — drag {keyMergeResolved.name} last to fix.
+                    </div>
+                  )}
                   <div className="control-row control-row--colors" style={{ opacity: keyMergeResolved ? 0.4 : 1 }}>
                     <span>Ink</span>
                     <div className="color-pair">
@@ -762,9 +833,19 @@ interface RowProps {
   keyStrokeEnabled: boolean
   onChange: (partial: Partial<SpotColor>) => void
   onRemove: () => void
+  /** Drag-to-reorder — parent owns the drag state; this row just reports events. */
+  onDragStart: () => void
+  onDragOver: () => void
+  onDrop: () => void
+  onDragEnd: () => void
+  /** True while another row is being dragged over this one — draws a drop indicator. */
+  isDropTarget: boolean
 }
 
-function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, allColors, mergeOptions, keyEnabled, keyStrokeEnabled, onChange, onRemove }: RowProps) {
+function SpotColorRow({
+  color, index, disabled, globalTrap, globalSmooth, allColors, mergeOptions, keyEnabled, keyStrokeEnabled,
+  onChange, onRemove, onDragStart, onDragOver, onDrop, onDragEnd, isDropTarget,
+}: RowProps) {
   const [expanded, setExpanded] = useState(false)
   const [hexDraft, setHexDraft] = useState(color.hex)
 
@@ -805,6 +886,18 @@ function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, allCol
     >
       {/* Header row */}
       <div
+        draggable={!disabled}
+        onDragStart={(e) => {
+          onDragStart()
+          e.dataTransfer.effectAllowed = 'move'
+        }}
+        onDragOver={(e) => {
+          e.preventDefault()   // required to allow a drop
+          e.dataTransfer.dropEffect = 'move'
+          onDragOver()
+        }}
+        onDrop={(e) => { e.preventDefault(); onDrop() }}
+        onDragEnd={onDragEnd}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -812,9 +905,24 @@ function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, allCol
           padding: '5px 8px',
           background: 'var(--bg-secondary)',
           cursor: 'pointer',
+          borderTop: isDropTarget ? '2px solid var(--accent)' : '2px solid transparent',
         }}
         onClick={() => setExpanded((v) => !v)}
       >
+        {/* Drag handle */}
+        <span
+          title="Drag to reorder — this is the print order"
+          style={{
+            cursor: disabled ? 'default' : 'grab',
+            color: 'var(--text-secondary)',
+            fontSize: 13,
+            lineHeight: 1,
+            flexShrink: 0,
+            userSelect: 'none',
+          }}
+        >
+          ⠿
+        </span>
         {/* Swatch */}
         <div
           style={{
@@ -1060,12 +1168,15 @@ function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, allCol
             const rowMergeSel = color.mergeTarget ?? (color.mergeWithDarkest ? 'darkest' : '')
             const rowMergeResolved = resolveMergeTarget(allColors, color, color.id)
             const rowMergeOptions = mergeOptions.filter((o) => o.id !== color.id)
+            const rowIsAutoSentinel = rowMergeSel === 'darkest' || rowMergeSel === 'last'
+            const rowLastPrinted = lastPrintedSpotColor(allColors)
+            const rowNotLast = !!rowMergeResolved && !!rowLastPrinted && rowMergeResolved.id !== rowLastPrinted.id
             return (
               <>
                 <label className="control-row" title="Print this plate on another color's screen (one screen, that color's ink) instead of its own. Use for same-ink plates — e.g. a black background folded into your black layer.">
                   <span>
                     Merge into
-                    {rowMergeSel === 'darkest' && (
+                    {rowIsAutoSentinel && (
                       <>
                         {' '}
                         <small style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>
@@ -1080,7 +1191,8 @@ function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, allCol
                     disabled={disabled}
                   >
                     <option value="">Don't merge (own screen)</option>
-                    <option value="darkest">Darkest color (auto)</option>
+                    <option value="last">Last printed color (auto)</option>
+                    {rowMergeSel === 'darkest' && <option value="darkest">Darkest color (auto, legacy)</option>}
                     {rowMergeOptions.map((o) => (
                       <option key={o.id} value={o.id}>{o.label}</option>
                     ))}
@@ -1089,6 +1201,11 @@ function SpotColorRow({ color, index, disabled, globalTrap, globalSmooth, allCol
                 {rowMergeResolved && hexDistance(color.hex, rowMergeResolved.hex) > 150 && (
                   <div style={{ fontSize: 10, color: 'var(--warning, #d99a2b)', marginTop: -2 }}>
                     Will print in {rowMergeResolved.name}'s ink, not its own color
+                  </div>
+                )}
+                {rowNotLast && rowMergeResolved && (
+                  <div style={{ fontSize: 10, color: 'var(--warning, #d99a2b)', marginTop: -2 }}>
+                    ⚠ {rowMergeResolved.name} isn't printed last; colors after it print over this ink.
                   </div>
                 )}
               </>

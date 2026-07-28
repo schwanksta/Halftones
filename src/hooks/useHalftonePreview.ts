@@ -188,12 +188,12 @@ export function useHalftonePreview(
     const halftoneIds = new Set(
       spotSettings.colors.filter(c => c.renderMode === 'halftone' && c.type !== 'background').map(c => c.id),
     )
-    return buildSpotChannels(spotLabels, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', reachPx, halftoneIds)
+    return buildSpotChannels(spotLabels, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', reachPx, halftoneIds, spotSettings.manualOrder ?? false)
     // spotRenderModeSig stands in for spotSettings.colors' renderMode field —
     // full spotSettings.colors is not a dep (see spotSeparationKey comment).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spotLabels, spotSettings.smoothing, spotSettings.separationMode, spotSettings.buildupReachInches,
-      transformed, outputSettings.widthInches, spotRenderModeSig])
+      transformed, outputSettings.widthInches, spotRenderModeSig, spotSettings.manualOrder])
 
   // Underbase plate (source resolution) — union of inked area, choked. Extracted
   // per frame and composited under the colors.
@@ -555,7 +555,7 @@ export function useHalftonePreview(
       if (spotSettings.colors.length > 0 && spotChannelCanvases) {
         const globalTrap = spotSettings.trap ?? 0
         // Build-up overprints, so paint light→dark (darkest opaque ink on top).
-        const orderedColors = buildup
+        const orderedColors = buildup && !(spotSettings.manualOrder ?? false)
           ? [...spotSettings.colors].sort((a, b) => b.lab[0] - a.lab[0])
           : spotSettings.colors
 

@@ -183,7 +183,7 @@ async function renderSpotChannelCanvases(
   const halftoneIds = new Set(
     spotSettings.colors.filter(c => c.renderMode === 'halftone' && c.type !== 'background').map(c => c.id),
   )
-  const channels = buildSpotChannels(labelData, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', reachPx, halftoneIds)
+  const channels = buildSpotChannels(labelData, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', reachPx, halftoneIds, spotSettings.manualOrder ?? false)
   const enabledColors = spotSettings.colors.filter((c) => c.enabled)
 
   const radialCenter = {
@@ -602,10 +602,12 @@ export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCan
     const halftoneIds = new Set(
       spotSettings.colors.filter(c => c.renderMode === 'halftone' && c.type !== 'background').map(c => c.id),
     )
-    const channels = buildSpotChannels(proofLabelData, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', proofReachPx, halftoneIds)
+    const manualOrder = spotSettings.manualOrder ?? false
+    const channels = buildSpotChannels(proofLabelData, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', proofReachPx, halftoneIds, manualOrder)
     // Build-up overprints, so paint light→dark (darkest opaque ink ends up on top).
+    // Manual order: the array order IS the print order, so no re-sort.
     const enabledColors = spotSettings.colors.filter((c) => c.enabled)
-      .sort((a, b) => (buildup ? b.lab[0] - a.lab[0] : 0))
+      .sort((a, b) => (buildup && !manualOrder ? b.lab[0] - a.lab[0] : 0))
 
     // NOTE: imgCtx is intentionally left transparent (no substrate fill).
     // proofCanvas provides the substrate background; background-bleed layers
