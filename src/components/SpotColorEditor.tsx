@@ -45,6 +45,49 @@ export function SpotColorEditor({
     update(patch)
   }
 
+  // Pointer-based drag tracking. While a grip is held, follow the pointer at
+  // the window level (so the drag survives leaving the row) and resolve which
+  // row is under it via the data-row-idx attribute. Commit on release.
+  useEffect(() => {
+    if (dragIdx === null) return
+    /** Row whose vertical band contains y (nearest one if between/outside). */
+    const rowIdxAt = (y: number): number | null => {
+      const rows = Array.from(document.querySelectorAll('[data-row-idx]'))
+      let best: number | null = null
+      let bestDist = Infinity
+      for (const row of rows) {
+        const r = row.getBoundingClientRect()
+        const dist = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0
+        if (dist < bestDist) {
+          bestDist = dist
+          const n = Number(row.getAttribute('data-row-idx'))
+          if (Number.isFinite(n)) best = n
+        }
+      }
+      return best
+    }
+    const onMove = (e: PointerEvent) => {
+      e.preventDefault()
+      setOverIdx(rowIdxAt(e.clientY))
+    }
+    const onUp = (e: PointerEvent) => {
+      const to = rowIdxAt(e.clientY)
+      if (to !== null) reorder(dragIdx, to)
+      setDragIdx(null)
+      setOverIdx(null)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+  // reorder closes over settings.colors, which is current on every render
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragIdx, settings.colors, settings.separationMode])
+
   const sortLightToDark = () => {
     const bg = settings.colors.filter(c => c.type === 'background')
     const rest = [...settings.colors.filter(c => c.type !== 'background')].sort((a, b) => b.lab[0] - a.lab[0])
@@ -362,11 +405,9 @@ export function SpotColorEditor({
           keyStrokeEnabled={(settings.key?.enabled && settings.key?.strokeEnabled) ?? false}
           onChange={(partial) => updateColor(color.id, partial)}
           onRemove={() => removeColor(color.id)}
-          onDragStart={() => setDragIdx(idx)}
-          onDragOver={() => setOverIdx(idx)}
-          onDrop={() => { if (dragIdx !== null) reorder(dragIdx, idx); setDragIdx(null); setOverIdx(null) }}
-          onDragEnd={() => { setDragIdx(null); setOverIdx(null) }}
+          onGripDown={() => setDragIdx(idx)}
           isDropTarget={overIdx === idx && dragIdx !== null && dragIdx !== idx}
+          isDragging={dragIdx === idx}
         />
       ))}
 
@@ -833,18 +874,17 @@ interface RowProps {
   keyStrokeEnabled: boolean
   onChange: (partial: Partial<SpotColor>) => void
   onRemove: () => void
-  /** Drag-to-reorder — parent owns the drag state; this row just reports events. */
-  onDragStart: () => void
-  onDragOver: () => void
-  onDrop: () => void
-  onDragEnd: () => void
+  /** Drag-to-reorder — parent owns the drag state; the grip reports pointer-down. */
+  onGripDown: (clientY: number) => void
   /** True while another row is being dragged over this one — draws a drop indicator. */
   isDropTarget: boolean
+  /** True while THIS row is the one being dragged. */
+  isDragging: boolean
 }
 
 function SpotColorRow({
   color, index, disabled, globalTrap, globalSmooth, allColors, mergeOptions, keyEnabled, keyStrokeEnabled,
-  onChange, onRemove, onDragStart, onDragOver, onDrop, onDragEnd, isDropTarget,
+  onChange, onRemove, onGripDown, isDropTarget, isDragging,
 }: RowProps) {
   const [expanded, setExpanded] = useState(false)
   const [hexDraft, setHexDraft] = useState(color.hex)
@@ -886,18 +926,7 @@ function SpotColorRow({
     >
       {/* Header row */}
       <div
-        draggable={!disabled}
-        onDragStart={(e) => {
-          onDragStart()
-          e.dataTransfer.effectAllowed = 'move'
-        }}
-        onDragOver={(e) => {
-          e.preventDefault()   // required to allow a drop
-          e.dataTransfer.dropEffect = 'move'
-          onDragOver()
-        }}
-        onDrop={(e) => { e.preventDefault(); onDrop() }}
-        onDragEnd={onDragEnd}
+        data-row-idx={index}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -906,12 +935,21 @@ function SpotColorRow({
           background: 'var(--bg-secondary)',
           cursor: 'pointer',
           borderTop: isDropTarget ? '2px solid var(--accent)' : '2px solid transparent',
+          opacity: isDragging ? 0.4 : 1,
         }}
         onClick={() => setExpanded((v) => !v)}
       >
-        {/* Drag handle */}
+        {/* Drag handle — pointer-based, not HTML5 drag-and-drop: Tauri's native
+            file-drop handler intercepts OS drag events, so HTML5 DnD never
+            reaches the webview (and disabling it would break drag-to-open). */}
         <span
           title="Drag to reorder — this is the print order"
+          onPointerDown={(e) => {
+            if (disabled) return
+            e.preventDefault()
+            e.stopPropagation()   // don't toggle expand
+            onGripDown(e.clientY)
+          }}
           style={{
             cursor: disabled ? 'default' : 'grab',
             color: 'var(--text-secondary)',
@@ -919,6 +957,8 @@ function SpotColorRow({
             lineHeight: 1,
             flexShrink: 0,
             userSelect: 'none',
+            touchAction: 'none',
+            padding: '2px 1px',
           }}
         >
           ⠿
