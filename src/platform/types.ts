@@ -87,6 +87,18 @@ export interface ProjectFile {
    * Small PNG preview of the processed print. Optional; regenerated on every save.
    */
   thumbnail?: Uint8Array
+  /**
+   * Layer edit mode: per-color paint/erase masks (PNG-encoded RGBA canvases,
+   * transformed-image dimensions). Optional — absent when no color has been
+   * hand-edited. Purely additive; older files simply have neither this nor
+   * layerEditsKey.
+   */
+  layerEdits?: { colorId: string; bytes: Uint8Array }[]
+  /**
+   * The transformKeyOf() geometry signature the edits above were painted
+   * against — used to detect a crop/rotation change that would misalign them.
+   */
+  layerEditsKey?: string
 }
 
 export interface LoadedImage {

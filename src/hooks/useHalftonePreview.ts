@@ -9,6 +9,7 @@ import { renderStipple } from '../engine/stipple'
 import { renderFlat, computeSpotLabels, buildSpotChannels, buildUnderbaseChannel, boostSaturation, resolveMergeTarget, buildOwnershipMask } from '../engine/spot-separation'
 import { computeEdgeMask, computeAlphaBoundaryMask, applyEdgeMaskToCanvas } from '../engine/edge'
 import { buildKeyPlateCanvas } from '../engine/key-plate'
+import { EditMasks, applyLabelEdits, transformKeyOf } from '../engine/layer-edits'
 import { traceBinaryMask, polygonsToPath2D } from '../engine/vectorize'
 import { separateChannels, compositeChannels } from '../engine/cmyk'
 import { applyTransforms } from '../engine/transform'
@@ -30,6 +31,14 @@ interface PreviewOptions {
   viewport: Viewport
   mask: MaskImage | null
   maskSettings?: MaskSettings
+  /** Layer edit mode — per-color paint/erase masks applied to the label field before separation. */
+  editMasks?: EditMasks
+  /** The transformKeyOf() the masks were painted at — edits are skipped if this no longer matches. */
+  editMasksKey?: string | null
+  /** When set, the render isolates this color's plate (black-on-white) and hides everything else. */
+  editingColorId?: string | null
+  /** Bumped on every paint stroke to force memo/effect re-evaluation (masks are mutated in place). */
+  editsVersion?: number
 }
 
 function invertImageData(img: ImageData) {
@@ -100,6 +109,7 @@ export function useHalftonePreview(
     source, transformSettings, halftoneSettings,
     cmykSettings, spotSettings, channelView, outputSettings, viewport,
     mask, maskSettings,
+    editMasks, editMasksKey, editingColorId, editsVersion,
   } = options
   const rafRef = useRef(0)
 
@@ -173,6 +183,20 @@ export function useHalftonePreview(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transformed, halftoneSettings.colorMode, spotSeparationKey])
 
+  // Layer edit mode: apply painted ownership overrides on top of the classified
+  // partition. Cheap (a copy + linear scan per edited color), so it re-runs on
+  // every stroke without touching the expensive LAB classification above.
+  // Edits are stored in transformed-image space — if the crop/rotation changed
+  // since they were painted they'd land in the wrong place, so they're skipped
+  // (not cleared) until the geometry matches again.
+  const editedLabels = useMemo(() => {
+    if (!spotLabels) return null
+    if (!editMasks || editMasks.size === 0) return spotLabels
+    if (editMasksKey && editMasksKey !== transformKeyOf(transformSettings)) return spotLabels
+    return applyLabelEdits(spotLabels, editMasks, spotSettings.colors)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spotLabels, editMasks, editMasksKey, editsVersion, transformSettings, spotSettings.colors])
+
   // Build per-color channels from the partition, applying joint smoothing.
   // Cheap relative to classification, so retuning smoothing doesn't re-run LAB.
   // Signature of only the render-mode field (mirrors spotSeparationKey above) —
@@ -181,32 +205,32 @@ export function useHalftonePreview(
   const spotRenderModeSig = spotSettings.colors.map(c => `${c.id}:${c.renderMode}`).join('|')
 
   const spotChannels = useMemo(() => {
-    if (!spotLabels) return null
+    if (!editedLabels) return null
     const reachPx = (spotSettings.buildupReachInches ?? 0) > 0 && transformed
       ? Math.max(1, Math.round(spotSettings.buildupReachInches! * (transformed.width / Math.max(0.01, outputSettings.widthInches))))
       : 0
     const halftoneIds = new Set(
       spotSettings.colors.filter(c => c.renderMode === 'halftone' && c.type !== 'background').map(c => c.id),
     )
-    return buildSpotChannels(spotLabels, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', reachPx, halftoneIds, spotSettings.manualOrder ?? false)
+    return buildSpotChannels(editedLabels, (spotSettings.smoothing ?? 0) / 100, spotSettings.separationMode ?? 'knockout', reachPx, halftoneIds, spotSettings.manualOrder ?? false)
     // spotRenderModeSig stands in for spotSettings.colors' renderMode field —
     // full spotSettings.colors is not a dep (see spotSeparationKey comment).
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spotLabels, spotSettings.smoothing, spotSettings.separationMode, spotSettings.buildupReachInches,
+  }, [editedLabels, spotSettings.smoothing, spotSettings.separationMode, spotSettings.buildupReachInches,
       transformed, outputSettings.widthInches, spotRenderModeSig, spotSettings.manualOrder])
 
   // Underbase plate (source resolution) — union of inked area, choked. Extracted
   // per frame and composited under the colors.
   const underbaseCanvas = useMemo(() => {
-    if (!spotLabels || !transformed || !spotSettings.underbase?.enabled) return null
+    if (!editedLabels || !transformed || !spotSettings.underbase?.enabled) return null
     const pxPerInch = transformed.width / Math.max(0.01, outputSettings.widthInches)
     const chokePx = Math.round((spotSettings.underbase.chokeInches ?? 0) * pxPerInch)
-    const data = buildUnderbaseChannel(spotLabels, chokePx)
+    const data = buildUnderbaseChannel(editedLabels, chokePx)
     const c = document.createElement('canvas')
     c.width = data.width; c.height = data.height
     c.getContext('2d')!.putImageData(data, 0, 0)
     return c
-  }, [spotLabels, transformed, spotSettings.underbase?.enabled, spotSettings.underbase?.chokeInches, outputSettings.widthInches])
+  }, [editedLabels, transformed, spotSettings.underbase?.enabled, spotSettings.underbase?.chokeInches, outputSettings.widthInches])
 
   // ── Key-plate knockout masks ───────────────────────────────────────────────
   //
@@ -215,27 +239,27 @@ export function useHalftonePreview(
   // (mirrors underbaseCanvas), extracted to the viewport per frame.
 
   const keyDotsKnockoutCanvas = useMemo(() => {
-    if (halftoneSettings.colorMode !== 'spot' || !spotSettings.key?.enabled || !spotLabels || !transformed) return null
+    if (halftoneSettings.colorMode !== 'spot' || !spotSettings.key?.enabled || !editedLabels || !transformed) return null
     const excluded = spotSettings.colors.filter(c => c.enabled && c.keyDots === false)
     const ids = excluded.map(c => c.id)
     const smoothing = (spotSettings.smoothing ?? 0) / 100
     const maxTrap = excluded.reduce((m, c) => Math.max(m, c.trap ?? spotSettings.trap ?? 0), 0)
     // Pad (in output px) covers the AA rim + vectorize deviation (~3px) plus trap;
-    // converted to source-resolution px since spotLabels is at source resolution.
+    // converted to source-resolution px since editedLabels is at source resolution.
     const padOut = excluded.length ? 3 + maxTrap : 0
     const scale = (transformed.width / outputSettings.widthInches) / outputSettings.dpi
     const padSrc = padOut > 0 ? Math.max(1, Math.round(padOut * scale)) : 0
-    const mask = buildOwnershipMask(spotLabels, ids, { smoothing, padPx: padSrc })
+    const mask = buildOwnershipMask(editedLabels, ids, { smoothing, padPx: padSrc })
     if (!mask) return null
     const c = document.createElement('canvas')
     c.width = mask.width; c.height = mask.height
     c.getContext('2d')!.putImageData(mask, 0, 0)
     return c
-  }, [spotLabels, transformed, spotSettings.colors, spotSettings.key, spotSettings.smoothing, spotSettings.trap,
+  }, [editedLabels, transformed, spotSettings.colors, spotSettings.key, spotSettings.smoothing, spotSettings.trap,
       halftoneSettings.colorMode, outputSettings.widthInches, outputSettings.dpi])
 
   const keyStrokeKnockoutCanvas = useMemo(() => {
-    if (halftoneSettings.colorMode !== 'spot' || !spotSettings.key?.enabled || !spotLabels || !transformed) return null
+    if (halftoneSettings.colorMode !== 'spot' || !spotSettings.key?.enabled || !editedLabels || !transformed) return null
     const excluded = spotSettings.colors.filter(c => c.enabled && c.keyStroke === false)
     const ids = excluded.map(c => c.id)
     const smoothing = (spotSettings.smoothing ?? 0) / 100
@@ -245,13 +269,13 @@ export function useHalftonePreview(
     const padOut = excluded.length ? 3 + maxTrap + (spotSettings.key?.strokeWidth ?? 2) + 1 : 0
     const scale = (transformed.width / outputSettings.widthInches) / outputSettings.dpi
     const padSrc = padOut > 0 ? Math.max(1, Math.round(padOut * scale)) : 0
-    const mask = buildOwnershipMask(spotLabels, ids, { smoothing, padPx: padSrc })
+    const mask = buildOwnershipMask(editedLabels, ids, { smoothing, padPx: padSrc })
     if (!mask) return null
     const c = document.createElement('canvas')
     c.width = mask.width; c.height = mask.height
     c.getContext('2d')!.putImageData(mask, 0, 0)
     return c
-  }, [spotLabels, transformed, spotSettings.colors, spotSettings.key, spotSettings.smoothing, spotSettings.trap,
+  }, [editedLabels, transformed, spotSettings.colors, spotSettings.key, spotSettings.smoothing, spotSettings.trap,
       halftoneSettings.colorMode, outputSettings.widthInches, outputSettings.dpi])
 
   // ── Spot channel canvases ──────────────────────────────────────────────────
@@ -458,6 +482,33 @@ export function useHalftonePreview(
       } else {
         const chData = rendered[channelView as string]
         if (chData) offCtx.putImageData(chData, 0, 0)
+      }
+
+    } else if (halftoneSettings.colorMode === 'spot' && editingColorId) {
+      // Layer edit mode: isolate the edited plate — render it alone,
+      // black-on-white, matching how it normally renders so what's painted is
+      // what exports. Substrate, underbase, other colors, and the key plate
+      // are all hidden while editing so paint/erase feedback is unambiguous.
+      const buildup = spotSettings.separationMode === 'buildup'
+      const chCanvas = spotChannelCanvases?.get(editingColorId)
+      offCtx.fillStyle = '#ffffff'
+      offCtx.fillRect(0, 0, canvasW, canvasH)
+      if (chCanvas) {
+        const color = spotSettings.colors.find(c => c.id === editingColorId)
+        const region = extractRegionFromCanvas(chCanvas, srcX, srcY, srcW, srcH, canvasW, canvasH, '#ffffff')
+        const bw = document.createElement('canvas')
+        bw.width = canvasW; bw.height = canvasH
+        const bwCtx = bw.getContext('2d')!
+        if (color && color.renderMode !== 'flat' && !buildup) {
+          renderHalftone(bwCtx, {
+            source: region,
+            settings: { ...halftoneSettings, angle: color.angle, lpi: color.lpi, fgColor: '#000000', bgColor: '#ffffff' },
+            renderDpi, radialCenter, outputDpi: outputSettings.dpi,
+          })
+        } else {
+          renderFlat(bwCtx, region, color?.threshold ?? 0.5)
+        }
+        offCtx.drawImage(bw, 0, 0)
       }
 
     } else if (halftoneSettings.colorMode === 'spot') {
@@ -739,6 +790,7 @@ export function useHalftonePreview(
     spotChannelCanvases, flatVectorPaths, alphaOutlineCanvas, keyEdgeCanvas, underbaseCanvas,
     keyDotsKnockoutCanvas, keyStrokeKnockoutCanvas,
     maskOverlayCanvas, maskStrokeCanvas,
+    editingColorId, editMasks, editMasksKey, editsVersion,
     halftoneSettings, cmykSettings, channelView, outputSettings, viewport,
   ])
 

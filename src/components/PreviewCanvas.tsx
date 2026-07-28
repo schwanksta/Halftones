@@ -8,6 +8,7 @@ import { useHalftonePreview } from '../hooks/useHalftonePreview'
 import { useCanvasTransform } from '../hooks/useCanvasTransform'
 import { CropOverlay } from './CropOverlay'
 import { rgbToLab } from '../engine/spot-separation'
+import type { EditMasks } from '../engine/layer-edits'
 
 interface Props {
   source: SourceImage | null
@@ -27,6 +28,17 @@ interface Props {
   transformedImageData?: ImageData | null
   mask?: MaskImage | null
   maskSettings?: MaskSettings
+  /** Layer edit mode: the spot color currently being painted, or null/undefined when off. */
+  editingColorId?: string | null
+  /** Brush diameter in source-space pixels. */
+  editBrushPx?: number
+  /** Paint (false) or erase (true) — which the brush applies on this stroke. */
+  editErase?: boolean
+  /** Called once, on pointer-up, with the full stroke's source-space points. */
+  onPaintStroke?: (pts: { x: number; y: number }[], brushPx: number, erase: boolean) => void
+  editMasks?: EditMasks
+  editMasksKey?: string | null
+  editsVersion?: number
 }
 
 export function PreviewCanvas({
@@ -35,6 +47,8 @@ export function PreviewCanvas({
   onImageLoad, onTransformChange,
   seedPickingActive, onSeedPick, transformedImageData,
   mask, maskSettings,
+  editingColorId, editBrushPx, editErase, onPaintStroke,
+  editMasks, editMasksKey, editsVersion,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -51,15 +65,102 @@ export function PreviewCanvas({
   const viewportW = source?.width ?? 0
   const viewportH = source?.height ?? 0
 
-  const { viewport, fitToView, zoomTo } = useCanvasTransform(containerRef, viewportW, viewportH)
+  const isEditing = !!editingColorId
+
+  const { viewport, fitToView, zoomTo } = useCanvasTransform(containerRef, viewportW, viewportH, isEditing)
+
+  // ── Layer edit mode: paint/erase stroke tracking ──────────────────────────
+  // Points are collected in source-space (same mapping the seed-picker uses).
+  // Immediate feedback is drawn straight onto the visible canvas so painting
+  // feels live without re-running the (expensive) separation on every move —
+  // the real re-render arrives once onPaintStroke updates the edit mask and
+  // flows back through props.
+  const paintStrokeRef = useRef<{ x: number; y: number }[] | null>(null)
+  const lastFeedbackRef = useRef<{ x: number; y: number } | null>(null)
+
+  const toSourcePoint = useCallback((clientX: number, clientY: number) => {
+    const canvas = canvasRef.current
+    if (!canvas) return null
+    const rect = canvas.getBoundingClientRect()
+    const canvasX = clientX - rect.left
+    const canvasY = clientY - rect.top
+    return {
+      x: viewport.panX + canvasX / viewport.zoom,
+      y: viewport.panY + canvasY / viewport.zoom,
+      canvasX, canvasY,
+    }
+  }, [viewport])
+
+  const drawFeedbackDot = useCallback((canvasX: number, canvasY: number) => {
+    const ctx = canvasRef.current?.getContext('2d')
+    if (!ctx) return
+    const brushPx = editBrushPx ?? 24
+    const r = (brushPx * viewport.zoom) / 2
+    ctx.fillStyle = editErase ? '#ffffff' : '#000000'
+    ctx.beginPath()
+    ctx.arc(canvasX, canvasY, Math.max(0.5, r), 0, Math.PI * 2)
+    ctx.fill()
+  }, [editBrushPx, editErase, viewport.zoom])
+
+  const drawFeedbackSegment = useCallback((x1: number, y1: number, x2: number, y2: number) => {
+    const ctx = canvasRef.current?.getContext('2d')
+    if (!ctx) return
+    const brushPx = editBrushPx ?? 24
+    ctx.strokeStyle = editErase ? '#ffffff' : '#000000'
+    ctx.lineWidth = Math.max(1, brushPx * viewport.zoom)
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.beginPath()
+    ctx.moveTo(x1, y1)
+    ctx.lineTo(x2, y2)
+    ctx.stroke()
+  }, [editBrushPx, editErase, viewport.zoom])
+
+  const handlePaintMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!isEditing) return
+    const p = toSourcePoint(e.clientX, e.clientY)
+    if (!p) return
+    e.preventDefault()
+    paintStrokeRef.current = [{ x: p.x, y: p.y }]
+    lastFeedbackRef.current = { x: p.canvasX, y: p.canvasY }
+    drawFeedbackDot(p.canvasX, p.canvasY)
+  }, [isEditing, toSourcePoint, drawFeedbackDot])
+
+  // Window-level listeners so a stroke survives the pointer leaving the canvas.
+  useEffect(() => {
+    if (!isEditing) return
+    const onMove = (e: MouseEvent) => {
+      if (!paintStrokeRef.current) return
+      const p = toSourcePoint(e.clientX, e.clientY)
+      if (!p) return
+      paintStrokeRef.current.push({ x: p.x, y: p.y })
+      const last = lastFeedbackRef.current
+      if (last) drawFeedbackSegment(last.x, last.y, p.canvasX, p.canvasY)
+      lastFeedbackRef.current = { x: p.canvasX, y: p.canvasY }
+    }
+    const onUp = () => {
+      const pts = paintStrokeRef.current
+      paintStrokeRef.current = null
+      lastFeedbackRef.current = null
+      if (pts && pts.length > 0) {
+        onPaintStroke?.(pts, editBrushPx ?? 24, editErase ?? false)
+      }
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [isEditing, toSourcePoint, drawFeedbackSegment, onPaintStroke, editBrushPx, editErase])
 
   const handleSeedMouseDown = useCallback((e: React.MouseEvent) => {
-    if (!seedPickingActive) return
+    if (isEditing || !seedPickingActive) return
     seedMouseDown.current = { x: e.clientX, y: e.clientY }
-  }, [seedPickingActive])
+  }, [isEditing, seedPickingActive])
 
   const handleSeedMouseUp = useCallback((e: React.MouseEvent) => {
-    if (!seedPickingActive || !onSeedPick || !transformedImageData || !seedMouseDown.current) return
+    if (isEditing || !seedPickingActive || !onSeedPick || !transformedImageData || !seedMouseDown.current) return
     const dx = e.clientX - seedMouseDown.current.x
     const dy = e.clientY - seedMouseDown.current.y
     seedMouseDown.current = null
@@ -79,7 +180,7 @@ export function PreviewCanvas({
       transformedImageData.data[idx + 1],
       transformedImageData.data[idx + 2],
     ))
-  }, [seedPickingActive, onSeedPick, transformedImageData, viewport])
+  }, [isEditing, seedPickingActive, onSeedPick, transformedImageData, viewport])
 
   // Compute post-transform image dimensions (fast arithmetic, no canvas ops).
   // Needed to position the crop overlay handles correctly.
@@ -155,6 +256,10 @@ export function PreviewCanvas({
     viewport,
     mask: mask ?? null,
     maskSettings,
+    editMasks,
+    editMasksKey,
+    editingColorId,
+    editsVersion,
   })
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
@@ -195,15 +300,17 @@ export function PreviewCanvas({
       className="preview-area"
       ref={containerRef}
       style={{
-        cursor: seedPickingActive ? 'cell' : source ? 'crosshair' : 'default',
-        outline: seedPickingActive
+        cursor: isEditing ? 'crosshair' : seedPickingActive ? 'cell' : source ? 'crosshair' : 'default',
+        outline: isEditing
+          ? '2px solid var(--accent)'
+          : seedPickingActive
           ? '2px solid var(--accent)'
           : dragOver ? '2px dashed var(--accent)' : undefined,
       }}
       onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
-      onMouseDown={handleSeedMouseDown}
+      onMouseDown={isEditing ? handlePaintMouseDown : handleSeedMouseDown}
       onMouseUp={handleSeedMouseUp}
     >
       <canvas

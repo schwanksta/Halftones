@@ -12,6 +12,7 @@ import { useAppShell } from './hooks/useAppShell'
 import { useUndoHistory } from './hooks/useUndoHistory'
 import { platform, isTauri } from './platform'
 import { applyTransforms } from './engine/transform'
+import { EditMasks, transformKeyOf } from './engine/layer-edits'
 import {
   SourceImage,
   HalftoneSettings,
@@ -88,6 +89,26 @@ function App() {
   const handleMaskClear = useCallback(() => {
     setMask(null)
     setMaskSettings(DEFAULT_MASK_SETTINGS)
+  }, [])
+
+  // ── Layer edit mode (spot mode only) ──────────────────────────────────────
+  // Per-color paint/erase masks live in a ref (canvases are too large/mutable
+  // for state) — editsVersion is bumped to force dependent memos/effects to
+  // re-evaluate whenever a stroke mutates a mask canvas in place.
+  const editMasksRef = useRef<EditMasks>(new Map())
+  const [editsVersion, setEditsVersion] = useState(0)
+  const [editingColorId, setEditingColorId] = useState<string | null>(null)
+  const [editBrushPx, setEditBrushPx] = useState(24)
+  const [editErase, setEditErase] = useState(false)
+  // The transformKeyOf() the masks were painted against; stamped on the first
+  // edit and compared against the live transform to detect staleness.
+  const [editMasksKey, setEditMasksKey] = useState<string | null>(null)
+
+  /** Replace the layer-edit masks wholesale (project load) — mirrors setMask. */
+  const setLayerEdits = useCallback((masks: EditMasks, key: string | null) => {
+    editMasksRef.current = masks
+    setEditMasksKey(key)
+    setEditsVersion((v) => v + 1)
   }, [])
 
   const { save, load, remove, projectNames, lastProjectName } = useProjectPersistence()
@@ -252,6 +273,9 @@ function App() {
     showToast,
     mask,
     setMask,
+    editMasks: editMasksRef.current,
+    editMasksKey,
+    setLayerEdits,
     replaceSource: handleReplaceSource,
   })
 
@@ -376,6 +400,67 @@ function App() {
     return applyTransforms(source.imageData, transformSettings)
   }, [source, transformSettings])
 
+  // ── Layer edit mode: commit a stroke into the editing color's mask canvas ──
+  // Called once per stroke (on pointer-up), never per mouse-move — the
+  // separation is expensive, and the preview's local canvas feedback already
+  // gives live painting feedback without touching it.
+  const handlePaintStroke = useCallback((pts: { x: number; y: number }[], brushPx: number, erase: boolean) => {
+    if (!transformedImageData || !editingColorId) return
+    const masks = editMasksRef.current
+    let canvas = masks.get(editingColorId)
+    if (!canvas) {
+      canvas = document.createElement('canvas')
+      canvas.width = transformedImageData.width
+      canvas.height = transformedImageData.height
+      masks.set(editingColorId, canvas)
+    }
+    const ctx = canvas.getContext('2d')!
+    // IMPORTANT: erase must write OPAQUE WHITE (force paper), not clear to
+    // transparent — transparent means "untouched" and falls through to the
+    // underlying separation, not "no ink".
+    ctx.globalCompositeOperation = 'source-over'
+    ctx.strokeStyle = erase ? '#ffffff' : '#000000'
+    ctx.fillStyle = erase ? '#ffffff' : '#000000'
+    ctx.lineWidth = brushPx
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    if (pts.length < 2) {
+      // Single-point tap — draw a dot so a click without drag still paints.
+      const p = pts[0] ?? { x: 0, y: 0 }
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, brushPx / 2, 0, Math.PI * 2)
+      ctx.fill()
+    } else {
+      ctx.beginPath()
+      ctx.moveTo(pts[0].x, pts[0].y)
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y)
+      ctx.stroke()
+    }
+
+    // Stamp the geometry signature on the first edit only — later edits keep
+    // painting into the same space until the user clears or the crop/rotation
+    // changes underneath them (which the UI flags as stale, see editsStale).
+    setEditMasksKey((prev) => prev ?? transformKeyOf(transformSettings))
+    setEditsVersion((v) => v + 1)
+    markDirty()
+  }, [transformedImageData, editingColorId, transformSettings, markDirty])
+
+  /** Discard a color's paint/erase edits entirely (the escape hatch — no undo for painting). */
+  const clearLayerEdits = useCallback((colorId: string) => {
+    if (!editMasksRef.current.delete(colorId)) return
+    if (editMasksRef.current.size === 0) setEditMasksKey(null)
+    setEditsVersion((v) => v + 1)
+    markDirty()
+  }, [markDirty])
+
+  const hasLayerEdits = useCallback((colorId: string) => editMasksRef.current.has(colorId), [editsVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const editsStale = editMasksKey !== null && editMasksKey !== transformKeyOf(transformSettings)
+
+  const handleToggleEdit = useCallback((colorId: string) => {
+    setEditingColorId((cur) => (cur === colorId ? null : colorId))
+  }, [])
+
   // Use the TRANSFORMED image's actual aspect ratio so that OutputControls'
   // aspect-ratio lock uses the post-crop/rotation dimensions.  The raw
   // source AR (source.width / source.height) ignores crop and rotation, so
@@ -437,6 +522,15 @@ function App() {
           onClearSeeds={() => setSeedColors([])}
           seedPickingActive={seedPickingActive}
           onToggleSeedPicking={() => setSeedPickingActive(v => !v)}
+          editingColorId={editingColorId}
+          onToggleEdit={handleToggleEdit}
+          editBrushPx={editBrushPx}
+          onBrushPxChange={setEditBrushPx}
+          editErase={editErase}
+          onEraseChange={setEditErase}
+          hasEdits={hasLayerEdits}
+          onClearEdits={clearLayerEdits}
+          editsStale={editsStale}
         />
         <PreviewCanvas
           source={source}
@@ -453,6 +547,13 @@ function App() {
           transformedImageData={transformedImageData}
           mask={mask}
           maskSettings={maskSettings}
+          editingColorId={editingColorId}
+          editBrushPx={editBrushPx}
+          editErase={editErase}
+          onPaintStroke={handlePaintStroke}
+          editMasks={editMasksRef.current}
+          editMasksKey={editMasksKey}
+          editsVersion={editsVersion}
         />
       </div>
     </div>

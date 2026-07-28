@@ -22,6 +22,12 @@ interface ProjectJsonV2 {
    * Absent = no mask stored.
    */
   maskFileName?: string
+  /**
+   * Layer edit mode: transformKeyOf() geometry signature the edit masks
+   * (stored as edits/<colorId>.png in the zip) were painted against.
+   * Purely additive — absent in files with no layer edits.
+   */
+  layerEditsKey?: string
 }
 
 const RECOGNIZED_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp'])
@@ -108,6 +114,7 @@ export async function packHalftonesFile(
     settings: project.settings,
     maskSettings: project.settings.mask,
     maskFileName: project.mask?.fileName,
+    layerEditsKey: project.layerEditsKey,
   }
 
   const zip = new JSZip()
@@ -123,6 +130,13 @@ export async function packHalftonesFile(
   // Store thumbnail if present (purely additive; old readers ignore it)
   if (project.thumbnail?.length) {
     zip.file('thumbnail.png', project.thumbnail)
+  }
+
+  // Store layer edit masks if present (purely additive; old readers ignore them)
+  if (project.layerEdits?.length) {
+    for (const edit of project.layerEdits) {
+      zip.file(`edits/${edit.colorId}.png`, edit.bytes)
+    }
   }
 
   return zip.generateAsync({
@@ -195,6 +209,19 @@ export async function unpackHalftonesFile(bytes: Uint8Array): Promise<ProjectFil
     thumbnail = await thumbFile.async('uint8array')
   }
 
+  // 6. Find edits/<colorId>.png entries (optional — absent in files with no layer edits)
+  const editEntries = Object.keys(zip.files).filter(
+    (name) => /^edits\/[^/]+\.png$/.test(name) && !zip.files[name].dir,
+  )
+  let layerEdits: { colorId: string; bytes: Uint8Array }[] | undefined
+  if (editEntries.length > 0) {
+    layerEdits = await Promise.all(editEntries.map(async (name) => {
+      const colorId = name.slice('edits/'.length, -'.png'.length)
+      const bytes = await zip.files[name].async('uint8array')
+      return { colorId, bytes }
+    }))
+  }
+
   // Merge maskSettings back into the AllSettings object so callers get a
   // unified AllSettings that includes the mask toggle state.
   const settings: AllSettings = {
@@ -208,5 +235,7 @@ export async function unpackHalftonesFile(bytes: Uint8Array): Promise<ProjectFil
     image: { bytes: imageBytes, fileName: imageFileName },
     mask: maskData,
     thumbnail,
+    layerEdits,
+    layerEditsKey: migrated.layerEditsKey,
   }
 }

@@ -4,6 +4,28 @@ import { AllSettings, ProjectFile } from '../platform/types'
 import { SourceImage, DEFAULT_TRANSFORM_SETTINGS, DEFAULT_OUTPUT_SETTINGS, MaskImage } from '../types'
 import { loadMaskFromBytes } from '../engine/mask'
 import { generateThumbnail } from '../engine/export'
+import { EditMasks } from '../engine/layer-edits'
+
+/** Decode raw PNG bytes (a layer edit mask) into a canvas — same approach as decodeImageBytes below. */
+async function decodeMaskCanvas(bytes: Uint8Array): Promise<HTMLCanvasElement> {
+  const blob = new Blob([bytes])
+  const url = URL.createObjectURL(blob)
+  try {
+    const img = new Image()
+    await new Promise<void>((res, rej) => {
+      img.onload = () => res()
+      img.onerror = () => rej(new Error('decode failed'))
+      img.src = url
+    })
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
+    canvas.getContext('2d')!.drawImage(img, 0, 0)
+    return canvas
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
 
 /** Decode raw image bytes (from a dialog or drop) into a SourceImage. */
 async function decodeImageBytes(loaded: { bytes: Uint8Array; fileName: string }): Promise<SourceImage> {
@@ -45,6 +67,12 @@ interface AppShellDeps {
   mask: MaskImage | null
   /** Called after loading a .halftones file that contains a mask image. */
   setMask: (m: MaskImage | null) => void
+  /** Current layer-edit masks (layer edit mode) — included when packing a .halftones file. */
+  editMasks: EditMasks
+  /** The transformKeyOf() geometry the current edit masks were painted against. */
+  editMasksKey: string | null
+  /** Called after loading a .halftones file — replaces the current layer-edit masks wholesale. */
+  setLayerEdits: (masks: EditMasks, key: string | null) => void
   /**
    * Swap the source image in place, keeping all settings (File → Replace
    * Image…). Unlike setSource via a normal load, the implementation must
@@ -76,6 +104,21 @@ export function useAppShell(deps: AppShellDeps) {
     if (deps.mask?.rawBytes?.length) {
       pf.mask = { bytes: deps.mask.rawBytes, fileName: deps.mask.fileName }
     }
+    // Layer edit masks: encode each color's edit canvas to PNG bytes.
+    if (deps.editMasks.size > 0) {
+      const encoded = await Promise.all(
+        Array.from(deps.editMasks.entries()).map(async ([colorId, canvas]) => {
+          const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+          const bytes = blob ? new Uint8Array(await blob.arrayBuffer()) : new Uint8Array(0)
+          return { colorId, bytes }
+        }),
+      )
+      const layerEdits = encoded.filter((e) => e.bytes.length > 0)
+      if (layerEdits.length > 0) {
+        pf.layerEdits = layerEdits
+        if (deps.editMasksKey) pf.layerEditsKey = deps.editMasksKey
+      }
+    }
     // Generate thumbnail for the saved file (Finder icon + zip preview).
     // Never blocks the save — generateThumbnail returns null on failure.
     const thumbnail = await generateThumbnail({
@@ -91,7 +134,7 @@ export function useAppShell(deps: AppShellDeps) {
     })
     if (thumbnail) pf.thumbnail = thumbnail
     return pf
-  }, [deps.source, deps.projectName, deps.gatherSettings, deps.mask])
+  }, [deps.source, deps.projectName, deps.gatherSettings, deps.mask, deps.editMasks, deps.editMasksKey])
 
   const saveAs = useCallback(async () => {
     const pf = await gatherProjectFile()
@@ -164,6 +207,22 @@ export function useAppShell(deps: AppShellDeps) {
       }
     } else {
       deps.setMask(null)
+    }
+
+    // Restore layer edit masks if present in the project file.
+    if (pf.layerEdits?.length) {
+      try {
+        const masks: EditMasks = new Map()
+        await Promise.all(pf.layerEdits.map(async (e) => {
+          masks.set(e.colorId, await decodeMaskCanvas(e.bytes))
+        }))
+        deps.setLayerEdits(masks, pf.layerEditsKey ?? null)
+      } catch (e) {
+        console.warn('Failed to decode layer edit masks from project file:', e)
+        deps.setLayerEdits(new Map(), null)
+      }
+    } else {
+      deps.setLayerEdits(new Map(), null)
     }
 
     setCurrentPath(path)

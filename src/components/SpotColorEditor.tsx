@@ -16,11 +16,24 @@ interface Props {
   onClearSeeds: () => void
   seedPickingActive: boolean
   onToggleSeedPicking: () => void
+  /** Layer edit mode: id of the color currently being painted, or null. */
+  editingColorId: string | null
+  onToggleEdit: (colorId: string) => void
+  editBrushPx: number
+  onBrushPxChange: (px: number) => void
+  editErase: boolean
+  onEraseChange: (erase: boolean) => void
+  hasEdits: (colorId: string) => boolean
+  onClearEdits: (colorId: string) => void
+  /** True when edits exist but were painted at a crop/rotation that no longer matches. */
+  editsStale: boolean
 }
 
 export function SpotColorEditor({
   settings, onChange, sourceImageData, defaultLpi, disabled,
   seedColors, onClearSeeds, seedPickingActive, onToggleSeedPicking,
+  editingColorId, onToggleEdit, editBrushPx, onBrushPxChange, editErase, onEraseChange,
+  hasEdits, onClearEdits, editsStale,
 }: Props) {
   const [extracting, setExtracting] = useState(false)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
@@ -202,6 +215,15 @@ export function SpotColorEditor({
   return (
     <div className="control-section">
       <h3 className="section-title">Spot Colors</h3>
+
+      {editingColorId && (() => {
+        const editingColor = settings.colors.find(c => c.id === editingColorId)
+        return editingColor ? (
+          <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '0 0 8px', fontStyle: 'italic' }}>
+            Editing {editingColor.name} — other layers hidden
+          </p>
+        ) : null
+      })()}
 
       {/* Extract controls */}
       <div className="control-row">
@@ -408,6 +430,15 @@ export function SpotColorEditor({
           onGripDown={() => setDragIdx(idx)}
           isDropTarget={overIdx === idx && dragIdx !== null && dragIdx !== idx}
           isDragging={dragIdx === idx}
+          isEditing={editingColorId === color.id}
+          onToggleEdit={() => onToggleEdit(color.id)}
+          editBrushPx={editBrushPx}
+          onBrushPxChange={onBrushPxChange}
+          editErase={editErase}
+          onEraseChange={onEraseChange}
+          hasEdits={hasEdits(color.id)}
+          onClearEdits={() => onClearEdits(color.id)}
+          editsStale={editsStale}
         />
       ))}
 
@@ -880,11 +911,23 @@ interface RowProps {
   isDropTarget: boolean
   /** True while THIS row is the one being dragged. */
   isDragging: boolean
+  /** Layer edit mode — true while this row's plate is the one being painted. */
+  isEditing: boolean
+  onToggleEdit: () => void
+  editBrushPx: number
+  onBrushPxChange: (px: number) => void
+  editErase: boolean
+  onEraseChange: (erase: boolean) => void
+  hasEdits: boolean
+  onClearEdits: () => void
+  editsStale: boolean
 }
 
 function SpotColorRow({
   color, index, disabled, globalTrap, globalSmooth, allColors, mergeOptions, keyEnabled, keyStrokeEnabled,
   onChange, onRemove, onGripDown, isDropTarget, isDragging,
+  isEditing, onToggleEdit, editBrushPx, onBrushPxChange, editErase, onEraseChange,
+  hasEdits, onClearEdits, editsStale,
 }: RowProps) {
   const [expanded, setExpanded] = useState(false)
   const [hexDraft, setHexDraft] = useState(color.hex)
@@ -1274,6 +1317,95 @@ function SpotColorRow({
                 disabled={disabled}
               />
             </label>
+          )}
+
+          {/* Layer edit mode — brush paint/erase this plate's ownership directly.
+              Not offered for background layers (alpha-derived, not LAB-owned). */}
+          {color.type !== 'background' && (
+            <div style={{ marginTop: 4, borderTop: '1px solid var(--border)', paddingTop: 4 }}>
+              <div className="control-row" style={{ gap: 8 }}>
+                <button
+                  onClick={onToggleEdit}
+                  disabled={disabled}
+                  title="Brush paint/erase this color's ownership directly — isolates the plate while editing"
+                  style={{
+                    flex: 1,
+                    padding: '3px 8px',
+                    fontSize: 11,
+                    borderRadius: 4,
+                    border: '1px solid var(--border)',
+                    background: isEditing ? 'var(--accent)' : 'var(--bg-primary)',
+                    color: isEditing ? '#fff' : 'var(--text-primary)',
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    fontWeight: isEditing ? 600 : 400,
+                  }}
+                >
+                  {isEditing ? '✎ Editing…' : '✎ Edit layer'}
+                </button>
+                {hasEdits && (
+                  <button
+                    onClick={onClearEdits}
+                    disabled={disabled}
+                    title="Discard all paint/erase edits for this color"
+                    style={{
+                      padding: '3px 8px',
+                      fontSize: 11,
+                      borderRadius: 4,
+                      border: '1px solid var(--border)',
+                      background: 'none',
+                      color: 'var(--text-secondary)',
+                      cursor: disabled ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    Clear edits
+                  </button>
+                )}
+              </div>
+
+              {isEditing && (
+                <>
+                  <div className="control-row" style={{ gap: 8 }}>
+                    <span>Mode</span>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {([{ label: 'Paint', erase: false }, { label: 'Erase', erase: true }] as const).map((opt) => (
+                        <button
+                          key={opt.label}
+                          onClick={() => onEraseChange(opt.erase)}
+                          disabled={disabled}
+                          style={{
+                            padding: '3px 8px',
+                            fontSize: 11,
+                            borderRadius: 4,
+                            border: '1px solid var(--border)',
+                            background: editErase === opt.erase ? 'var(--accent)' : 'var(--bg-primary)',
+                            color: editErase === opt.erase ? '#fff' : 'var(--text-primary)',
+                            cursor: 'pointer',
+                            fontWeight: editErase === opt.erase ? 600 : 400,
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="control-row">
+                    <span>Brush <EditableValue value={editBrushPx} min={4} max={200} step={1} suffix="px" onChange={onBrushPxChange} /></span>
+                    <input
+                      type="range" min={4} max={200} step={1}
+                      value={editBrushPx}
+                      onChange={(e) => onBrushPxChange(Number(e.target.value))}
+                      disabled={disabled}
+                    />
+                  </div>
+                </>
+              )}
+
+              {hasEdits && editsStale && (
+                <div style={{ fontSize: 10, color: 'var(--warning, #d99a2b)', marginTop: 2 }}>
+                  ⚠ Painted at a different crop/rotation — edits are inactive. Restore the previous crop, or clear them.
+                </div>
+              )}
+            </div>
           )}
 
           {/* Remove button */}

@@ -32,6 +32,15 @@ interface Props {
   onClearSeeds: () => void
   seedPickingActive: boolean
   onToggleSeedPicking: () => void
+  editingColorId: string | null
+  onToggleEdit: (colorId: string) => void
+  editBrushPx: number
+  onBrushPxChange: (px: number) => void
+  editErase: boolean
+  onEraseChange: (erase: boolean) => void
+  hasEdits: (colorId: string) => boolean
+  onClearEdits: (colorId: string) => void
+  editsStale: boolean
 }
 
 export function ControlPanel({
@@ -59,6 +68,15 @@ export function ControlPanel({
   onClearSeeds,
   seedPickingActive,
   onToggleSeedPicking,
+  editingColorId,
+  onToggleEdit,
+  editBrushPx,
+  onBrushPxChange,
+  editErase,
+  onEraseChange,
+  hasEdits,
+  onClearEdits,
+  editsStale,
 }: Props) {
   return (
     <div className="sidebar">
@@ -87,6 +105,15 @@ export function ControlPanel({
           onClearSeeds={onClearSeeds}
           seedPickingActive={seedPickingActive}
           onToggleSeedPicking={onToggleSeedPicking}
+          editingColorId={editingColorId}
+          onToggleEdit={onToggleEdit}
+          editBrushPx={editBrushPx}
+          onBrushPxChange={onBrushPxChange}
+          editErase={editErase}
+          onEraseChange={onEraseChange}
+          hasEdits={hasEdits}
+          onClearEdits={onClearEdits}
+          editsStale={editsStale}
         />
       )}
       <TransformControls

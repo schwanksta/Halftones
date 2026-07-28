@@ -12,10 +12,16 @@ export function useCanvasTransform(
   containerRef: React.RefObject<HTMLElement | null>,
   outputWidth: number,
   outputHeight: number,
+  /** While true, mousedown on the container does not start a pan (e.g. layer edit mode is painting). */
+  disablePan = false,
 ) {
   const [viewport, setViewport] = useState<Viewport>({ zoom: 1, panX: 0, panY: 0 })
   const isPanning = useRef(false)
   const lastMouse = useRef({ x: 0, y: 0 })
+  // Ref mirror so handleMouseDown (empty deps, stable identity) always reads
+  // the latest value without forcing the event-listener effect to re-bind.
+  const disablePanRef = useRef(disablePan)
+  useEffect(() => { disablePanRef.current = disablePan }, [disablePan])
 
   /** Fit the full output image in the container, centered. */
   const fitToView = useCallback(() => {
@@ -72,6 +78,7 @@ export function useCanvasTransform(
 
   const handleMouseDown = useCallback((e: MouseEvent) => {
     if (e.button !== 0) return
+    if (disablePanRef.current) return
     // Don't start pan if the click landed on a crop handle
     if ((e.target as Element).closest?.('[data-crop-handle]')) return
     isPanning.current = true
