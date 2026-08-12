@@ -67,6 +67,16 @@ export function PreviewCanvas({
 
   const isEditing = !!editingColorId
 
+  // Brush ring cursor: container-relative position of the pointer while
+  // editing, so the ring can show the exact area the next stroke will cover.
+  const [brushCursor, setBrushCursor] = useState<{ x: number; y: number } | null>(null)
+
+  const handleBrushCursorMove = useCallback((e: React.MouseEvent) => {
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setBrushCursor({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+  }, [])
+
   const { viewport, fitToView, zoomTo } = useCanvasTransform(containerRef, viewportW, viewportH, isEditing)
 
   // ── Layer edit mode: paint/erase stroke tracking ──────────────────────────
@@ -300,7 +310,9 @@ export function PreviewCanvas({
       className="preview-area"
       ref={containerRef}
       style={{
-        cursor: isEditing ? 'crosshair' : seedPickingActive ? 'cell' : source ? 'crosshair' : 'default',
+        // While editing, the brush ring below IS the cursor — hide the system
+        // one so the ring alone shows exactly what the next stroke will cover.
+        cursor: isEditing ? 'none' : seedPickingActive ? 'cell' : source ? 'crosshair' : 'default',
         outline: isEditing
           ? '2px solid var(--accent)'
           : seedPickingActive
@@ -312,6 +324,9 @@ export function PreviewCanvas({
       onDrop={handleDrop}
       onMouseDown={isEditing ? handlePaintMouseDown : handleSeedMouseDown}
       onMouseUp={handleSeedMouseUp}
+      onMouseMove={isEditing ? handleBrushCursorMove : undefined}
+      onMouseEnter={isEditing ? handleBrushCursorMove : undefined}
+      onMouseLeave={isEditing ? () => setBrushCursor(null) : undefined}
     >
       <canvas
         ref={canvasRef}
@@ -322,6 +337,28 @@ export function PreviewCanvas({
           display: source ? 'block' : 'none',
         }}
       />
+
+      {/* Brush size ring. editBrushPx is in source pixels, so scale by zoom to
+          match what the stroke will actually cover on screen. Double-stroked
+          (dark under light) so it stays visible on both ink and paper. */}
+      {isEditing && brushCursor && (
+        <div
+          style={{
+            position: 'absolute',
+            left: brushCursor.x,
+            top: brushCursor.y,
+            width: Math.max(4, (editBrushPx ?? 24) * viewport.zoom),
+            height: Math.max(4, (editBrushPx ?? 24) * viewport.zoom),
+            transform: 'translate(-50%, -50%)',
+            borderRadius: '50%',
+            border: '1px solid rgba(255,255,255,0.95)',
+            outline: '1px solid rgba(0,0,0,0.65)',
+            boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.45)',
+            pointerEvents: 'none',
+            zIndex: 5,
+          }}
+        />
+      )}
 
       {source && (
         <CropOverlay
