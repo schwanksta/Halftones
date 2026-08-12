@@ -36,8 +36,13 @@ export function applyLabelEdits(ld: SpotLabelData, masks: EditMasks, colors: Spo
 
   const { width, height } = ld
   const labels = new Int32Array(ld.labels)
-  const values = new Uint8ClampedArray(ld.values)
   const n = width * height
+  // Painted pixels are flagged, NOT written into `values`. `values` is the
+  // tone shared by every plate: in build-up the lighter plates underneath read
+  // the same tone, so forcing it to full ink there would darken them beneath a
+  // painted area even where ownership never changed. buildSpotChannels applies
+  // this flag to the owning plate only.
+  const painted = ld.painted ? new Uint8Array(ld.painted) : new Uint8Array(n)
 
   for (const [colorId, canvas] of masks) {
     const color = colors.find(c => c.id === colorId)
@@ -55,14 +60,15 @@ export function applyLabelEdits(ld: SpotLabelData, masks: EditMasks, colors: Spo
       if (data[p + 3] < 128) continue   // untouched
       if (data[p] < 128) {
         labels[i] = idx
-        values[i] = 0
+        painted[i] = 1
       } else {
         labels[i] = -1
+        painted[i] = 0
       }
     }
   }
 
-  return { ...ld, labels, values }
+  return { ...ld, labels, painted }
 }
 
 /**

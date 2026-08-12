@@ -694,6 +694,14 @@ export interface SpotLabelData {
   labColorL: number[]
   /** Alpha-derived channels for background-type colors (not part of the partition). */
   backgroundChannels: Map<string, ImageData>
+  /**
+   * 1 where a pixel was hand-painted in layer edit mode. Forces full ink on the
+   * OWNING plate only — deliberately not folded into `values`, which is shared
+   * by every plate: in build-up the lighter plates read the same tone, so
+   * zeroing it there would darken them underneath a painted area even when
+   * ownership never changed.
+   */
+  painted?: Uint8Array
 }
 
 /**
@@ -834,7 +842,7 @@ export function buildSpotChannels(
   halftoneToneIds: ReadonlySet<string> = new Set(),
   manualOrder = false,
 ): Map<string, ImageData> {
-  const { width, height, values, labColorIds, labColorL, backgroundChannels } = ld
+  const { width, height, values, labColorIds, labColorL, backgroundChannels, painted } = ld
   const n = width * height
   const labels = smoothLabelField(ld.labels, width, height, labColorIds.length, smoothing)
   const nc = labColorIds.length
@@ -852,7 +860,13 @@ export function buildSpotChannels(
       const order = labColorIds.map((_, i) => i).sort((a, b) => labColorL[b] - labColorL[a])
       order.forEach((idx, pos) => { rank[idx] = pos })
     }
-    const inkValue = (k: number, i: number) => halftoneToneIds.has(labColorIds[k]) ? values[i] : 0
+    // `lab` is the pixel's owning plate. A hand-painted pixel goes to full ink
+    // on that plate only — plates printing UNDER it keep the image's own tone,
+    // so painting inside an area a color already owned leaves the layers
+    // beneath it completely unchanged.
+    const inkValue = (k: number, i: number, lab: number) =>
+      (k === lab && painted?.[i]) ? 0
+        : halftoneToneIds.has(labColorIds[k]) ? values[i] : 0
 
     if (buildupReachPx <= 0) {
       // Classic full flood: every lighter plate inks under every darker pixel.
@@ -862,7 +876,7 @@ export function buildSpotChannels(
         const ar = rank[lab]
         const p = i * 4
         for (let k = 0; k < nc; k++) {
-          if (rank[k] <= ar) { const v = inkValue(k, i); const b = bufs[k]; b[p] = v; b[p + 1] = v; b[p + 2] = v }
+          if (rank[k] <= ar) { const v = inkValue(k, i, lab); const b = bufs[k]; b[p] = v; b[p + 1] = v; b[p + 2] = v }
         }
       }
     } else {
@@ -874,7 +888,7 @@ export function buildSpotChannels(
         const lab = labels[i]
         if (lab < 0) continue
         const p = i * 4
-        const v = inkValue(lab, i)
+        const v = inkValue(lab, i, lab)
         const b = bufs[lab]
         b[p] = v; b[p + 1] = v; b[p + 2] = v
       }
@@ -903,7 +917,9 @@ export function buildSpotChannels(
           const lab = labels[i]
           if (lab < 0) continue                         // never into paper/unowned
           if (rank[lab] <= rk) continue                  // never under lighter/same-rank ink
-          const v = inkValue(k, i)
+          // k is strictly lighter than the owner here, so this is never the
+          // painted plate — the pixel's own tone is what should show through.
+          const v = inkValue(k, i, lab)
           bk[p] = v; bk[p + 1] = v; bk[p + 2] = v
         }
       }
@@ -912,7 +928,9 @@ export function buildSpotChannels(
     for (let i = 0; i < n; i++) {
       const lab = labels[i]
       if (lab < 0) continue
-      const v = values[i]
+      // Hand-painted pixels go to full ink; bufs[lab] is the owning plate, so
+      // this can only ever affect the layer that was painted.
+      const v = painted?.[i] ? 0 : values[i]
       const p = i * 4
       const b = bufs[lab]
       b[p] = v; b[p + 1] = v; b[p + 2] = v   // alpha already 255 from fill
