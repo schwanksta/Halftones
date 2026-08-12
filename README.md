@@ -29,7 +29,9 @@ Built with Claude for my own purposes, but perhaps it's useful to you as well.
 - **Despeckle** — jointly cleans up the color separation so adjacent layers never erode apart and leave paper showing through; low values remove stray specks, higher values smooth jagged boundaries
 - **Treat white as paper** — reserve near-white as bare paper so every extracted color is a real ink (no wasted white plate) and white areas knock out to paper; turn off for white ink on colored stock
 - **Background layer** — for transparent/cutout images, add a color plate covering exactly the transparent area, rendered flat or halftoned, with an adjustable **bleed** (as a percentage of the margin) that extends it out toward the trim edge (clipped at the trim so it never covers the crop marks)
-- **Merge plates onto one screen** — per-color (and key-plate) **merge with darkest color**, folding same-ink layers (e.g. a black background + black layer + key) onto a single screen instead of separate overprints
+- **Merge plates onto one screen** — every color (and the key plate) can pick the layer it merges into, folding same-ink layers (e.g. a black background + black layer + key) onto one screen instead of separate overprints. Choose a specific layer or **Last printed color**; chains resolve (A→B→C lands both on C), and a warning flags a target that isn't printed last, since anything printed after it covers the merged ink
+- **Layer order** — drag layers by the grip to set the print order; a merged plate prints at its target's position, so ordering and merging work together
+- **Layer edit** — brush paint/erase directly on a plate to fix a rough edge or drop a stray feature. The edited layer is isolated black-on-white while you work, with a ring cursor showing the exact brush footprint. Strokes edit **ownership**, not rendered pixels, so they survive later LPI/angle/threshold/trap changes and flow through to underbase, key knockout and merges. The key plate gets an erase-only brush that clears dots, stroke and outline together. Saved per layer in the project file
 - **Palette library** — save the current inks as a reusable palette and apply it later to recolor your layers in one click (separation untouched). Picked by **swatch preview**, names optional; palettes carry the background ink too. Stored in app prefs, so they're reusable across prints
 
 ### Dot & Tone Controls
@@ -49,7 +51,7 @@ Load a mask that clips every plate at once — confine the artwork to a shape, k
 - Applies in the live preview and every export, and is non-destructive — the full source image is kept for palette extraction
 
 ### Export
-- **PNG** — full-resolution with embedded DPI metadata
+- **PNG** — full-resolution with embedded DPI metadata, laid out on the full print page (margin, crop marks, alignment marks) like the other plate exports
 - **Channel PNGs** — one black-on-white plate per channel (CMYK or spot), including key plate, laid out on the full print page (margin, crop marks, alignment marks) just like the PDF
 - **PDF** — multi-page with crop marks, optional margin, optional alignment marks (crosshair + circle at each side midpoint for multi-layer registration)
 - Spot plates are labelled by **layer number** (One, Two, Three…), staggered across the page so the labels don't overlap when plates are stacked for registration, and clear of the alignment marks
