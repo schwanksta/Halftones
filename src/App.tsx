@@ -464,6 +464,32 @@ function App() {
     setEditingColorId((cur) => (cur === colorId ? null : colorId))
   }, [])
 
+  // Edit-mode shortcuts: Esc leaves edit mode; [ / ] shrink / grow the brush
+  // (the Photoshop convention). Steps are proportional (~15%, at least 1px) so
+  // they feel even at both ends of the 4–200px range. Ignored while typing in a
+  // field, and while the save prompt is open (it uses Esc for Cancel).
+  useEffect(() => {
+    if (!editingColorId) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || prompt) return
+      const el = e.target as HTMLElement | null
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setEditingColorId(null)
+      } else if (e.key === '[' || e.key === ']') {
+        e.preventDefault()
+        const grow = e.key === ']'
+        setEditBrushPx((px) => {
+          const step = Math.max(1, Math.round(px * 0.15))
+          return Math.min(200, Math.max(4, grow ? px + step : px - step))
+        })
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [editingColorId, prompt])
+
   // Use the TRANSFORMED image's actual aspect ratio so that OutputControls'
   // aspect-ratio lock uses the post-crop/rotation dimensions.  The raw
   // source AR (source.width / source.height) ignores crop and rotation, so
