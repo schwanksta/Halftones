@@ -412,8 +412,12 @@ function App() {
       canvas = document.createElement('canvas')
       canvas.width = transformedImageData.width
       canvas.height = transformedImageData.height
-      masks.set(editingColorId, canvas)
     }
+    // Re-insert so the Map stays in edit order: applyLabelEdits applies masks
+    // in iteration order, and in knockout the most recently edited layer wins
+    // where two layers' paint overlaps.
+    masks.delete(editingColorId)
+    masks.set(editingColorId, canvas)
     const ctx = canvas.getContext('2d')!
     // IMPORTANT: erase must write OPAQUE WHITE (force paper), not clear to
     // transparent — transparent means "untouched" and falls through to the

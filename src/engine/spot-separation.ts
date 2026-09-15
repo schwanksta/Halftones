@@ -695,13 +695,13 @@ export interface SpotLabelData {
   /** Alpha-derived channels for background-type colors (not part of the partition). */
   backgroundChannels: Map<string, ImageData>
   /**
-   * 1 where a pixel was hand-painted in layer edit mode. Forces full ink on the
-   * OWNING plate only — deliberately not folded into `values`, which is shared
-   * by every plate: in build-up the lighter plates read the same tone, so
-   * zeroing it there would darken them underneath a painted area even when
-   * ownership never changed.
+   * Per-pixel bitmask of plates hand-painted in layer edit mode (bit k = label
+   * index k). A painted plate prints full ink at that pixel. Kept per plate —
+   * and deliberately not folded into `values`, which is shared by every plate:
+   * in build-up the lighter plates read the same tone, so zeroing it would
+   * darken them underneath a painted area even where ownership never changed.
    */
-  painted?: Uint8Array
+  painted?: Uint32Array
   /**
    * Per-pixel bitmask of plates hand-erased in layer edit mode (bit k = label
    * index k). An erased plate stops printing at that pixel while every other
@@ -879,12 +879,11 @@ export function buildSpotChannels(
     // before it (lower-or-equal rank).
     const rank = plateRanks(labColorL, manualOrder)
     const isErased = (k: number, i: number) => erased !== undefined && (erased[i] & (1 << k)) !== 0
-    // `lab` is the pixel's owning plate. A hand-painted pixel goes to full ink
-    // on that plate only — plates printing UNDER it keep the image's own tone,
-    // so painting inside an area a color already owned leaves the layers
-    // beneath it completely unchanged.
-    const inkValue = (k: number, i: number, lab: number) =>
-      (k === lab && painted?.[i]) ? 0
+    // A plate hand-painted at this pixel goes to full ink; every other plate
+    // keeps the image's own tone, so painting one layer never changes how the
+    // layers beneath it print.
+    const inkValue = (k: number, i: number) =>
+      (painted !== undefined && (painted[i] & (1 << k)) !== 0) ? 0
         : halftoneToneIds.has(labColorIds[k]) ? values[i] : 0
 
     if (buildupReachPx <= 0) {
@@ -895,7 +894,7 @@ export function buildSpotChannels(
         const ar = rank[lab]
         const p = i * 4
         for (let k = 0; k < nc; k++) {
-          if (rank[k] <= ar && !isErased(k, i)) { const v = inkValue(k, i, lab); const b = bufs[k]; b[p] = v; b[p + 1] = v; b[p + 2] = v }
+          if (rank[k] <= ar && !isErased(k, i)) { const v = inkValue(k, i); const b = bufs[k]; b[p] = v; b[p + 1] = v; b[p + 2] = v }
         }
       }
     } else {
@@ -907,7 +906,7 @@ export function buildSpotChannels(
         const lab = labels[i]
         if (lab < 0 || isErased(lab, i)) continue
         const p = i * 4
-        const v = inkValue(lab, i, lab)
+        const v = inkValue(lab, i)
         const b = bufs[lab]
         b[p] = v; b[p + 1] = v; b[p + 2] = v
       }
@@ -939,7 +938,7 @@ export function buildSpotChannels(
           if (isErased(k, i)) continue                   // hand-erased on this plate
           // k is strictly lighter than the owner here, so this is never the
           // painted plate — the pixel's own tone is what should show through.
-          const v = inkValue(k, i, lab)
+          const v = inkValue(k, i)
           bk[p] = v; bk[p + 1] = v; bk[p + 2] = v
         }
       }
@@ -950,7 +949,7 @@ export function buildSpotChannels(
       if (lab < 0) continue
       // Hand-painted pixels go to full ink; bufs[lab] is the owning plate, so
       // this can only ever affect the layer that was painted.
-      const v = painted?.[i] ? 0 : values[i]
+      const v = (painted !== undefined && (painted[i] & (1 << lab)) !== 0) ? 0 : values[i]
       const p = i * 4
       const b = bufs[lab]
       b[p] = v; b[p + 1] = v; b[p + 2] = v   // alpha already 255 from fill

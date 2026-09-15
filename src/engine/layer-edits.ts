@@ -30,6 +30,18 @@ export function transformKeyOf(t: ImageTransformSettings): string {
  * mutates the input — it's memoized upstream). Masks whose dimensions don't
  * match the label field, or whose color id is background-type/deleted, are
  * skipped defensively.
+ *
+ * Every edit targets ONE plate: paint = "this plate prints here", erase =
+ * "this plate doesn't". They're recorded as per-plate bits and the pixel's
+ * owner is then re-derived from them, never overwritten blindly:
+ *
+ * - Build-up: an owner implies itself plus every plate printed before it. The
+ *   owner becomes the highest-ranked plate that still prints — the original
+ *   owner or any painted plate, minus erased ones — so painting two layers in
+ *   the same spot honours both, and erasing one keeps the others.
+ * - Knockout: exactly one ink per pixel, so overlapping paint is a real
+ *   conflict. The most recently edited layer wins (masks are kept in edit
+ *   order — see handlePaintStroke). Erasing the owner leaves paper.
  */
 export function applyLabelEdits(
   ld: SpotLabelData,
@@ -42,20 +54,13 @@ export function applyLabelEdits(
   const { width, height } = ld
   const labels = new Int32Array(ld.labels)
   const n = width * height
-  // Painted pixels are flagged, NOT written into `values`. `values` is the
-  // tone shared by every plate: in build-up the lighter plates underneath read
-  // the same tone, so forcing it to full ink there would darken them beneath a
-  // painted area even where ownership never changed. buildSpotChannels applies
-  // this flag to the owning plate only.
-  const painted = ld.painted ? new Uint8Array(ld.painted) : new Uint8Array(n)
-  // Erasing likewise targets ONE plate. It can't be done by clearing the
-  // owner: in build-up an owner implies several plates (itself plus every
-  // plate printed before it), so "no owner" would switch off the layers
-  // underneath too — and in knockout a brush overlapping a neighbour's edge
-  // would erase the neighbour. So erase records a per-plate bit, and the
-  // owner is only changed when the erased plate WAS the owner.
+  // Paint is NOT written into `values` (the tone shared by every plate) — see
+  // SpotLabelData.painted for why.
+  const painted = ld.painted ? new Uint32Array(ld.painted) : new Uint32Array(n)
   const erased = ld.erased ? new Uint32Array(ld.erased) : new Uint32Array(n)
-  let anyErased = false
+  // Knockout conflict resolution: the last-applied painted plate per pixel.
+  const lastPaint = new Int8Array(n).fill(-1)
+  let anyPaint = false, anyErase = false
 
   for (const [colorId, canvas] of masks) {
     const color = colors.find(c => c.id === colorId)
@@ -73,39 +78,54 @@ export function applyLabelEdits(
       const p = i * 4
       if (data[p + 3] < 128) continue   // untouched
       if (data[p] < 128) {
-        labels[i] = idx
-        painted[i] = 1
+        painted[i] |= bit
         erased[i] &= ~bit
+        lastPaint[i] = idx
+        anyPaint = true
       } else {
         erased[i] |= bit
-        anyErased = true
+        painted[i] &= ~bit
+        anyErase = true
       }
     }
   }
+  if (!anyPaint && !anyErase) return ld
 
-  if (anyErased) {
-    // Resolve erased owners. Knockout: the owner is the only plate inking the
-    // pixel, so erasing it leaves paper. Build-up: the plates printed before
-    // the owner keep printing — the highest-ranked one that isn't itself
-    // erased becomes the owner; if they're all erased, it's paper.
-    const buildup = opts.mode === 'buildup' && ld.labColorIds.length > 1
-    const rank = buildup ? plateRanks(ld.labColorL, opts.manualOrder ?? false) : null
-    for (let i = 0; i < n; i++) {
-      const e = erased[i]
-      const owner = labels[i]
-      if (e === 0 || owner < 0 || (e & (1 << owner)) === 0) continue
-      painted[i] = 0
-      if (!rank) { labels[i] = -1; continue }
-      let next = -1
-      for (let k = 0; k < rank.length; k++) {
-        if (rank[k] >= rank[owner] || (e & (1 << k)) !== 0) continue
-        if (next < 0 || rank[k] > rank[next]) next = k
-      }
-      labels[i] = next
+  const buildup = opts.mode === 'buildup' && ld.labColorIds.length > 1
+  const rank = buildup ? plateRanks(ld.labColorL, opts.manualOrder ?? false) : null
+
+  for (let i = 0; i < n; i++) {
+    const pBits = painted[i], eBits = erased[i]
+    if (pBits === 0 && eBits === 0) continue
+    const orig = labels[i]
+
+    if (!rank) {
+      // Knockout: one ink per pixel.
+      if (lastPaint[i] >= 0) labels[i] = lastPaint[i]
+      else if (orig >= 0 && (eBits & (1 << orig)) !== 0) labels[i] = -1
+      continue
     }
+
+    // Build-up: plates up to the highest of (original owner, painted plates)
+    // print, minus erased ones; the owner is the highest-ranked survivor.
+    let top = orig >= 0 ? rank[orig] : -1
+    for (let k = 0; k < rank.length; k++) {
+      if ((pBits & (1 << k)) !== 0 && rank[k] > top) top = rank[k]
+    }
+    let owner = -1
+    for (let k = 0; k < rank.length; k++) {
+      if (rank[k] > top || (eBits & (1 << k)) !== 0) continue
+      if (owner < 0 || rank[k] > rank[owner]) owner = k
+    }
+    labels[i] = owner
   }
 
-  return { ...ld, labels, painted, erased: anyErased ? erased : ld.erased }
+  return {
+    ...ld,
+    labels,
+    painted: anyPaint ? painted : ld.painted,
+    erased: anyErase ? erased : ld.erased,
+  }
 }
 
 /**
