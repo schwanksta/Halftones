@@ -34,6 +34,22 @@ import { AllSettings } from './platform/types'
 
 const AUTO_SAVE_DELAY = 1000 // ms
 
+/** Layer edit mode: how many strokes Cmd/Ctrl+Z can step back through. */
+const STROKE_UNDO_LIMIT = 10
+/** …and a memory ceiling, since one huge stroke can snapshot most of a mask. */
+const STROKE_UNDO_MAX_BYTES = 256 * 1024 * 1024
+
+/** One undoable stroke: the mask pixels under its bounding box. */
+interface StrokePatch {
+  colorId: string
+  canvas: HTMLCanvasElement
+  x: number
+  y: number
+  data: ImageData
+  /** The stroke created this layer's mask — undoing it removes the mask again. */
+  createdMask: boolean
+}
+
 /**
  * Fit an image inside the current paper bounds while preserving its aspect
  * ratio.  Returns print dimensions (inches) where one of the two dimensions
@@ -103,6 +119,19 @@ function App() {
   // The transformKeyOf() the masks were painted against; stamped on the first
   // edit and compared against the live transform to detect staleness.
   const [editMasksKey, setEditMasksKey] = useState<string | null>(null)
+
+  // Stroke undo/redo for the current edit session — wiped when edit mode is
+  // exited or switched to another layer. Each entry holds only the pixels
+  // under one stroke's bounding box (a full mask copy is ~54MB at 4k), from
+  // before the stroke (undo stack) or after it (redo stack).
+  const strokeUndoRef = useRef<StrokePatch[]>([])
+  const strokeRedoRef = useRef<StrokePatch[]>([])
+  // Read by the global Cmd/Ctrl+Z handler, which is registered once.
+  const editUndoRef = useRef({ editing: false, undoStroke: () => {}, redoStroke: () => {} })
+  useEffect(() => {
+    strokeUndoRef.current = []
+    strokeRedoRef.current = []
+  }, [editingColorId])
 
   /** Replace the layer-edit masks wholesale (project load) — mirrors setMask. */
   const setLayerEdits = useCallback((masks: EditMasks, key: string | null) => {
@@ -227,12 +256,18 @@ function App() {
       if (!e.metaKey && !e.ctrlKey) return
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      // In layer edit mode these step through brush strokes instead — and
+      // never fall through to settings undo, which would change something
+      // off-screen while you're looking at an isolated plate.
+      const edit = editUndoRef.current
       if (e.key === 'z' && !e.shiftKey) {
         e.preventDefault()
+        if (edit.editing) { edit.undoStroke(); return }
         const { undo, gatherSettings } = undoActionsRef.current
         undo(gatherSettings())
       } else if ((e.key === 'z' || e.key === 'Z') && e.shiftKey) {
         e.preventDefault()
+        if (edit.editing) { edit.redoStroke(); return }
         const { redo, gatherSettings } = undoActionsRef.current
         redo(gatherSettings())
       }
@@ -408,6 +443,7 @@ function App() {
     if (!transformedImageData || !editingColorId) return
     const masks = editMasksRef.current
     let canvas = masks.get(editingColorId)
+    const createdMask = !canvas
     if (!canvas) {
       canvas = document.createElement('canvas')
       canvas.width = transformedImageData.width
@@ -419,6 +455,25 @@ function App() {
     masks.delete(editingColorId)
     masks.set(editingColorId, canvas)
     const ctx = canvas.getContext('2d')!
+
+    // Snapshot the stroke's bounding box before drawing, for Cmd/Ctrl+Z.
+    if (pts.length > 0) {
+      const pad = brushPx / 2 + 2
+      const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y)
+      const x0 = Math.max(0, Math.floor(Math.min(...xs) - pad))
+      const y0 = Math.max(0, Math.floor(Math.min(...ys) - pad))
+      const x1 = Math.min(canvas.width, Math.ceil(Math.max(...xs) + pad))
+      const y1 = Math.min(canvas.height, Math.ceil(Math.max(...ys) + pad))
+      if (x1 > x0 && y1 > y0) {
+        const stack = strokeUndoRef.current
+        stack.push({ colorId: editingColorId, canvas, x: x0, y: y0, data: ctx.getImageData(x0, y0, x1 - x0, y1 - y0), createdMask })
+        let bytes = stack.reduce((n, s) => n + s.data.data.length, 0)
+        while (stack.length > STROKE_UNDO_LIMIT || (stack.length > 1 && bytes > STROKE_UNDO_MAX_BYTES)) {
+          bytes -= stack.shift()!.data.data.length
+        }
+        strokeRedoRef.current = []   // a new stroke forks history
+      }
+    }
     // IMPORTANT: erase must write OPAQUE WHITE (force paper), not clear to
     // transparent — transparent means "untouched" and falls through to the
     // underlying separation, not "no ink". The key plate has no ownership to
@@ -456,9 +511,49 @@ function App() {
   const clearLayerEdits = useCallback((colorId: string) => {
     if (!editMasksRef.current.delete(colorId)) return
     if (editMasksRef.current.size === 0) setEditMasksKey(null)
+    // Clearing is deliberate and confirmed; stroke history pointing at the
+    // discarded mask would otherwise undo into a canvas nothing reads.
+    strokeUndoRef.current = []
+    strokeRedoRef.current = []
     setEditsVersion((v) => v + 1)
     markDirty()
   }, [markDirty])
+
+  /** Swap a patch's pixels into its mask, returning the pixels it replaced. */
+  const swapPatch = (patch: StrokePatch): StrokePatch => {
+    const ctx = patch.canvas.getContext('2d')!
+    const replaced = ctx.getImageData(patch.x, patch.y, patch.data.width, patch.data.height)
+    ctx.putImageData(patch.data, patch.x, patch.y)
+    return { ...patch, data: replaced }
+  }
+
+  const undoStroke = useCallback(() => {
+    const patch = strokeUndoRef.current.pop()
+    if (!patch) return
+    strokeRedoRef.current.push(swapPatch(patch))
+    const masks = editMasksRef.current
+    if (patch.createdMask && masks.get(patch.colorId) === patch.canvas) {
+      masks.delete(patch.colorId)
+      if (masks.size === 0) setEditMasksKey(null)
+    }
+    setEditsVersion((v) => v + 1)
+    markDirty()
+  }, [markDirty])
+
+  const redoStroke = useCallback(() => {
+    const patch = strokeRedoRef.current.pop()
+    if (!patch) return
+    const masks = editMasksRef.current
+    if (!masks.has(patch.colorId)) {
+      masks.set(patch.colorId, patch.canvas)
+      setEditMasksKey((prev) => prev ?? transformKeyOf(transformSettings))
+    }
+    strokeUndoRef.current.push(swapPatch(patch))
+    setEditsVersion((v) => v + 1)
+    markDirty()
+  }, [markDirty, transformSettings])
+
+  editUndoRef.current = { editing: editingColorId !== null, undoStroke, redoStroke }
 
   const hasLayerEdits = useCallback((colorId: string) => editMasksRef.current.has(colorId), [editsVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -948,7 +948,7 @@ export function SpotColorEditor({
                     />
                   </div>
                   <p style={{ fontSize: 10, color: 'var(--text-secondary)', margin: '2px 0 0', opacity: 0.8 }}>
-                    <kbd>[</kbd> <kbd>]</kbd> brush size · <kbd>Esc</kbd> done
+                    <kbd>[</kbd> <kbd>]</kbd> brush size · <kbd>⌘Z</kbd> undo stroke · <kbd>Esc</kbd> done
                   </p>
                 </>
               )}
@@ -1486,7 +1486,7 @@ function SpotColorRow({
                     />
                   </div>
                   <p style={{ fontSize: 10, color: 'var(--text-secondary)', margin: '2px 0 0', opacity: 0.8 }}>
-                    <kbd>[</kbd> <kbd>]</kbd> brush size · <kbd>Esc</kbd> done
+                    <kbd>[</kbd> <kbd>]</kbd> brush size · <kbd>⌘Z</kbd> undo stroke · <kbd>Esc</kbd> done
                   </p>
                 </>
               )}
