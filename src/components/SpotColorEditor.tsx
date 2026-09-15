@@ -1,9 +1,52 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, type CSSProperties } from 'react'
 import { SpotColor, SpotSettings, KeyPlateSettings, DEFAULT_KEY_PLATE, SeparationMode, DEFAULT_UNDERBASE, SavedPalette } from '../types'
 import { extractPalette, mergeSimilarColors, labToHex, rgbToLab, guessColorName, resolveMergeTarget, lastPrintedSpotColor } from '../engine/spot-separation'
 import { EditableValue } from './EditableValue'
 import { PaletteBar } from './PaletteBar'
 import { KEY_EDIT_ID } from '../engine/layer-edits'
+
+/**
+ * "Clear edits" with an inline two-step confirm: the first click arms it, a
+ * second click on "Yes, clear" discards the edits, and it disarms itself after
+ * a few seconds. Hand-painted edits have no undo, so this must never fire from
+ * a single stray click. (Inline rather than window.confirm, which the Tauri
+ * webview doesn't reliably support.)
+ */
+function ClearEditsButton({ label, onConfirm, disabled }: { label: string; onConfirm: () => void; disabled: boolean }) {
+  const [armed, setArmed] = useState(false)
+  useEffect(() => {
+    if (!armed) return
+    const t = setTimeout(() => setArmed(false), 4000)
+    return () => clearTimeout(t)
+  }, [armed])
+
+  const base: CSSProperties = {
+    padding: '2px 8px', fontSize: 10, borderRadius: 4,
+    border: '1px solid var(--border)', background: 'none',
+    color: 'var(--text-secondary)', cursor: disabled ? 'not-allowed' : 'pointer',
+  }
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginTop: 6 }}>
+      {armed ? (
+        <>
+          <span style={{ fontSize: 10, color: 'var(--warning, #d99a2b)' }}>{label} — can't be undone.</span>
+          <button onClick={() => setArmed(false)} disabled={disabled} style={base}>Cancel</button>
+          <button
+            onClick={() => { setArmed(false); onConfirm() }}
+            disabled={disabled}
+            style={{ ...base, color: '#fff', background: 'var(--danger, #c0392b)', border: '1px solid var(--danger, #c0392b)' }}
+          >
+            Yes, clear
+          </button>
+        </>
+      ) : (
+        <button onClick={() => setArmed(true)} disabled={disabled} style={base} title={label}>
+          Clear edits…
+        </button>
+      )}
+    </div>
+  )
+}
 
 interface Props {
   settings: SpotSettings
@@ -888,24 +931,6 @@ export function SpotColorEditor({
                 >
                   {editingColorId === KEY_EDIT_ID ? '✎ Editing…' : '✎ Erase on key plate'}
                 </button>
-                {hasEdits(KEY_EDIT_ID) && (
-                  <button
-                    onClick={() => onClearEdits(KEY_EDIT_ID)}
-                    disabled={disabled}
-                    title="Discard all erase edits on the key plate"
-                    style={{
-                      padding: '3px 8px',
-                      fontSize: 11,
-                      borderRadius: 4,
-                      border: '1px solid var(--border)',
-                      background: 'none',
-                      color: 'var(--text-secondary)',
-                      cursor: disabled ? 'not-allowed' : 'pointer',
-                    }}
-                  >
-                    Clear edits
-                  </button>
-                )}
               </div>
 
               {editingColorId === KEY_EDIT_ID && (
@@ -929,6 +954,14 @@ export function SpotColorEditor({
                 <div style={{ fontSize: 10, color: 'var(--warning, #d99a2b)', marginTop: 2 }}>
                   ⚠ Painted at a different crop/rotation — edits are inactive. Restore the previous crop, or clear them.
                 </div>
+              )}
+
+              {hasEdits(KEY_EDIT_ID) && (
+                <ClearEditsButton
+                  label="Clear all key plate erasing"
+                  onConfirm={() => onClearEdits(KEY_EDIT_ID)}
+                  disabled={disabled}
+                />
               )}
             </div>
           </>
@@ -1412,24 +1445,6 @@ function SpotColorRow({
                 >
                   {isEditing ? '✎ Editing…' : '✎ Edit layer'}
                 </button>
-                {hasEdits && (
-                  <button
-                    onClick={onClearEdits}
-                    disabled={disabled}
-                    title="Discard all paint/erase edits for this color"
-                    style={{
-                      padding: '3px 8px',
-                      fontSize: 11,
-                      borderRadius: 4,
-                      border: '1px solid var(--border)',
-                      background: 'none',
-                      color: 'var(--text-secondary)',
-                      cursor: disabled ? 'not-allowed' : 'pointer',
-                    }}
-                  >
-                    Clear edits
-                  </button>
-                )}
               </div>
 
               {isEditing && (
@@ -1474,6 +1489,14 @@ function SpotColorRow({
                 <div style={{ fontSize: 10, color: 'var(--warning, #d99a2b)', marginTop: 2 }}>
                   ⚠ Painted at a different crop/rotation — edits are inactive. Restore the previous crop, or clear them.
                 </div>
+              )}
+
+              {hasEdits && (
+                <ClearEditsButton
+                  label={`Clear all edits on ${color.name}`}
+                  onConfirm={onClearEdits}
+                  disabled={disabled}
+                />
               )}
             </div>
           )}
