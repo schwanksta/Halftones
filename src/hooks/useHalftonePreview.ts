@@ -193,9 +193,12 @@ export function useHalftonePreview(
     if (!spotLabels) return null
     if (!editMasks || editMasks.size === 0) return spotLabels
     if (editMasksKey && editMasksKey !== transformKeyOf(transformSettings)) return spotLabels
-    return applyLabelEdits(spotLabels, editMasks, spotSettings.colors)
+    return applyLabelEdits(spotLabels, editMasks, spotSettings.colors, {
+      mode: spotSettings.separationMode, manualOrder: spotSettings.manualOrder,
+    })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spotLabels, editMasks, editMasksKey, editsVersion, transformSettings, spotSettings.colors])
+  }, [spotLabels, editMasks, editMasksKey, editsVersion, transformSettings, spotSettings.colors,
+      spotSettings.separationMode, spotSettings.manualOrder])
 
   // Build per-color channels from the partition, applying joint smoothing.
   // Cheap relative to classification, so retuning smoothing doesn't re-run LAB.

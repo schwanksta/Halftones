@@ -702,6 +702,13 @@ export interface SpotLabelData {
    * ownership never changed.
    */
   painted?: Uint8Array
+  /**
+   * Per-pixel bitmask of plates hand-erased in layer edit mode (bit k = label
+   * index k). An erased plate stops printing at that pixel while every other
+   * plate is unaffected — needed in build-up, where one owner implies several
+   * plates, so "erase the top layer" can't be expressed by ownership alone.
+   */
+  erased?: Uint32Array
 }
 
 /**
@@ -834,6 +841,24 @@ function smoothLabelField(
  * `manualOrder` (build-up mode only): use the color array order (rank[k] = k)
  * as the print order instead of auto-sorting light→dark by lightness.
  */
+/**
+ * Print position of each label index (0 = printed first). Build-up orders
+ * plates light→dark by L* unless manualOrder is set, in which case the layer
+ * order is the print order. Shared by buildSpotChannels and applyLabelEdits so
+ * the two can never disagree about which plate prints under which.
+ */
+export function plateRanks(labColorL: number[], manualOrder: boolean): number[] {
+  const nc = labColorL.length
+  const rank = new Array<number>(nc)
+  if (manualOrder) {
+    for (let k = 0; k < nc; k++) rank[k] = k
+  } else {
+    const order = labColorL.map((_, i) => i).sort((a, b) => labColorL[b] - labColorL[a])
+    order.forEach((idx, pos) => { rank[idx] = pos })
+  }
+  return rank
+}
+
 export function buildSpotChannels(
   ld: SpotLabelData,
   smoothing: number,
@@ -842,7 +867,7 @@ export function buildSpotChannels(
   halftoneToneIds: ReadonlySet<string> = new Set(),
   manualOrder = false,
 ): Map<string, ImageData> {
-  const { width, height, values, labColorIds, labColorL, backgroundChannels, painted } = ld
+  const { width, height, values, labColorIds, labColorL, backgroundChannels, painted, erased } = ld
   const n = width * height
   const labels = smoothLabelField(ld.labels, width, height, labColorIds.length, smoothing)
   const nc = labColorIds.length
@@ -850,16 +875,10 @@ export function buildSpotChannels(
   const bufs = labColorIds.map(() => new Uint8ClampedArray(n * 4).fill(255))
 
   if (mode === 'buildup' && nc > 1) {
-    // Rank colors by lightness (lightest = rank 0), unless manualOrder is set —
-    // then the array order IS the print order (rank[k] = k). A pixel assigned
-    // to a tone inks its plate plus every lighter plate (lower-or-equal rank).
-    const rank = new Array<number>(nc)
-    if (manualOrder) {
-      for (let k = 0; k < nc; k++) rank[k] = k
-    } else {
-      const order = labColorIds.map((_, i) => i).sort((a, b) => labColorL[b] - labColorL[a])
-      order.forEach((idx, pos) => { rank[idx] = pos })
-    }
+    // A pixel assigned to a tone inks its plate plus every plate printed
+    // before it (lower-or-equal rank).
+    const rank = plateRanks(labColorL, manualOrder)
+    const isErased = (k: number, i: number) => erased !== undefined && (erased[i] & (1 << k)) !== 0
     // `lab` is the pixel's owning plate. A hand-painted pixel goes to full ink
     // on that plate only — plates printing UNDER it keep the image's own tone,
     // so painting inside an area a color already owned leaves the layers
@@ -876,7 +895,7 @@ export function buildSpotChannels(
         const ar = rank[lab]
         const p = i * 4
         for (let k = 0; k < nc; k++) {
-          if (rank[k] <= ar) { const v = inkValue(k, i, lab); const b = bufs[k]; b[p] = v; b[p + 1] = v; b[p + 2] = v }
+          if (rank[k] <= ar && !isErased(k, i)) { const v = inkValue(k, i, lab); const b = bufs[k]; b[p] = v; b[p + 1] = v; b[p + 2] = v }
         }
       }
     } else {
@@ -886,7 +905,7 @@ export function buildSpotChannels(
       // without a global flood.
       for (let i = 0; i < n; i++) {
         const lab = labels[i]
-        if (lab < 0) continue
+        if (lab < 0 || isErased(lab, i)) continue
         const p = i * 4
         const v = inkValue(lab, i, lab)
         const b = bufs[lab]
@@ -917,6 +936,7 @@ export function buildSpotChannels(
           const lab = labels[i]
           if (lab < 0) continue                         // never into paper/unowned
           if (rank[lab] <= rk) continue                  // never under lighter/same-rank ink
+          if (isErased(k, i)) continue                   // hand-erased on this plate
           // k is strictly lighter than the owner here, so this is never the
           // painted plate — the pixel's own tone is what should show through.
           const v = inkValue(k, i, lab)

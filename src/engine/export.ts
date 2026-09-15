@@ -195,7 +195,11 @@ async function renderSpotChannelCanvases(
   const editMasksActive = !!(options.editMasks && options.editMasks.size > 0
     && (!options.editMasksKey || options.editMasksKey === transformKeyOf(transformSettings)))
   const scaledEditMasks = editMasksActive ? scaleEditMasks(options.editMasks!, targetWidth, targetHeight) : null
-  const edited = scaledEditMasks ? applyLabelEdits(labelData, scaledEditMasks, spotSettings.colors) : labelData
+  const edited = scaledEditMasks
+    ? applyLabelEdits(labelData, scaledEditMasks, spotSettings.colors, {
+        mode: spotSettings.separationMode, manualOrder: spotSettings.manualOrder,
+      })
+    : labelData
 
   const reachPx = (spotSettings.buildupReachInches ?? 0) > 0
     ? Math.max(1, Math.round(spotSettings.buildupReachInches! * outputSettings.dpi))
@@ -633,7 +637,9 @@ export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCan
       && (!options.editMasksKey || options.editMasksKey === transformKeyOf(transformSettings)))
     const proofScaledEditMasks = proofEditMasksActive ? scaleEditMasks(options.editMasks!, targetW, targetH) : null
     const editedProofLabels = proofScaledEditMasks
-      ? applyLabelEdits(proofLabelData, proofScaledEditMasks, spotSettings.colors)
+      ? applyLabelEdits(proofLabelData, proofScaledEditMasks, spotSettings.colors, {
+          mode: spotSettings.separationMode, manualOrder: spotSettings.manualOrder,
+        })
       : proofLabelData
 
     const proofReachPx = (spotSettings.buildupReachInches ?? 0) > 0

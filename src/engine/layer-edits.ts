@@ -9,8 +9,8 @@
  * rendered pixels directly.
  */
 
-import { ImageTransformSettings, SpotColor } from '../types'
-import { SpotLabelData } from './spot-separation'
+import { ImageTransformSettings, SeparationMode, SpotColor } from '../types'
+import { SpotLabelData, plateRanks } from './spot-separation'
 
 /** Per-color edit masks, keyed by color id. RGBA at transformed-image dims:
  *  transparent = untouched, opaque black = force ink, opaque white = force paper. */
@@ -31,7 +31,12 @@ export function transformKeyOf(t: ImageTransformSettings): string {
  * match the label field, or whose color id is background-type/deleted, are
  * skipped defensively.
  */
-export function applyLabelEdits(ld: SpotLabelData, masks: EditMasks, colors: SpotColor[]): SpotLabelData {
+export function applyLabelEdits(
+  ld: SpotLabelData,
+  masks: EditMasks,
+  colors: SpotColor[],
+  opts: { mode?: SeparationMode; manualOrder?: boolean } = {},
+): SpotLabelData {
   if (masks.size === 0) return ld
 
   const { width, height } = ld
@@ -43,17 +48,26 @@ export function applyLabelEdits(ld: SpotLabelData, masks: EditMasks, colors: Spo
   // painted area even where ownership never changed. buildSpotChannels applies
   // this flag to the owning plate only.
   const painted = ld.painted ? new Uint8Array(ld.painted) : new Uint8Array(n)
+  // Erasing likewise targets ONE plate. It can't be done by clearing the
+  // owner: in build-up an owner implies several plates (itself plus every
+  // plate printed before it), so "no owner" would switch off the layers
+  // underneath too — and in knockout a brush overlapping a neighbour's edge
+  // would erase the neighbour. So erase records a per-plate bit, and the
+  // owner is only changed when the erased plate WAS the owner.
+  const erased = ld.erased ? new Uint32Array(ld.erased) : new Uint32Array(n)
+  let anyErased = false
 
   for (const [colorId, canvas] of masks) {
     const color = colors.find(c => c.id === colorId)
     if (!color || color.type === 'background') continue   // deleted or background — not part of the label partition
     const idx = ld.labColorIds.indexOf(colorId)
-    if (idx < 0) continue
+    if (idx < 0 || idx > 31) continue
     if (canvas.width !== width || canvas.height !== height) continue   // stale geometry — caller should have gated on transformKeyOf already
 
     const ctx = canvas.getContext('2d')
     if (!ctx) continue
     const data = ctx.getImageData(0, 0, width, height).data
+    const bit = 1 << idx
 
     for (let i = 0; i < n; i++) {
       const p = i * 4
@@ -61,14 +75,37 @@ export function applyLabelEdits(ld: SpotLabelData, masks: EditMasks, colors: Spo
       if (data[p] < 128) {
         labels[i] = idx
         painted[i] = 1
+        erased[i] &= ~bit
       } else {
-        labels[i] = -1
-        painted[i] = 0
+        erased[i] |= bit
+        anyErased = true
       }
     }
   }
 
-  return { ...ld, labels, painted }
+  if (anyErased) {
+    // Resolve erased owners. Knockout: the owner is the only plate inking the
+    // pixel, so erasing it leaves paper. Build-up: the plates printed before
+    // the owner keep printing — the highest-ranked one that isn't itself
+    // erased becomes the owner; if they're all erased, it's paper.
+    const buildup = opts.mode === 'buildup' && ld.labColorIds.length > 1
+    const rank = buildup ? plateRanks(ld.labColorL, opts.manualOrder ?? false) : null
+    for (let i = 0; i < n; i++) {
+      const e = erased[i]
+      const owner = labels[i]
+      if (e === 0 || owner < 0 || (e & (1 << owner)) === 0) continue
+      painted[i] = 0
+      if (!rank) { labels[i] = -1; continue }
+      let next = -1
+      for (let k = 0; k < rank.length; k++) {
+        if (rank[k] >= rank[owner] || (e & (1 << k)) !== 0) continue
+        if (next < 0 || rank[k] > rank[next]) next = k
+      }
+      labels[i] = next
+    }
+  }
+
+  return { ...ld, labels, painted, erased: anyErased ? erased : ld.erased }
 }
 
 /**
