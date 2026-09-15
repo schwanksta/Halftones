@@ -133,6 +133,12 @@ function App() {
     strokeRedoRef.current = []
   }, [editingColorId])
 
+  // The layer most recently opened in edit mode, so E can jump back into it.
+  const lastEditedIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (editingColorId) lastEditedIdRef.current = editingColorId
+  }, [editingColorId])
+
   /** Replace the layer-edit masks wholesale (project load) — mirrors setMask. */
   const setLayerEdits = useCallback((masks: EditMasks, key: string | null) => {
     editMasksRef.current = masks
@@ -588,6 +594,29 @@ function App() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [editingColorId, prompt])
+
+  // E toggles edit mode on the layer you last edited. Skipped when that layer
+  // is gone or no longer editable (deleted, disabled, key plate turned off,
+  // or out of spot mode) rather than guessing at a different one.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'e' && e.key !== 'E') return
+      if (e.metaKey || e.ctrlKey || e.altKey || prompt) return
+      const el = e.target as HTMLElement | null
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return
+      if (editingColorId) { e.preventDefault(); setEditingColorId(null); return }
+      const id = lastEditedIdRef.current
+      if (!id || !source || halftoneSettings.colorMode !== 'spot') return
+      const editable = id === KEY_EDIT_ID
+        ? !!spotSettings.key?.enabled
+        : spotSettings.colors.some((c) => c.id === id && c.enabled && c.type !== 'background')
+      if (!editable) return
+      e.preventDefault()
+      setEditingColorId(id)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [editingColorId, prompt, source, halftoneSettings.colorMode, spotSettings.colors, spotSettings.key])
 
   // Use the TRANSFORMED image's actual aspect ratio so that OutputControls'
   // aspect-ratio lock uses the post-crop/rotation dimensions.  The raw

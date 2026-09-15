@@ -948,7 +948,7 @@ export function SpotColorEditor({
                     />
                   </div>
                   <p style={{ fontSize: 10, color: 'var(--text-secondary)', margin: '2px 0 0', opacity: 0.8 }}>
-                    <kbd>[</kbd> <kbd>]</kbd> brush size · <kbd>⌘Z</kbd> undo stroke · <kbd>Esc</kbd> done
+                    <kbd>[</kbd> <kbd>]</kbd> brush size · <kbd>⌘Z</kbd> undo stroke · <kbd>E</kbd> or <kbd>Esc</kbd> done
                   </p>
                 </>
               )}
@@ -1036,6 +1036,9 @@ function SpotColorRow({
   hasEdits, onClearEdits, editsStale,
 }: RowProps) {
   const [expanded, setExpanded] = useState(false)
+  // Entering edit mode from the keyboard (E) shouldn't leave the brush
+  // controls hidden inside a collapsed row.
+  useEffect(() => { if (isEditing) setExpanded(true) }, [isEditing])
   const [hexDraft, setHexDraft] = useState(color.hex)
 
   // Sync draft when parent changes hex externally (e.g. reset, merge)
@@ -1486,7 +1489,7 @@ function SpotColorRow({
                     />
                   </div>
                   <p style={{ fontSize: 10, color: 'var(--text-secondary)', margin: '2px 0 0', opacity: 0.8 }}>
-                    <kbd>[</kbd> <kbd>]</kbd> brush size · <kbd>⌘Z</kbd> undo stroke · <kbd>Esc</kbd> done
+                    <kbd>[</kbd> <kbd>]</kbd> brush size · <kbd>⌘Z</kbd> undo stroke · <kbd>E</kbd> or <kbd>Esc</kbd> done
                   </p>
                 </>
               )}
