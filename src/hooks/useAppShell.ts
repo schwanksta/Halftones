@@ -136,6 +136,8 @@ export function useAppShell(deps: AppShellDeps) {
     })
     if (thumbnail) pf.thumbnail = thumbnail
     return pf
+  // deps.gatherSettings() is a method-style call, so the rule wants all of `deps`; the listed fields are complete
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deps.source, deps.projectName, deps.gatherSettings, deps.mask, deps.editMasks, deps.editMasksKey])
 
   const saveAs = useCallback(async () => {

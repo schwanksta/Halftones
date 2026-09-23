@@ -12,7 +12,7 @@ export function isWebGL2Available(): boolean {
   return probed
 }
 
-export function useGLOverride(): 'force-off' | 'auto' {
+export function getGLOverride(): 'force-off' | 'auto' {
   try {
     return localStorage.getItem('halftones_useGL') === 'false' ? 'force-off' : 'auto'
   } catch { return 'auto' }

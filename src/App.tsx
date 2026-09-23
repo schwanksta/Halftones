@@ -428,7 +428,6 @@ function App() {
     }))
 
     prevTransformRef.current = newT
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source,
     transformSettings.cropLeft, transformSettings.cropRight,
     transformSettings.cropTop,  transformSettings.cropBottom,

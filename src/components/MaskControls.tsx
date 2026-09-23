@@ -225,7 +225,6 @@ function MaskThumbnail({ mask }: { mask: MaskImage }) {
     }
     return null
   // mask reference changes when a new mask is loaded, so rawBytes identity is stable
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mask])
 
   if (!src) return null

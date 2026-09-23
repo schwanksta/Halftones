@@ -165,13 +165,9 @@ export function createPlatform(): PlatformAPI {
     async saveProject(project, path) {
       const bytes = await packHalftonesFile(project)
       const tmp = path + '.tmp'
-      try {
-        await writeFile(tmp, bytes)
-        await rename(tmp, path)
-      } catch (err) {
-        // Leave tmp file in place; propagate so caller can toast
-        throw err
-      }
+      // On failure the tmp file is left in place and the error propagates so the caller can toast
+      await writeFile(tmp, bytes)
+      await rename(tmp, path)
 
       // Set the Finder icon to the thumbnail (fire-and-forget — never blocks save).
       if (project.thumbnail?.length) {

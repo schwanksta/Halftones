@@ -1,5 +1,5 @@
 import { HalftoneSettings, PatternType } from '../../types'
-import { createExportGL, getSharedGL, isWebGL2Available, useGLOverride } from './context'
+import { createExportGL, getSharedGL, isWebGL2Available, getGLOverride } from './context'
 import { getOrCompileProgram, getUniform } from './program'
 import { getFullscreenQuadVAO } from './quad'
 import { uploadRGBATexture } from './texture'
@@ -18,7 +18,7 @@ export const GL_SUPPORTED_PATTERNS: ReadonlySet<PatternType> = new Set<PatternTy
 
 export function shouldUseGL(pattern: PatternType): boolean {
   if (!GL_SUPPORTED_PATTERNS.has(pattern)) return false
-  if (useGLOverride() === 'force-off') return false
+  if (getGLOverride() === 'force-off') return false
   return isWebGL2Available()
 }
 

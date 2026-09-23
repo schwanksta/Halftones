@@ -7,7 +7,7 @@ The shipped `.app`/`.dmg` is **unsigned** — no Apple Developer ID or notarizat
 
 ## Working Rules
 
-- **Always commit when done.** After completing any task, run `npm run build` to verify, then `git add -A && git commit`.
+- **Always commit when done.** After completing any task, run `npm run build` and `npm test` to verify, then `git add -A && git commit`.
 - **Also run `npm run tauri:build` when done.** This produces the `.app` and `.dmg` at `src-tauri/target/release/bundle/macos/`. Takes ~50s on second+ Rust builds (just JS changed), ~2–3 min after Rust changes.
 - **Before creating a GitHub release, ask the user what version number to use.** Don't infer it from prior releases.
 - **Releasing, in order**: (1) if work is on a feature branch, fast-forward merge it into `main` and push; (2) bump the version in all **three** places it's duplicated — `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`; (3) `npm run build` then `npm run tauri:build`; (4) `git tag vX.Y.Z && git push origin vX.Y.Z`; (5) `gh release create vX.Y.Z <path-to-dmg> --title ... --notes ...`. Release notes should keep the unsigned-app Gatekeeper workaround (right-click → Open, or `xattr -cr ...` if "damaged").
@@ -17,6 +17,8 @@ The shipped `.app`/`.dmg` is **unsigned** — no Apple Developer ID or notarizat
 ```bash
 npm run dev          # start dev server (Vite, port 5173)
 npm run build        # typecheck (tsc -b) then bundle
+npm test             # vitest (node env) — *.test.ts colocated with source
+npm run lint         # eslint; should be clean (0 problems)
 npm run tauri:dev    # boot Vite + native window (for testing Tauri features)
 npm run tauri:build  # full release build → Halftones.app + .dmg
 ```
@@ -31,23 +33,32 @@ src/
     types.ts                  # PlatformAPI interface, AllSettings, ProjectFile, MenuEvent
     platform-tauri.ts         # Tauri implementation (file I/O, dialogs, prefs, menus, window)
     platform-web.ts           # Web stubs (blob download, localStorage, no-ops)
-    halftones-file.ts         # .halftones zip pack/unpack (JSZip, schemaVersion 1)
+    halftones-file.ts         # .halftones zip pack/unpack (JSZip, schemaVersion 2) + migrateProjectJson()
   types.ts                    # all interfaces, defaults, type unions
   components/
     TopBar.tsx                # project name (editable), projects dropdown, image loader
     ControlPanel.tsx          # sidebar shell, passes settings to sub-panels
     HalftoneControls.tsx      # pattern selector, LPI, angle, dot controls, color pickers
+    CMYKControls.tsx          # per-channel CMYK angle/enable + channel view
     OutputControls.tsx        # width/height (inches), DPI, margin
     TransformControls.tsx     # crop, rotation, levels (black/white point, gamma)
-    SpotColorEditor.tsx       # spot color list, per-color controls, global trap/vibrancy, key plate
+    CropOverlay.tsx           # on-canvas crop handles (drag edges/corners)
+    SpotColorEditor.tsx       # spot color list, per-color controls, global trap/vibrancy, key plate, layer edit mode
+    PaletteBar.tsx            # saved ink palettes (save current / apply)
+    MaskControls.tsx          # global layer mask: load image/SVG, source mode, invert, stroke
+    PrintPlan.tsx             # screen/frame/mesh recommendations from engine/print-plan.ts
     PreviewCanvas.tsx         # viewport canvas, zoom controls, drag-drop
     ExportBar.tsx             # PNG / channel PNG / PDF / color proof export buttons
     ImageLoader.tsx           # file picker
+    EditableValue.tsx         # click-to-edit numeric readout used by sliders
+    SavePromptModal.tsx, Toast.tsx
   hooks/
     useHalftonePreview.ts     # main render loop: transforms, viewport extract, halftone, compositing
     useCanvasTransform.ts     # pan/zoom viewport state (wheel, drag)
     useProjectPersistence.ts  # localStorage read/write for project snapshots
     useAppShell.ts            # Tauri menu/drop/save/open/quit handlers
+    useUndoHistory.ts         # settings-snapshot undo/redo (50 deep, 600ms debounce)
+    useDirtyTracking.ts       # dirty flag for unsaved-changes prompt / setDocumentEdited
   engine/
     halftone.ts               # renderHalftone() — routes to pattern renderers
     patterns.ts               # grid-based patterns: dot, line, ellipse, diamond, hex, euclidean,
@@ -59,9 +70,19 @@ src/
     transform.ts              # applyTransforms() — rotation, crop, levels
     spot-separation.ts        # separateSpotChannels(), renderFlat(), boostSaturation(), extractPalette(), darkestSpotColor()
     key-plate.ts              # buildKeyPlateCanvas(), buildExportEdgeMask() — shared by preview + both export paths
+    edge.ts                   # Sobel edge mask + alpha-boundary mask for key plate stroke/outline
+    layer-edits.ts            # layer edit mode: per-color paint/erase masks applied to spot label ownership
+    mask.ts                   # global layer mask: rasterize (SVG re-rasterized per size), overlay/stroke/cut
+    vectorize.ts              # marching-squares raster → polygon tracer for smooth flat-plate edges
+    print-plan.ts             # pure: derive plates + recommend screens/frames/mesh from ShopProfile
     dilate.ts                 # dilateMask() — morphological dilation for spot trap
     export.ts                 # exportPNG(), exportChannelPNGs(), exportPDF(), exportColorProof()
     png-metadata.ts           # setPngDpi() — inject pHYs chunk for DPI metadata
+    webgl/                    # GL2 fast path — see "WebGL Fast Path" below
+      render.ts               #   shouldUseGL(), renderHalftoneGL(), uniform uploads
+      shared.glsl.ts          #   vertex shader + FRAG_PRELUDE (applyDotSettings, sampleLum in GLSL)
+      patterns/*.ts           #   one fragment shader per GL pattern
+      context.ts, program.ts, quad.ts, texture.ts  # GL context cache, shader compile, fullscreen tri, uploads
 ```
 
 ## Tauri — Key Facts
@@ -127,6 +148,7 @@ src/
 - Shared preview GL context (`getSharedGL`) reused across frames; export uses one-shot `createExportGL`
 - `shared.glsl.ts` contains the vertex shader, shared uniforms, and `applyDotSettings()` / `sampleLum()` in GLSL — **must be kept in sync with `dot-settings.ts` and `sampling.ts`**
 - `sampleLum()` checks `rgba.a < 0.5` → returns 1.0 (paper/no-ink) for transparent pixels, matching the CPU alpha guard in `precomputeGrayscale()`
+- `src/engine/dot-settings.test.ts` extracts the GLSL `applyDotSettings()` from `FRAG_PRELUDE`, transliterates it to JS, and checks it against the CPU version over a grid of settings — if you change one side, `npm test` fails until the other matches. The transliteration is regex-based (`float x =` → `let`, `pow/min/max` → `Math.*`), so keep that GLSL function to plain scalar float math
 - All tone-curve uniforms (`uHalftoneGamma`, `uShadowBoost`, `uHighlightBoost`) and dot uniforms (`uMinDot`, `uMaxDot`, `uDotGain`, `uDotSize`) must be uploaded in `render.ts` — adding new controls to `dot-settings.ts` requires parallel updates to the GLSL and uniform uploads
 
 ### Colors (preview only)
@@ -150,8 +172,8 @@ src/
 - localStorage key `halftones_projects` → `Record<string, ProjectSnapshot>`
 - Auto-save with 1-second debounce on any settings change (web mode only; Tauri uses explicit save)
 - Source image NOT saved (too large) — user must reload file, but all sliders restore
-- `.halftones` file format: zip of `project.json` (schemaVersion 1) + `source.<ext>`
-- Migration chain in `halftones-file.ts` — add new `case` before `default` to upgrade old files
+- `.halftones` file format: zip of `project.json` (schemaVersion 2) + `source.<ext>`, plus optional `mask.<ext>`, `thumbnail.png`, `edits/<colorId>.png`
+- Migration chain in `halftones-file.ts` — add new `case` before `default` to upgrade old files, and add a case to `halftones-file.test.ts`
 
 ## Patterns
 
@@ -175,6 +197,12 @@ src/
 - `halftoneGamma` (0.5–3): power curve over the full tonal range. Applied first in `applyDotSettings()`.
 - `shadowBoost` / `highlightBoost` (0–1): piecewise power on each half of the range (split at d=0.5). Continuous at boundary regardless of boost value.
 - Both CPU (`dot-settings.ts`) and GPU (`shared.glsl.ts`) implementations must match exactly.
+
+### Layer Edit Mode
+- Brush paint/erase edits a spot color's **ownership**, not its rendered plate. Per-color RGBA canvases (`EditMasks`, at transformed-image dims: transparent = untouched, black = force ink, white = force paper) are applied to `SpotLabelData` via `applyLabelEdits()` before separation feeds channels/underbase/key knockout/build-up — so edits survive LPI/angle/threshold/trap changes
+- `transformKeyOf(transformSettings)` stamps the crop/rotation geometry the edits were painted against; if it no longer matches, edits are ignored (preview) rather than misaligned. Saved as `layerEditsKey` in `.halftones`
+- Key plate erase uses the reserved id `KEY_EDIT_ID = '__key__'`
+- Edit canvases are mutated in place during a stroke; `editsVersion` is bumped to invalidate memos/redraw
 
 ## Common Gotchas
 - `radialOriginX/Y` can be undefined from stale state — always `?? 0.5`

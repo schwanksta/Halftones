@@ -824,10 +824,13 @@ export function useHalftonePreview(
     }
 
     ctx.restore()
+  // editMasks/editMasksKey/editsVersion aren't read here, but edit canvases are mutated
+  // in place, so they're kept as explicit redraw triggers.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     canvasRef, transformed, transformedCanvas, stippleCanvas,
     spotSettings.colors, spotSettings.vibrancy, spotSettings.trap, spotSettings.key,
-    spotSettings.separationMode, spotSettings.substrate, spotSettings.underbase,
+    spotSettings.separationMode, spotSettings.substrate, spotSettings.underbase, spotSettings.manualOrder,
     spotChannelCanvases, flatVectorPaths, alphaOutlineCanvas, keyEdgeCanvas, underbaseCanvas,
     keyDotsKnockoutCanvas, keyStrokeKnockoutCanvas, keyEraseCanvas,
     maskOverlayCanvas, maskStrokeCanvas,

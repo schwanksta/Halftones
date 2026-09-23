@@ -49,9 +49,9 @@ export function labToRgb(L: number, a: number, b: number): [number, number, numb
   const y = labInvF(fy) * 1.00000
   const z = labInvF(fz) * 1.08883
   // XYZ → linear RGB
-  let rl =  x * 3.2404542 - y * 1.5371385 - z * 0.4985314
-  let gl = -x * 0.9692660 + y * 1.8760108 + z * 0.0415560
-  let bl =  x * 0.0556434 - y * 0.2040259 + z * 1.0572252
+  const rl =  x * 3.2404542 - y * 1.5371385 - z * 0.4985314
+  const gl = -x * 0.9692660 + y * 1.8760108 + z * 0.0415560
+  const bl =  x * 0.0556434 - y * 0.2040259 + z * 1.0572252
   // Gamma
   const gamma = (v: number) => Math.max(0, Math.min(255,
     Math.round((v > 0.0031308 ? 1.055 * v ** (1 / 2.4) - 0.055 : 12.92 * v) * 255)

@@ -1361,7 +1361,7 @@ export async function exportPDF(options: ExportOptions): Promise<void> {
       if (bleedPts > 0 && cropMarkPts > 0) {
         // Clip the bleed to the trim area so it fills each margin to the trim
         // line but never covers the crop marks.
-        const p = pdf as any
+        const p = pdf
         p.saveGraphicsState()
         p.rect(cropMarkPts, cropMarkPts, pageW - 2 * cropMarkPts, pageH - 2 * cropMarkPts, null)
         p.clip(); p.discardPath()
