@@ -208,7 +208,7 @@ export function useHalftonePreview(
     if (!editedLabels || !transformed) return editedLabels
     return maybeApplyMosaic(editedLabels, spotSettings, outputSettings.widthInches)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editedLabels, transformed, spotSettings.mosaic, spotSettings.mosaicTileInches, spotSettings.mosaicGroutInches,
+  }, [editedLabels, transformed, spotSettings.mosaic, spotSettings.mosaicTileInches, spotSettings.mosaicGroutPct,
       outputSettings.widthInches])
 
   // Build per-color channels from the partition, applying joint smoothing.

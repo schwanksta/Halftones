@@ -226,10 +226,10 @@ export interface SpotSettings {
    * and axis-aligned).
    */
   mosaic?: boolean
-  /** Tile pitch in inches (default 0.25). */
+  /** Tile pitch in inches (default 0.08). */
   mosaicTileInches?: number
-  /** Bare-paper gap between tiles in inches (default 0.02; 0 = tiles abut). */
-  mosaicGroutInches?: number
+  /** Bare-paper gap between tiles as % of tile pitch (default 15; 0 = tiles abut). */
+  mosaicGroutPct?: number
   colors: SpotColor[]
   /**
    * Optional key plate: a halftone of the full image rendered on top of all

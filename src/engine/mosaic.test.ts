@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyMosaic, mosaicGridFor, maybeApplyMosaic } from './mosaic'
+import { applyMosaic, mosaicGridFor, maybeApplyMosaic, sliderToTileInches, tileInchesToSlider } from './mosaic'
 import type { SpotLabelData } from './spot-separation'
 import { DEFAULT_SPOT_SETTINGS } from '../types'
 
@@ -94,13 +94,24 @@ describe('mosaicGridFor', () => {
   })
 
   it('scales tile and grout with resolution so preview and export match', () => {
-    const spot = { ...DEFAULT_SPOT_SETTINGS, mosaic: true, mosaicTileInches: 0.5, mosaicGroutInches: 0.05 }
+    const spot = { ...DEFAULT_SPOT_SETTINGS, mosaic: true, mosaicTileInches: 0.5, mosaicGroutPct: 10 }
     expect(mosaicGridFor(spot, 1000, 10)).toEqual({ tilePx: 50, groutPx: 5 })
     expect(mosaicGridFor(spot, 3000, 10)).toEqual({ tilePx: 150, groutPx: 15 })
   })
 
-  it('floors grout at 1px so it stays visible in low-res preview', () => {
-    const spot = { ...DEFAULT_SPOT_SETTINGS, mosaic: true, mosaicTileInches: 0.5, mosaicGroutInches: 0.01 }
-    expect(mosaicGridFor(spot, 200, 10)!.groutPx).toBe(1)
+  it('rounds grout to whole pixels and never fills a whole tile', () => {
+    const spot = { ...DEFAULT_SPOT_SETTINGS, mosaic: true, mosaicTileInches: 0.02, mosaicGroutPct: 15 }
+    // 0.02" at 100 ppi = 2px tile; 15% = 0.3px → rounds to 0.
+    expect(mosaicGridFor(spot, 1000, 10)).toEqual({ tilePx: 2, groutPx: 0 })
+    const fat = { ...spot, mosaicGroutPct: 50 }
+    expect(mosaicGridFor(fat, 1000, 10)!.groutPx).toBe(1)
+  })
+
+  it('tile slider is logarithmic and round-trips', () => {
+    expect(sliderToTileInches(0)).toBe(0.01)
+    expect(sliderToTileInches(1)).toBe(0.5)
+    // Half the slider travel lands well under the linear midpoint (~0.07").
+    expect(sliderToTileInches(0.5)).toBeLessThan(0.1)
+    expect(sliderToTileInches(tileInchesToSlider(0.08))).toBeCloseTo(0.08, 3)
   })
 })

@@ -208,7 +208,7 @@ src/
 ### Mosaic
 - `maybeApplyMosaic(ld, spotSettings, widthInches)` runs on `SpotLabelData` **after** `applyLabelEdits` and **before** `buildSpotChannels` — in the preview's `partition` memo, `renderSpotChannelCanvases`, and `exportColorProof`. Every downstream consumer (plates, underbase, key knockout masks, build-up reach) must read the mosaicked data, not `editedLabels`
 - Per tile: majority label (paper/-1 is a candidate), tone = mean `values` of the winning label, `painted`/`erased` bits by strict majority. Grout pixels become -1 (no ink on any partition plate; background-type colors still print there)
-- Tile/grout px come from width alone (`ld.width / widthInches`) because the color proof's height follows the image aspect, not `heightInches`. Grid is centered; edge slivers < ¼ tile merge into their neighbour; grout only on interior lines; grout has a 1px floor for low-res preview
+- Tile px come from width alone (`ld.width / widthInches`) because the color proof's height follows the image aspect, not `heightInches`. Grout is a % of tile pitch (`mosaicGroutPct`), rounded to whole px so every line matches — it can round to 0 in a low-res preview. Grid is centered; edge slivers < ¼ tile merge into their neighbour; grout only on interior lines. Tile slider is log-scale (`tileInchesToSlider`/`sliderToTileInches`), 0.01–0.5"
 - Mosaicked data is marked `tiled: true`; `buildSpotChannels`/`buildOwnershipMask` skip `smoothLabelField` for it (the neighbour vote would round tile corners). Flat-edge vectorizing is also bypassed under mosaic (`smoothFor()` in export.ts, `flatVectorPaths` in the preview)
 
 ## Common Gotchas

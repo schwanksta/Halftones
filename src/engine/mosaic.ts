@@ -16,28 +16,40 @@ import type { SpotLabelData } from './spot-separation'
 export interface MosaicGrid {
   /** Tile pitch in label-field pixels (fractional OK). Tiles are square. */
   tilePx: number
-  /** Grout width in label-field pixels; 0 = tiles abut. */
+  /** Grout width in whole label-field pixels; 0 = tiles abut. */
   groutPx: number
 }
 
-export const DEFAULT_MOSAIC_TILE_INCHES = 0.25
-export const DEFAULT_MOSAIC_GROUT_INCHES = 0.02
+export const DEFAULT_MOSAIC_TILE_INCHES = 0.08
+export const MOSAIC_TILE_MIN_INCHES = 0.01
+export const MOSAIC_TILE_MAX_INCHES = 0.5
+/** Grout as a percentage of tile pitch, so it shrinks along with the tiles. */
+export const DEFAULT_MOSAIC_GROUT_PCT = 15
+export const MOSAIC_GROUT_MAX_PCT = 50
+
+/** Tile slider is logarithmic so most of its travel is in the fine-detail range. */
+const LOG_TILE_RANGE = Math.log(MOSAIC_TILE_MAX_INCHES / MOSAIC_TILE_MIN_INCHES)
+export const tileInchesToSlider = (inches: number) =>
+  Math.log(Math.min(MOSAIC_TILE_MAX_INCHES, Math.max(MOSAIC_TILE_MIN_INCHES, inches)) / MOSAIC_TILE_MIN_INCHES) / LOG_TILE_RANGE
+export const sliderToTileInches = (t: number) =>
+  Math.round(MOSAIC_TILE_MIN_INCHES * Math.exp(t * LOG_TILE_RANGE) * 1000) / 1000
 
 /**
  * Mosaic grid for a label field `width` pixels wide printed `widthInches`
  * wide, or null when mosaic is off. Scale comes from width alone (the color
  * proof derives its height from the image aspect, not heightInches), so
- * preview, plates and proof all tile identically. Grout gets a 1px floor so
- * it stays visible in a low-resolution preview.
+ * preview, plates and proof all tile identically. Grout is rounded to whole
+ * pixels so every line comes out the same width; at low resolution a thin
+ * grout can round to 0 (the preview shows abutting tiles, export still has it).
  */
 export function mosaicGridFor(spot: SpotSettings, width: number, widthInches: number): MosaicGrid | null {
   if (!spot.mosaic) return null
   const ppi = width / Math.max(0.01, widthInches)
   const tileIn = spot.mosaicTileInches ?? DEFAULT_MOSAIC_TILE_INCHES
-  const groutIn = spot.mosaicGroutInches ?? DEFAULT_MOSAIC_GROUT_INCHES
+  const groutPct = spot.mosaicGroutPct ?? DEFAULT_MOSAIC_GROUT_PCT
   const tilePx = Math.max(2, tileIn * ppi)
-  const groutPx = groutIn > 0 ? Math.min(tilePx - 1, Math.max(1, groutIn * ppi)) : 0
-  return { tilePx, groutPx }
+  const groutPx = Math.min(Math.floor(tilePx) - 1, Math.round(tilePx * groutPct / 100))
+  return { tilePx, groutPx: Math.max(0, groutPx) }
 }
 
 /**

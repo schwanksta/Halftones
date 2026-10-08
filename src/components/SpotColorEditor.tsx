@@ -4,7 +4,10 @@ import { extractPalette, mergeSimilarColors, labToHex, rgbToLab, guessColorName,
 import { EditableValue } from './EditableValue'
 import { PaletteBar } from './PaletteBar'
 import { KEY_EDIT_ID } from '../engine/layer-edits'
-import { DEFAULT_MOSAIC_TILE_INCHES, DEFAULT_MOSAIC_GROUT_INCHES } from '../engine/mosaic'
+import {
+  DEFAULT_MOSAIC_TILE_INCHES, DEFAULT_MOSAIC_GROUT_PCT, MOSAIC_TILE_MIN_INCHES, MOSAIC_TILE_MAX_INCHES,
+  MOSAIC_GROUT_MAX_PCT, tileInchesToSlider, sliderToTileInches,
+} from '../engine/mosaic'
 
 /**
  * "Clear edits" with an inline two-step confirm: the first click arms it, a
@@ -558,29 +561,29 @@ export function SpotColorEditor({
 
         {settings.mosaic && (
           <>
-            <div className="control-row" title="Tile size, in inches on the print.">
+            <div className="control-row" title="Tile size, in inches on the print. The slider is logarithmic — most of its travel is in the fine range.">
               <span>Tile <EditableValue
                 value={settings.mosaicTileInches ?? DEFAULT_MOSAIC_TILE_INCHES}
-                min={0.03} max={1} step={0.01} decimals={2} suffix='"'
+                min={MOSAIC_TILE_MIN_INCHES} max={MOSAIC_TILE_MAX_INCHES} step={0.001} decimals={3} suffix='"'
                 onChange={(v) => update({ mosaicTileInches: v })}
               /></span>
               <input
-                type="range" min={0.03} max={1} step={0.01}
-                value={settings.mosaicTileInches ?? DEFAULT_MOSAIC_TILE_INCHES}
-                onChange={(e) => update({ mosaicTileInches: Number(e.target.value) })}
+                type="range" min={0} max={1} step={0.001}
+                value={tileInchesToSlider(settings.mosaicTileInches ?? DEFAULT_MOSAIC_TILE_INCHES)}
+                onChange={(e) => update({ mosaicTileInches: sliderToTileInches(Number(e.target.value)) })}
                 disabled={disabled}
               />
             </div>
-            <div className="control-row" title="Bare-paper gap between tiles, in inches. 0 = tiles touch. A background layer shows through the grout.">
+            <div className="control-row" title="Bare-paper gap between tiles, as a percentage of tile size, so it scales with the tiles. 0 = tiles touch. A background layer shows through the grout.">
               <span>Grout <EditableValue
-                value={settings.mosaicGroutInches ?? DEFAULT_MOSAIC_GROUT_INCHES}
-                min={0} max={0.1} step={0.005} decimals={3} suffix='"'
-                onChange={(v) => update({ mosaicGroutInches: v })}
+                value={settings.mosaicGroutPct ?? DEFAULT_MOSAIC_GROUT_PCT}
+                min={0} max={MOSAIC_GROUT_MAX_PCT} step={1} suffix="%"
+                onChange={(v) => update({ mosaicGroutPct: v })}
               /></span>
               <input
-                type="range" min={0} max={0.1} step={0.005}
-                value={settings.mosaicGroutInches ?? DEFAULT_MOSAIC_GROUT_INCHES}
-                onChange={(e) => update({ mosaicGroutInches: Number(e.target.value) })}
+                type="range" min={0} max={MOSAIC_GROUT_MAX_PCT} step={1}
+                value={settings.mosaicGroutPct ?? DEFAULT_MOSAIC_GROUT_PCT}
+                onChange={(e) => update({ mosaicGroutPct: Number(e.target.value) })}
                 disabled={disabled}
               />
             </div>
