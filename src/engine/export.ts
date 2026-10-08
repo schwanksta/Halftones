@@ -13,10 +13,13 @@ import { applyDotSettings } from './dot-settings'
 import { buildKeyPlateCanvas, buildExportEdgeMask } from './key-plate'
 import { traceBinaryMask, polygonsToPath2D } from './vectorize'
 import { EditMasks, applyLabelEdits, transformKeyOf, scaleEditMasks, keyEraseKnockoutCanvas } from './layer-edits'
+import { maybeApplyMosaic } from './mosaic'
 
 /** Whether a color's flat plate should be vectorized: per-color override wins
  *  over the global toggle. */
 function smoothFor(color: SpotColor, spotSettings: SpotSettings): boolean {
+  // Mosaic tiles are already axis-aligned, so tracing would only round them.
+  if (spotSettings.mosaic) return false
   return color.smooth ?? spotSettings.smoothFlat ?? false
 }
 
@@ -195,11 +198,11 @@ async function renderSpotChannelCanvases(
   const editMasksActive = !!(options.editMasks && options.editMasks.size > 0
     && (!options.editMasksKey || options.editMasksKey === transformKeyOf(transformSettings)))
   const scaledEditMasks = editMasksActive ? scaleEditMasks(options.editMasks!, targetWidth, targetHeight) : null
-  const edited = scaledEditMasks
+  const edited = maybeApplyMosaic(scaledEditMasks
     ? applyLabelEdits(labelData, scaledEditMasks, spotSettings.colors, {
         mode: spotSettings.separationMode, manualOrder: spotSettings.manualOrder,
       })
-    : labelData
+    : labelData, spotSettings, outputSettings.widthInches)
 
   const reachPx = (spotSettings.buildupReachInches ?? 0) > 0
     ? Math.max(1, Math.round(spotSettings.buildupReachInches! * outputSettings.dpi))
@@ -636,11 +639,11 @@ export async function renderProofCanvas(options: ExportOptions): Promise<HTMLCan
     const proofEditMasksActive = !!(options.editMasks && options.editMasks.size > 0
       && (!options.editMasksKey || options.editMasksKey === transformKeyOf(transformSettings)))
     const proofScaledEditMasks = proofEditMasksActive ? scaleEditMasks(options.editMasks!, targetW, targetH) : null
-    const editedProofLabels = proofScaledEditMasks
+    const editedProofLabels = maybeApplyMosaic(proofScaledEditMasks
       ? applyLabelEdits(proofLabelData, proofScaledEditMasks, spotSettings.colors, {
           mode: spotSettings.separationMode, manualOrder: spotSettings.manualOrder,
         })
-      : proofLabelData
+      : proofLabelData, spotSettings, outputSettings.widthInches)
 
     const proofReachPx = (spotSettings.buildupReachInches ?? 0) > 0
       ? Math.max(1, Math.round(spotSettings.buildupReachInches! * dpi))

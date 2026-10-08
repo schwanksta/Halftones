@@ -4,6 +4,7 @@ import { extractPalette, mergeSimilarColors, labToHex, rgbToLab, guessColorName,
 import { EditableValue } from './EditableValue'
 import { PaletteBar } from './PaletteBar'
 import { KEY_EDIT_ID } from '../engine/layer-edits'
+import { DEFAULT_MOSAIC_TILE_INCHES, DEFAULT_MOSAIC_GROUT_INCHES } from '../engine/mosaic'
 
 /**
  * "Clear edits" with an inline two-step confirm: the first click arms it, a
@@ -529,15 +530,62 @@ export function SpotColorEditor({
           </div>
         )}
 
-        <div className="control-row" title="Clean up the color separation — jointly tidies which color owns each pixel so layers never erode apart and leave paper showing through. Low = remove stray specks; high = smooth ragged boundaries more.">
+        <div
+          className="control-row"
+          style={settings.mosaic ? { opacity: 0.5 } : undefined}
+          title={settings.mosaic
+            ? 'Not used while Mosaic is on — each tile already takes its majority color.'
+            : 'Clean up the color separation — jointly tidies which color owns each pixel so layers never erode apart and leave paper showing through. Low = remove stray specks; high = smooth ragged boundaries more.'}
+        >
           <span>Despeckle <EditableValue value={settings.smoothing ?? 0} min={0} max={100} step={5} suffix="%" onChange={(v) => update({ smoothing: v })} /></span>
           <input
             type="range" min={0} max={100} step={5}
             value={settings.smoothing ?? 0}
             onChange={(e) => update({ smoothing: Number(e.target.value) })}
-            disabled={disabled}
+            disabled={disabled || settings.mosaic}
           />
         </div>
+
+        <label className="control-row control-row--toggle" title="Break the separation into square tiles: each tile takes the color that covers most of it, with an optional paper gap (grout) between tiles. Applies to every plate, the underbase and key knockouts.">
+          <span>Mosaic</span>
+          <input
+            type="checkbox"
+            checked={settings.mosaic ?? false}
+            onChange={(e) => update({ mosaic: e.target.checked })}
+            disabled={disabled}
+          />
+        </label>
+
+        {settings.mosaic && (
+          <>
+            <div className="control-row" title="Tile size, in inches on the print.">
+              <span>Tile <EditableValue
+                value={settings.mosaicTileInches ?? DEFAULT_MOSAIC_TILE_INCHES}
+                min={0.03} max={1} step={0.01} decimals={2} suffix='"'
+                onChange={(v) => update({ mosaicTileInches: v })}
+              /></span>
+              <input
+                type="range" min={0.03} max={1} step={0.01}
+                value={settings.mosaicTileInches ?? DEFAULT_MOSAIC_TILE_INCHES}
+                onChange={(e) => update({ mosaicTileInches: Number(e.target.value) })}
+                disabled={disabled}
+              />
+            </div>
+            <div className="control-row" title="Bare-paper gap between tiles, in inches. 0 = tiles touch. A background layer shows through the grout.">
+              <span>Grout <EditableValue
+                value={settings.mosaicGroutInches ?? DEFAULT_MOSAIC_GROUT_INCHES}
+                min={0} max={0.1} step={0.005} decimals={3} suffix='"'
+                onChange={(v) => update({ mosaicGroutInches: v })}
+              /></span>
+              <input
+                type="range" min={0} max={0.1} step={0.005}
+                value={settings.mosaicGroutInches ?? DEFAULT_MOSAIC_GROUT_INCHES}
+                onChange={(e) => update({ mosaicGroutInches: Number(e.target.value) })}
+                disabled={disabled}
+              />
+            </div>
+          </>
+        )}
 
         {settings.separationMode === 'buildup' && (
           <>
@@ -584,13 +632,19 @@ export function SpotColorEditor({
           />
         </div>
 
-        <label className="control-row control-row--toggle" title="Trace flat color plates into vector outlines so diagonal and curved edges aren't pixelated (staircased). Sets the default for all flat plates; override per-color in each color's controls (e.g. leave fine line/hatch art crisp). Halftone plates are unaffected.">
+        <label
+          className="control-row control-row--toggle"
+          style={settings.mosaic ? { opacity: 0.5 } : undefined}
+          title={settings.mosaic
+            ? 'Not used while Mosaic is on — tile edges are already straight.'
+            : "Trace flat color plates into vector outlines so diagonal and curved edges aren't pixelated (staircased). Sets the default for all flat plates; override per-color in each color's controls (e.g. leave fine line/hatch art crisp). Halftone plates are unaffected."}
+        >
           <span>Vectorize flat edges</span>
           <input
             type="checkbox"
             checked={settings.smoothFlat ?? false}
             onChange={(e) => update({ smoothFlat: e.target.checked })}
-            disabled={disabled}
+            disabled={disabled || settings.mosaic}
           />
         </label>
 

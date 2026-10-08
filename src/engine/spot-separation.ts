@@ -709,6 +709,12 @@ export interface SpotLabelData {
    * plates, so "erase the top layer" can't be expressed by ownership alone.
    */
   erased?: Uint32Array
+  /**
+   * Set by applyMosaic(): labels are already quantized to mosaic tiles. Joint
+   * smoothing is skipped for tiled data — its neighbour vote would round the
+   * tile corners, and the per-tile majority vote already despeckles.
+   */
+  tiled?: boolean
 }
 
 /**
@@ -869,7 +875,7 @@ export function buildSpotChannels(
 ): Map<string, ImageData> {
   const { width, height, values, labColorIds, labColorL, backgroundChannels, painted, erased } = ld
   const n = width * height
-  const labels = smoothLabelField(ld.labels, width, height, labColorIds.length, smoothing)
+  const labels = ld.tiled ? ld.labels : smoothLabelField(ld.labels, width, height, labColorIds.length, smoothing)
   const nc = labColorIds.length
 
   const bufs = labColorIds.map(() => new Uint8ClampedArray(n * 4).fill(255))
@@ -1019,7 +1025,7 @@ export function buildOwnershipMask(
 ): ImageData | null {
   if (colorIds.length === 0) return null
   const { width, height, labColorIds, backgroundChannels } = ld
-  const labels = opts?.smoothing
+  const labels = opts?.smoothing && !ld.tiled
     ? smoothLabelField(ld.labels, width, height, labColorIds.length, opts.smoothing)
     : ld.labels
   const n = width * height

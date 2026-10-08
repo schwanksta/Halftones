@@ -72,6 +72,7 @@ src/
     key-plate.ts              # buildKeyPlateCanvas(), buildExportEdgeMask() — shared by preview + both export paths
     edge.ts                   # Sobel edge mask + alpha-boundary mask for key plate stroke/outline
     layer-edits.ts            # layer edit mode: per-color paint/erase masks applied to spot label ownership
+    mosaic.ts                 # applyMosaic() — quantize spot label partition to a square tile grid + grout
     mask.ts                   # global layer mask: rasterize (SVG re-rasterized per size), overlay/stroke/cut
     vectorize.ts              # marching-squares raster → polygon tracer for smooth flat-plate edges
     print-plan.ts             # pure: derive plates + recommend screens/frames/mesh from ShopProfile
@@ -203,6 +204,12 @@ src/
 - `transformKeyOf(transformSettings)` stamps the crop/rotation geometry the edits were painted against; if it no longer matches, edits are ignored (preview) rather than misaligned. Saved as `layerEditsKey` in `.halftones`
 - Key plate erase uses the reserved id `KEY_EDIT_ID = '__key__'`
 - Edit canvases are mutated in place during a stroke; `editsVersion` is bumped to invalidate memos/redraw
+
+### Mosaic
+- `maybeApplyMosaic(ld, spotSettings, widthInches)` runs on `SpotLabelData` **after** `applyLabelEdits` and **before** `buildSpotChannels` — in the preview's `partition` memo, `renderSpotChannelCanvases`, and `exportColorProof`. Every downstream consumer (plates, underbase, key knockout masks, build-up reach) must read the mosaicked data, not `editedLabels`
+- Per tile: majority label (paper/-1 is a candidate), tone = mean `values` of the winning label, `painted`/`erased` bits by strict majority. Grout pixels become -1 (no ink on any partition plate; background-type colors still print there)
+- Tile/grout px come from width alone (`ld.width / widthInches`) because the color proof's height follows the image aspect, not `heightInches`. Grid is centered; edge slivers < ¼ tile merge into their neighbour; grout only on interior lines; grout has a 1px floor for low-res preview
+- Mosaicked data is marked `tiled: true`; `buildSpotChannels`/`buildOwnershipMask` skip `smoothLabelField` for it (the neighbour vote would round tile corners). Flat-edge vectorizing is also bypassed under mosaic (`smoothFor()` in export.ts, `flatVectorPaths` in the preview)
 
 ## Common Gotchas
 - `radialOriginX/Y` can be undefined from stale state — always `?? 0.5`

@@ -219,6 +219,17 @@ export interface SpotSettings {
   smoothFlat?: boolean
   /** 0–100: aggressiveness of the flat-edge simplification + smoothing. Default 50. */
   smoothFlatStrength?: number
+  /**
+   * Mosaic: quantize the separation to a square tile grid — each tile takes
+   * the ink that owns most of it. Absent in older files = off. While on,
+   * Despeckle and flat-edge vectorizing are bypassed (tiles are already clean
+   * and axis-aligned).
+   */
+  mosaic?: boolean
+  /** Tile pitch in inches (default 0.25). */
+  mosaicTileInches?: number
+  /** Bare-paper gap between tiles in inches (default 0.02; 0 = tiles abut). */
+  mosaicGroutInches?: number
   colors: SpotColor[]
   /**
    * Optional key plate: a halftone of the full image rendered on top of all
