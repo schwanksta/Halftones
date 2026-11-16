@@ -1,6 +1,7 @@
 import { useRef, useMemo } from 'react'
 import { MaskSettings, MaskImage, MaskSourceMode, DEFAULT_MASK_SETTINGS } from '../types'
 import { loadMaskFromBytes } from '../engine/mask'
+import { SliderRow, ToggleRow, SelectRow, ColorRow, Note } from './ui/rows'
 
 interface Props {
   maskSettings: MaskSettings
@@ -53,26 +54,24 @@ export function MaskControls({
     onMaskSettingsChange({ ...DEFAULT_MASK_SETTINGS })
   }
 
-  return (
-    <div className="control-section">
-      <h3 className="section-title">Layer Mask</h3>
+  const maskOff = disabled || !mask || !maskSettings.enabled
+  const set = (partial: Partial<MaskSettings>) => onMaskSettingsChange({ ...maskSettings, ...partial })
 
+  return (
+    <>
       {/* Load / Clear buttons */}
-      <div className="control-row" style={{ gap: 6 }}>
+      <div className="btn-row">
         <button
+          className="btn--small"
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
           style={{ flex: 1 }}
           title="Load an SVG (preferred, resolution-independent) or raster PNG/JPG/WebP mask"
         >
-          {mask ? 'Replace Mask' : 'Load Mask…'}
+          {mask ? 'Replace mask' : 'Load mask…'}
         </button>
         {mask && (
-          <button
-            onClick={handleClear}
-            style={{ flex: 'none', padding: '4px 10px' }}
-            title="Remove the loaded mask"
-          >
+          <button className="btn--small btn--ghost" onClick={handleClear} title="Remove the loaded mask">
             Clear
           </button>
         )}
@@ -87,7 +86,7 @@ export function MaskControls({
 
       {/* Thumbnail + filename */}
       {mask && (
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
           <MaskThumbnail mask={mask} />
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', wordBreak: 'break-all', flex: 1 }}>
             {mask.fileName}
@@ -98,94 +97,57 @@ export function MaskControls({
         </div>
       )}
 
-      {/* Enable toggle */}
-      <label
-        className="control-row"
-        style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: mask ? 8 : 4 }}
-      >
-        <input
-          type="checkbox"
-          checked={maskSettings.enabled}
-          onChange={(e) => onMaskSettingsChange({ ...maskSettings, enabled: e.target.checked })}
-          disabled={disabled || !mask}
-        />
-        <span>Enable mask</span>
-      </label>
-
-      {/* Invert toggle */}
-      <label className="control-row" style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-        <input
-          type="checkbox"
-          checked={maskSettings.invert}
-          onChange={(e) => onMaskSettingsChange({ ...maskSettings, invert: e.target.checked })}
-          disabled={disabled || !mask || !maskSettings.enabled}
-        />
-        <span>Invert</span>
-      </label>
-
-      {/* Source mode selector */}
-      <label className="control-row">
-        <span>Source</span>
-        <select
-          value={maskSettings.source}
-          onChange={(e) => onMaskSettingsChange({ ...maskSettings, source: e.target.value as MaskSourceMode })}
-          disabled={disabled || !mask || !maskSettings.enabled}
-        >
-          {(Object.keys(SOURCE_MODE_LABELS) as MaskSourceMode[]).map((mode) => (
-            <option key={mode} value={mode}>{SOURCE_MODE_LABELS[mode]}</option>
-          ))}
-        </select>
-      </label>
-
-      {/* Stroke (keyline) */}
-      <label className="control-row" style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 4 }}>
-        <input
-          type="checkbox"
-          checked={maskSettings.strokeEnabled ?? false}
-          onChange={(e) => onMaskSettingsChange({ ...maskSettings, strokeEnabled: e.target.checked })}
-          disabled={disabled || !mask || !maskSettings.enabled}
-        />
-        <span>Stroke (keyline)</span>
-      </label>
+      <ToggleRow
+        label="Enable mask"
+        checked={maskSettings.enabled}
+        onChange={(v) => set({ enabled: v })}
+        disabled={disabled || !mask}
+      />
+      <ToggleRow
+        label="Invert"
+        checked={maskSettings.invert}
+        onChange={(v) => set({ invert: v })}
+        disabled={maskOff}
+      />
+      <SelectRow
+        label="Source"
+        value={maskSettings.source}
+        options={(Object.keys(SOURCE_MODE_LABELS) as MaskSourceMode[]).map((mode) => ({ value: mode, label: SOURCE_MODE_LABELS[mode] }))}
+        onChange={(v) => set({ source: v })}
+        disabled={maskOff}
+      />
+      <ToggleRow
+        label="Stroke (keyline)"
+        checked={maskSettings.strokeEnabled ?? false}
+        onChange={(v) => set({ strokeEnabled: v })}
+        disabled={maskOff}
+      />
 
       {maskSettings.strokeEnabled && (
         <>
-          <label className="control-row">
-            <span>
-              Stroke width
-              <span style={{ color: 'var(--text-secondary)' }}>{(maskSettings.strokeWidthInches ?? 0).toFixed(2)}"</span>
-            </span>
-            <input
-              type="range" min={0.01} max={0.25} step={0.01}
-              value={maskSettings.strokeWidthInches ?? 0.05}
-              onChange={(e) => onMaskSettingsChange({ ...maskSettings, strokeWidthInches: Number(e.target.value) })}
-              disabled={disabled || !mask || !maskSettings.enabled}
-            />
-          </label>
-          <label className="control-row" style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-            <span style={{ flex: 1 }}>Stroke color</span>
-            <input
-              type="color"
-              value={maskSettings.strokeColor ?? '#000000'}
-              onChange={(e) => onMaskSettingsChange({ ...maskSettings, strokeColor: e.target.value })}
-              disabled={disabled || !mask || !maskSettings.enabled}
-            />
-          </label>
+          <SliderRow
+            label="Stroke width"
+            value={maskSettings.strokeWidthInches ?? 0.05}
+            min={0.01} max={0.25} step={0.01} decimals={2} suffix={'"'}
+            onChange={(v) => set({ strokeWidthInches: v })}
+            disabled={maskOff}
+          />
+          <ColorRow
+            label="Stroke color"
+            value={maskSettings.strokeColor ?? '#000000'}
+            onChange={(v) => set({ strokeColor: v })}
+            disabled={maskOff}
+          />
         </>
       )}
 
-      {/* Recommended size hint */}
-      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.4 }}>
-        Recommended raster size: {recW} × {recH} px
+      <Note>
+        Recommended raster size: {recW} × {recH} px. SVG is preferred — it scales to any DPI.
         <br />
-        <span style={{ opacity: 0.8 }}>SVG is preferred — scales to any DPI.</span>
-      </div>
-
-      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.4 }}>
-        Convention: white = keep, black = cut.
+        White = keep, black = cut.
         {maskSettings.source !== 'luminance' && ' Alpha: opaque = keep.'}
-      </div>
-    </div>
+      </Note>
+    </>
   )
 }
 

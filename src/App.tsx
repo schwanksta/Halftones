@@ -3,7 +3,7 @@ import './App.css'
 import { TopBar } from './components/TopBar'
 import { ControlPanel } from './components/ControlPanel'
 import { PreviewCanvas } from './components/PreviewCanvas'
-import { ExportBar } from './components/ExportBar'
+import { ExportMenu } from './components/ExportMenu'
 import { SavePromptModal } from './components/SavePromptModal'
 import { Toast } from './components/Toast'
 import { useProjectPersistence } from './hooks/useProjectPersistence'
@@ -617,16 +617,6 @@ function App() {
     return () => window.removeEventListener('keydown', handler)
   }, [editingColorId, prompt, source, halftoneSettings.colorMode, spotSettings.colors, spotSettings.key])
 
-  // Use the TRANSFORMED image's actual aspect ratio so that OutputControls'
-  // aspect-ratio lock uses the post-crop/rotation dimensions.  The raw
-  // source AR (source.width / source.height) ignores crop and rotation, so
-  // a user who crops a portrait image to landscape and then edits a
-  // dimension with the lock on would get the wrong (portrait) AR applied,
-  // snapping the output back to portrait.
-  const sourceAspect = transformedImageData
-    ? transformedImageData.width / transformedImageData.height
-    : (source ? source.width / source.height : null)
-
   return (
     <div className="app">
       {prompt && <SavePromptModal projectName={projectName} onChoose={prompt} />}
@@ -640,13 +630,14 @@ function App() {
         onLoadProject={handleLoadProject}
         onDeleteProject={handleDeleteProject}
       >
-        <ExportBar
+        <ExportMenu
           source={source}
           transformSettings={transformSettings}
           halftoneSettings={halftoneSettings}
           cmykSettings={cmykSettings}
           spotSettings={spotSettings}
           outputSettings={outputSettings}
+          onOutputChange={setOutputSettings}
           projectName={projectName}
           mask={mask}
           maskSettings={maskSettings}
@@ -661,9 +652,7 @@ function App() {
           spotSettings={spotSettings}
           outputSettings={outputSettings}
           transformSettings={transformSettings}
-          channelView={channelView}
           hasImage={source !== null}
-          sourceAspect={sourceAspect}
           sourceImageData={transformedImageData}
           maskSettings={maskSettings}
           mask={mask}
@@ -672,7 +661,6 @@ function App() {
           onSpotChange={setSpotSettings}
           onOutputChange={setOutputSettings}
           onTransformChange={setTransformSettings}
-          onChannelViewChange={setChannelView}
           onMaskSettingsChange={setMaskSettings}
           onMaskLoad={handleMaskLoad}
           onMaskClear={handleMaskClear}
@@ -682,10 +670,6 @@ function App() {
           onToggleSeedPicking={() => setSeedPickingActive(v => !v)}
           editingColorId={editingColorId}
           onToggleEdit={handleToggleEdit}
-          editBrushPx={editBrushPx}
-          onBrushPxChange={setEditBrushPx}
-          editErase={editErase}
-          onEraseChange={setEditErase}
           hasEdits={hasLayerEdits}
           onClearEdits={clearLayerEdits}
           editsStale={editsStale}
@@ -712,6 +696,13 @@ function App() {
           editMasks={editMasksRef.current}
           editMasksKey={editMasksKey}
           editsVersion={editsVersion}
+          editsStale={editsStale && editingColorId !== null && hasLayerEdits(editingColorId)}
+          onHalftoneChange={setHalftoneSettings}
+          onSpotChange={setSpotSettings}
+          onChannelViewChange={setChannelView}
+          onBrushPxChange={setEditBrushPx}
+          onEraseChange={setEditErase}
+          onExitEdit={() => setEditingColorId(null)}
         />
       </div>
     </div>

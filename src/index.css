@@ -13,6 +13,8 @@
   --border: #3a3a3a;
   --accent: #5b8def;
   --accent-hover: #7aa5f5;
+  --warning: #d99a2b;
+  --danger: #c0392b;
 
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   font-size: 14px;
@@ -49,6 +51,11 @@ button {
 
 button:hover {
   background: var(--border);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 input[type="range"] {

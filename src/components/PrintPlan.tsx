@@ -5,6 +5,7 @@ import {
 } from '../types'
 import { platform } from '../platform'
 import { derivePlates, planScreens } from '../engine/print-plan'
+import { ToggleRow, Note } from './ui/rows'
 
 interface Props {
   halftoneSettings: HalftoneSettings
@@ -67,31 +68,17 @@ export function PrintPlan({
   }
 
   return (
-    <div className="control-section">
-      <div className="subsection-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>Print Plan</span>
-        <button
-          onClick={() => setEditing(e => !e)}
-          style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, border: '1px solid var(--border)', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
-        >
-          {editing ? 'Done' : 'Edit screens'}
-        </button>
-      </div>
-
-      <label className="control-row control-row--toggle" title="Burn two different plates on one screen (side by side) to halve the screen count. Plates are paired so consecutive print colors are on different screens (1&3 on one, 2&4 on another) — each screen rests between runs. Underbase / mask-stroke stay on their own screens.">
-        <span>Gang 2 plates per screen</span>
-        <input
-          type="checkbox"
-          checked={profile.gangPerScreen ?? false}
-          onChange={(e) => update({ ...profile, gangPerScreen: e.target.checked })}
-          disabled={disabled}
-        />
-      </label>
+    <>
+      <ToggleRow
+        label="Gang 2 plates per screen"
+        title="Burn two different plates on one screen (side by side) to halve the screen count. Plates are paired so consecutive print colors are on different screens (1&3 on one, 2&4 on another) — each screen rests between runs. Underbase / mask-stroke stay on their own screens."
+        checked={profile.gangPerScreen ?? false}
+        onChange={(gangPerScreen) => update({ ...profile, gangPerScreen })}
+        disabled={disabled}
+      />
 
       {disabled ? (
-        <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '6px 0 0', lineHeight: 1.4 }}>
-          Load an image to see the recommended screens and mesh.
-        </p>
+        <Note>Load an image to see the recommended screens and mesh.</Note>
       ) : (
         <>
           <div style={{ fontSize: 12, margin: '4px 0' }}>
@@ -127,8 +114,14 @@ export function PrintPlan({
         </>
       )}
 
+      <div className="plate-row__footer" style={{ marginTop: 8 }}>
+        <button className="btn--small btn--ghost" onClick={() => setEditing(e => !e)}>
+          {editing ? 'Done' : 'Edit screens…'}
+        </button>
+      </div>
+
       {editing && (
-        <div style={{ marginTop: 8, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+        <div>
           <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>
             Your screens — size (in) and the mesh counts each comes in:
           </div>
@@ -146,22 +139,20 @@ export function PrintPlan({
                 onBlur={(e) => commitMesh(i, e.target.value)}
                 placeholder="110, 156, 230"
                 style={{ flex: 1, minWidth: 0 }} title="Mesh counts (comma-separated)" />
-              <button onClick={() => removeFrame(i)} title="Remove"
-                style={{ fontSize: 11, padding: '2px 5px', border: '1px solid var(--border)', background: 'none', color: 'var(--text-secondary)', borderRadius: 3, cursor: 'pointer' }}>×</button>
+              <button className="btn--icon" onClick={() => removeFrame(i)} title="Remove">×</button>
             </div>
           ))}
-          <button onClick={addFrame}
-            style={{ fontSize: 11, padding: '3px 8px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', cursor: 'pointer', marginBottom: 6 }}>
+          <button className="btn--small" onClick={addFrame} style={{ marginBottom: 6 }}>
             + Add frame
           </button>
-          <label className="control-row" title="Rails + squeegee/flood buffer reserved on each side. Usable image area ≈ frame − 2× this.">
-            <span>Edge clearance (in)</span>
+          <label className="control-row control-row--inline" title="Rails + squeegee/flood buffer reserved on each side. Usable image area ≈ frame − 2× this.">
+            <span className="control-row__label">Edge clearance (in)</span>
             <input type="number" min={0} max={8} step={0.25} value={profile.edgeClearanceIn}
               onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update({ ...profile, edgeClearanceIn: Math.max(0, v) }) }}
               style={{ width: 60 }} />
           </label>
         </div>
       )}
-    </div>
+    </>
   )
 }

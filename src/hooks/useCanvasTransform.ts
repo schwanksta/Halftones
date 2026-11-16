@@ -79,8 +79,10 @@ export function useCanvasTransform(
   const handleMouseDown = useCallback((e: MouseEvent) => {
     if (e.button !== 0) return
     if (disablePanRef.current) return
-    // Don't start pan if the click landed on a crop handle
-    if ((e.target as Element).closest?.('[data-crop-handle]')) return
+    // Don't start pan if the click landed on a crop handle or on floating
+    // canvas UI (view bar, edit bar, zoom controls) — dragging a slider there
+    // must not drag the image.
+    if ((e.target as Element).closest?.('[data-crop-handle], [data-canvas-ui]')) return
     isPanning.current = true
     lastMouse.current = { x: e.clientX, y: e.clientY }
   }, [])

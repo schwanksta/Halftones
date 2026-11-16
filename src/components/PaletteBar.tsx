@@ -65,18 +65,13 @@ export function PaletteBar({ currentInks, currentBackground, onApply, disabled }
   )
 
   return (
-    <div style={{ marginTop: 6 }}>
+    <div style={{ marginBottom: 8 }}>
       {palettes.length > 0 && (
         <button
+          className="btn--small btn--block"
           onClick={() => setOpen((v) => !v)}
           disabled={disabled}
-          style={{
-            width: '100%', textAlign: 'left',
-            padding: '4px 8px', fontSize: 11, borderRadius: 4,
-            border: '1px solid var(--border)', background: 'var(--bg-primary)',
-            color: 'var(--text-primary)', cursor: disabled ? 'not-allowed' : 'pointer',
-            opacity: disabled ? 0.5 : 1,
-          }}
+          style={{ textAlign: 'left' }}
         >
           {open ? '▾' : '▸'} Saved palettes ({palettes.length})
         </button>
@@ -102,16 +97,7 @@ export function PaletteBar({ currentInks, currentBackground, onApply, disabled }
                   </span>
                 )}
               </div>
-              <button
-                onClick={() => handleDelete(p.id)}
-                disabled={disabled}
-                title="Delete palette"
-                style={{
-                  padding: '1px 5px', fontSize: 11, lineHeight: 1, borderRadius: 3,
-                  border: '1px solid var(--border)', background: 'none',
-                  color: 'var(--text-secondary)', cursor: 'pointer', flexShrink: 0,
-                }}
-              >×</button>
+              <button className="btn--icon" onClick={() => handleDelete(p.id)} disabled={disabled} title="Delete palette">×</button>
             </div>
           ))}
         </div>
@@ -119,19 +105,15 @@ export function PaletteBar({ currentInks, currentBackground, onApply, disabled }
 
       {!saving ? (
         <button
+          className="btn--small btn--block"
           onClick={() => setSaving(true)}
           disabled={disabled || !canSave}
-          style={{
-            width: '100%', marginTop: 4, padding: '4px 8px', fontSize: 11, borderRadius: 4,
-            border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)',
-            cursor: disabled || !canSave ? 'not-allowed' : 'pointer',
-            opacity: disabled || !canSave ? 0.5 : 1,
-          }}
+          style={{ marginTop: 4 }}
         >
           ＋ Save palette
         </button>
       ) : (
-        <div className="control-row" style={{ gap: 4, marginTop: 4 }}>
+        <div style={{ display: 'flex', gap: 4, marginTop: 4, alignItems: 'center' }}>
           <input
             type="text"
             value={draftName}
@@ -143,30 +125,10 @@ export function PaletteBar({ currentInks, currentBackground, onApply, disabled }
             placeholder="Name (optional)"
             autoFocus
             disabled={disabled}
-            style={{
-              flex: 1, fontSize: 11, background: 'var(--bg-primary)', border: '1px solid var(--border)',
-              borderRadius: 4, padding: '3px 6px', color: 'var(--text-primary)',
-            }}
+            style={{ flex: 1, minWidth: 0, fontSize: 11, padding: '3px 6px' }}
           />
-          <button
-            onClick={handleSave}
-            disabled={disabled || !canSave}
-            style={{
-              padding: '3px 8px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)',
-              background: 'var(--accent)', color: '#fff',
-              cursor: disabled || !canSave ? 'not-allowed' : 'pointer',
-              opacity: disabled || !canSave ? 0.5 : 1,
-            }}
-          >Save</button>
-          <button
-            onClick={() => { setSaving(false); setDraftName('') }}
-            disabled={disabled}
-            title="Cancel"
-            style={{
-              padding: '3px 6px', fontSize: 11, borderRadius: 4, border: '1px solid var(--border)',
-              background: 'none', color: 'var(--text-secondary)', cursor: 'pointer',
-            }}
-          >×</button>
+          <button className="btn--small btn--primary" onClick={handleSave} disabled={disabled || !canSave}>Save</button>
+          <button className="btn--icon" onClick={() => { setSaving(false); setDraftName('') }} disabled={disabled} title="Cancel">×</button>
         </div>
       )}
     </div>

@@ -8,7 +8,9 @@ import { useHalftonePreview } from '../hooks/useHalftonePreview'
 import { useCanvasTransform } from '../hooks/useCanvasTransform'
 import { CropOverlay } from './CropOverlay'
 import { rgbToLab } from '../engine/spot-separation'
-import type { EditMasks } from '../engine/layer-edits'
+import { KEY_EDIT_ID, type EditMasks } from '../engine/layer-edits'
+import { CanvasViewBar } from './CanvasViewBar'
+import { CanvasEditBar } from './CanvasEditBar'
 
 interface Props {
   source: SourceImage | null
@@ -39,6 +41,16 @@ interface Props {
   editMasks?: EditMasks
   editMasksKey?: string | null
   editsVersion?: number
+  /** True when layer edits exist but were painted at a different crop/rotation. */
+  editsStale?: boolean
+  // ── Canvas view bar (view-only settings) and edit bar ──
+  onHalftoneChange: (settings: HalftoneSettings) => void
+  onSpotChange: (settings: SpotSettings) => void
+  onChannelViewChange: (view: ChannelView) => void
+  onBrushPxChange: (px: number) => void
+  onEraseChange: (erase: boolean) => void
+  /** Leave layer edit mode. */
+  onExitEdit: () => void
 }
 
 export function PreviewCanvas({
@@ -48,7 +60,9 @@ export function PreviewCanvas({
   seedPickingActive, onSeedPick, transformedImageData,
   mask, maskSettings,
   editingColorId, editBrushPx, editErase, onPaintStroke,
-  editMasks, editMasksKey, editsVersion,
+  editMasks, editMasksKey, editsVersion, editsStale,
+  onHalftoneChange, onSpotChange, onChannelViewChange,
+  onBrushPxChange, onEraseChange, onExitEdit,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -299,6 +313,14 @@ export function PreviewCanvas({
     img.src = url
   }, [onImageLoad])
 
+  // Layer editing only exists in spot mode; the edit bar replaces the view bar
+  // while it is active so the two never overlap in a narrow window.
+  const showEditBar = isEditing && halftoneSettings.colorMode === 'spot'
+  const editingName = editingColorId === KEY_EDIT_ID
+    ? 'Key plate'
+    : spotSettings.colors.find((c) => c.id === editingColorId)?.name ?? 'Layer'
+  const hideBrushRing = useCallback(() => setBrushCursor(null), [])
+
   const commitZoom = (raw: string) => {
     const v = parseFloat(raw)
     if (!isNaN(v) && v > 0) zoomTo((v / 100) * outputScaleZoom)
@@ -376,8 +398,41 @@ export function PreviewCanvas({
         </div>
       )}
 
+      {source && !showEditBar && (
+        <CanvasViewBar
+          halftoneSettings={halftoneSettings}
+          spotSettings={spotSettings}
+          channelView={channelView}
+          onHalftoneChange={onHalftoneChange}
+          onSpotChange={onSpotChange}
+          onChannelViewChange={onChannelViewChange}
+          onHover={hideBrushRing}
+        />
+      )}
+
+      {source && showEditBar && (
+        <CanvasEditBar
+          name={editingName}
+          eraseOnly={editingColorId === KEY_EDIT_ID}
+          brushPx={editBrushPx ?? 24}
+          onBrushPxChange={onBrushPxChange}
+          erase={editErase ?? false}
+          onEraseChange={onEraseChange}
+          stale={editsStale ?? false}
+          onDone={onExitEdit}
+          onHover={hideBrushRing}
+        />
+      )}
+
       {source && (
-        <div className="zoom-controls">
+        <div
+          className="zoom-controls"
+          data-canvas-ui
+          style={{ cursor: 'default' }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseMove={(e) => e.stopPropagation()}
+          onMouseEnter={hideBrushRing}
+        >
           <button className="zoom-btn" onClick={fitToView} title="Fit to view">
             Fit
           </button>
