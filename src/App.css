@@ -285,8 +285,10 @@
 }
 
 .chev {
-  width: 10px;
-  font-size: 10px;
+  width: 12px;
+  font-size: 14px;
+  line-height: 1;
+  text-align: center;
   color: var(--text-secondary);
   flex-shrink: 0;
 }
@@ -296,7 +298,12 @@
 }
 
 .group {
-  margin-top: 4px;
+  margin: 4px 0;
+}
+
+.group + .control-row,
+.group + .row-note {
+  margin-top: 10px;
 }
 
 .group__summary {

@@ -37,18 +37,33 @@ src/
   types.ts                    # all interfaces, defaults, type unions
   components/
     TopBar.tsx                # project name (editable), projects dropdown, image loader
-    ControlPanel.tsx          # sidebar shell, passes settings to sub-panels
-    HalftoneControls.tsx      # pattern selector, LPI, angle, dot controls, color pickers
-    CMYKControls.tsx          # per-channel CMYK angle/enable + channel view
-    OutputControls.tsx        # width/height (inches), DPI, margin
-    TransformControls.tsx     # crop, rotation, levels (black/white point, gamma)
+    ControlPanel.tsx          # sidebar: mode switch + Image / Screen / Plates / Print sections
+    ImageSection.tsx          # rotation, crop (numeric), levels, clean-up, mask group
+    ScreenSection.tsx         # pattern, LPI/angle (per-mode rules), dot shape, tone curve, invert
+    CmykPlates.tsx            # CMYK plate rows: enable, angle, LPI
+    PrintSection.tsx          # width/height, DPI, margins, sheet size, print plan group
+    spot/
+      SpotPlates.tsx          # spot Plates container: update helpers, drag-reorder state, row list
+      PalettePanel.tsx        # extraction controls, seeds, extract/merge, saved palettes, add background
+      PlateRowShell.tsx       # shared plate-row chrome (grip, swatch, name, badge, enable, expand)
+      InkRow.tsx              # one spot ink / background layer: color, render, trap, merge, edit toggle
+      UnderbaseRow.tsx        # underbase plate row (always first; dimmed when off)
+      KeyRow.tsx              # key plate row (always last; dimmed when off)
+      SeparationPanel.tsx     # Separation (mode, despeckle, mosaic, reach) + Edges (trap, vectorize)
+      ClearEditsButton.tsx    # two-step "Clear edits" confirm
+    ui/
+      Section.tsx             # Section / Group collapsibles (state via ui-state.ts)
+      rows.tsx                # SliderRow, ToggleRow, SelectRow, ColorRow, Note
+      Segmented.tsx, Popover.tsx
+      ui-state.ts             # open/closed state in localStorage['halftones_ui'] (+ ui-state.test.ts)
     CropOverlay.tsx           # on-canvas crop handles (drag edges/corners)
-    SpotColorEditor.tsx       # spot color list, per-color controls, global trap/vibrancy, key plate, layer edit mode
     PaletteBar.tsx            # saved ink palettes (save current / apply)
-    MaskControls.tsx          # global layer mask: load image/SVG, source mode, invert, stroke
+    MaskControls.tsx          # global layer mask body: load image/SVG, source mode, invert, stroke
     PrintPlan.tsx             # screen/frame/mesh recommendations from engine/print-plan.ts
-    PreviewCanvas.tsx         # viewport canvas, zoom controls, drag-drop
-    ExportBar.tsx             # PNG / channel PNG / PDF / color proof export buttons
+    PreviewCanvas.tsx         # viewport canvas, zoom controls, drag-drop; renders the canvas bars
+    CanvasViewBar.tsx         # floating view-only settings: CMYK channel view, ink/paper, substrate, vibrancy
+    CanvasEditBar.tsx         # floating layer-edit bar: paint/erase, brush size, Done
+    ExportMenu.tsx            # single Export popover: PDF (+ its options) / channel PNGs / PNG / color proof
     ImageLoader.tsx           # file picker
     EditableValue.tsx         # click-to-edit numeric readout used by sliders
     SavePromptModal.tsx, Toast.tsx
@@ -176,6 +191,17 @@ src/
 - `.halftones` file format: zip of `project.json` (schemaVersion 2) + `source.<ext>`, plus optional `mask.<ext>`, `thumbnail.png`, `edits/<colorId>.png`
 - Migration chain in `halftones-file.ts` — add new `case` before `default` to upgrade old files, and add a case to `halftones-file.test.ts`
 
+### Sidebar & Canvas UI
+- Sidebar order is the workflow: mode switch (sticky) → Image → Screen → Plates → Print. Plates is hidden in grayscale (one plate, nothing to set).
+- **Use the `ui/` primitives for new controls** (`SliderRow`, `ToggleRow`, `SelectRow`, `ColorRow`, `Segmented`, `Section`/`Group`) and the button classes in `App.css` (`btn--small`, `btn--primary`, `btn--ghost`, `btn--danger`, `btn--icon`, `.is-active`) rather than inline-styled one-offs. `SliderRow percent` is for 0–1 settings shown as %; `slider={...}` gives the range input its own scale (mosaic tile, crop).
+- **Global LPI/Angle are grayscale-only**: CMYK channels and spot inks override both (`{ ...halftoneSettings, angle, lpi }` in preview and export). `ScreenSection` hides Angle outside grayscale and labels LPI "Default LPI" in spot mode, where it only seeds new inks and the key plate.
+- **Plate list = print order**: `UnderbaseRow` (first) → background + ink rows (draggable) → `KeyRow` (last), matching `derivePlates()` in `print-plan.ts`. Underbase/Key rows are always present and dimmed when off; only background/ink rows carry `data-row-idx`, which the drag-reorder in `SpotPlates` resolves drop targets from.
+- **View-only settings live on the canvas** (`CanvasViewBar`): CMYK channel view, grayscale ink/paper, spot substrate + vibrancy. They still save with the project exactly as before.
+- **Layer-edit brush controls live on the canvas** (`CanvasEditBar`), which replaces the view bar while editing. Rows keep only the Edit toggle, stale warning and Clear edits.
+- **Floating canvas UI must carry `data-canvas-ui`** and stop `mousedown`/`mousemove` propagation: `useCanvasTransform` skips pan for it (native listener), and `PreviewCanvas` would otherwise paint a stroke / pick a seed under the control.
+- Switching mode away from Spot (in `ControlPanel`) turns off layer editing and seed picking.
+- PDF options (crop marks, margin, alignment marks, vector) are edited in `ExportMenu`, but still live in `OutputSettings`; `PrintSection`'s sheet-size readout depends on them.
+
 ## Patterns
 
 | Pattern | Type | Angle? | Notes |
@@ -215,7 +241,7 @@ src/
 - `radialOriginX/Y` can be undefined from stale state — always `?? 0.5`
 - Radial `maxRadius` must use max of all 4 corner distances (not just one)
 - Circular imports: `applyDotSettings` is in its own `dot-settings.ts` to break patterns ↔ halftone cycle
-- `sourceAspect` in OutputControls is derived from `transformedImageData` so the aspect lock uses the post-crop/rotation ratio (NOT the raw source)
+- The aspect lock in `PrintSection` maintains the *current output ratio* (width ÷ height as set), not the image's natural ratio
 - Stipple in the preview hook bypasses the normal `renderHalftone` path — uses its own cached canvas + `drawImage`
 - **Output dimension clobbering on project/image load**: `applySettings()`, `handleImageLoad`, and `handleLoadProject` all set `skipDimensionRecalcRef` to suppress the crop/rotation useEffect. They also sync `prevTransformRef` to the loaded transforms so the first user crop delta is computed from the correct baseline.
 - **Spot trap `color.trap` nullable**: `null`/`undefined` means "use global `spotSettings.trap`". A number (including 0) overrides. Older .halftones files omit the field → `undefined` → falls through to global cleanly. Use `color.trap ?? spotSettings.trap ?? 0` everywhere.

@@ -90,8 +90,8 @@ export function PrintPlan({
 
           {plan.screens.map((sc, i) => (
             <div key={i} style={{ fontSize: 11, lineHeight: 1.4, marginBottom: sc.warnings.length ? 3 : 0 }}>
-              <div className="control-row" style={{ padding: 0 }}>
-                <span style={{ color: 'var(--text-secondary)' }}>
+              <div className="control-row control-row--inline" style={{ marginBottom: 2 }}>
+                <span style={{ color: 'var(--text-secondary)', justifyContent: 'flex-start', gap: 4 }}>
                   {sc.plates.map((p) => p.name).join(' + ')}
                   {sc.plates.length === 1 && sc.plates[0].kind === 'halftone' && sc.plates[0].lpi != null && (
                     <span style={{ opacity: 0.6 }}> · {sc.plates[0].lpi} LPI</span>
